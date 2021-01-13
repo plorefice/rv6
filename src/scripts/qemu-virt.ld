@@ -27,7 +27,7 @@ SECTIONS
     KEEP(*(.init));
     . = ALIGN(4);
     *(.text .text.*);
-  }
+  } > RAM
 
   .rodata : ALIGN(4)
   {
@@ -36,7 +36,7 @@ SECTIONS
        This is required by LLD to ensure the LMA of the following .data
        section will have the correct alignment. */
     . = ALIGN(4);
-  }
+  } > RAM
 
   .data : ALIGN(4)
   {
@@ -47,23 +47,23 @@ SECTIONS
     *(.data .data.*);
     . = ALIGN(4);
     _edata = .;
-  }
+  } > RAM
 
-  .bss (NOLOAD) :
+  .bss (NOLOAD) : ALIGN(4)
   {
     _sbss = .;
     *(.bss .bss.*);
     . = ALIGN(4);
     _ebss = .;
-  }
+  } > RAM
 
   /* fictitious region that represents the memory available for the stack */
-  .stack (NOLOAD) :
+  .stack (NOLOAD) : ALIGN(16)
   {
     _estack = .;
     . = ABSOLUTE(_stack_start);
     _sstack = .;
-  }
+  } > RAM
 
   .eh_frame (INFO) : { KEEP(*(.eh_frame)) }
   .eh_frame_hdr (INFO) : { *(.eh_frame_hdr) }
