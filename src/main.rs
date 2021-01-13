@@ -3,12 +3,15 @@
 #![feature(asm)]
 
 mod macros;
+mod mmio;
 
 use core::panic::PanicInfo;
 
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
-    println!("Hello world!");
+    for b in b"Hello world!\r\n" {
+        unsafe { mmio::write_u8(0x10000000, 0, *b) };
+    }
 
     loop {
         wfi();
