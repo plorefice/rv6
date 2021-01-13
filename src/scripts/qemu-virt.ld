@@ -1,3 +1,7 @@
+/*
+ * Linker script for QEMU virt machine
+ */
+
 /* Target architecture (both RV32 and RV64) */
 OUTPUT_ARCH("riscv")
 

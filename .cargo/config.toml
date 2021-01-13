@@ -1,5 +1,5 @@
 [build]
-rustflags = ['-Clink-arg=-Tsrc/lds/qemu.ld']
+rustflags = ['-Clink-arg=-Tsrc/scripts/qemu-virt.ld']
 target = "riscv32imac-unknown-none-elf"
 
 [target.riscv32imac-unknown-none-elf]

@@ -6,9 +6,3 @@ version = "0.1.0"
 
 [build-dependencies]
 cc = "1.0"
-
-[profile.dev]
-panic = "abort"
-
-[profile.release]
-panic = "abort"

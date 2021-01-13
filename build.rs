@@ -6,6 +6,6 @@ fn main() {
 
     // Trigger a rerun on some external file changes
     println!("cargo:rerun-if-changed=src/asm/startup.S");
+    println!("cargo:rerun-if-changed=src/scripts/qemu-virt.ld");
     println!("cargo:rerun-if-changed=build.rs");
-    println!("cargo:rerun-if-changed=qemu.ld");
 }
