@@ -1,0 +1,5 @@
+[build]
+target = "riscv32imac-unknown-none-elf"
+
+[target.riscv32imac-unknown-none-elf]
+runner = "qemu-system-riscv32 -machine virt -cpu rv32 -nographic -serial mon:stdio -bios none -kernel"
