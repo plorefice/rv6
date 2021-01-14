@@ -2,28 +2,24 @@
 #![no_main]
 #![feature(asm)]
 
+mod drivers;
+mod lib;
 mod macros;
-mod mmio;
 
 use core::panic::PanicInfo;
+
+use drivers::ns16550::Ns16550;
+pub use lib::*;
 
 const UART_BASE: usize = 0x1000_0000;
 
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
+    let mut uart = Ns16550::new(UART_BASE);
+
     loop {
-        let lsr = unsafe { mmio::read_u8(UART_BASE, 5) };
-
-        if lsr & 0x1 != 0 {
-            unsafe {
-                let b = mmio::read_u8(UART_BASE, 0);
-
-                mmio::write_u8(UART_BASE, 0, b);
-
-                if b == b'\r' {
-                    mmio::write_u8(UART_BASE, 0, b'\n');
-                }
-            }
+        if let Some(c) = uart.get() {
+            uart.put(c);
         }
     }
 }
