@@ -1,4 +1,8 @@
+use core::fmt::Write;
+
 use crate::mmio::{RO, RW};
+
+pub const NS16550_BASE: usize = 0x1000_0000;
 
 pub struct Ns16550 {
     p: &'static mut RegisterBlock,
@@ -18,7 +22,7 @@ struct RegisterBlock {
 
 impl Ns16550 {
     /// Creates a new 16550 UART mapping to the given address.
-    pub fn new(addr: usize) -> Self {
+    pub const fn new(addr: usize) -> Self {
         Self {
             p: unsafe { &mut *(addr as *mut RegisterBlock) },
         }
@@ -41,5 +45,14 @@ impl Ns16550 {
     /// Returns true if there is data available in the Rx FIFO.
     pub fn data_ready(&self) -> bool {
         self.p.lsr.read() & 0x1 != 0
+    }
+}
+
+impl Write for Ns16550 {
+    fn write_str(&mut self, s: &str) -> core::fmt::Result {
+        for b in s.bytes() {
+            self.put(b);
+        }
+        Ok(())
     }
 }

@@ -1,32 +1,39 @@
 #![no_std]
 #![no_main]
-#![feature(asm)]
+#![feature(asm, const_raw_ptr_deref, const_mut_refs)]
 
-mod drivers;
-mod lib;
-mod macros;
+pub mod drivers;
+pub mod lib;
+pub mod macros;
 
 use core::panic::PanicInfo;
 
-use drivers::ns16550::Ns16550;
 pub use lib::*;
 
-const UART_BASE: usize = 0x1000_0000;
+const RV6_ASCII_LOGO: &str = r#"
+________________________________________/\\\\\_       
+____________________________________/\\\\////__       
+ _________________________________/\\\///_______      
+  __/\\/\\\\\\\___/\\\____/\\\___/\\\\\\\\\\\____     
+   _\/\\\/////\\\_\//\\\__/\\\___/\\\\///////\\\__    
+    _\/\\\___\///___\//\\\/\\\___\/\\\______\//\\\_   
+     _\/\\\___________\//\\\\\____\//\\\______/\\\__  
+      _\/\\\____________\//\\\______\///\\\\\\\\\/___ 
+       _\///______________\///_________\/////////_____
+"#;
 
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
-    let mut uart = Ns16550::new(UART_BASE);
+    println!("{}", RV6_ASCII_LOGO);
 
     loop {
-        if let Some(c) = uart.get() {
-            uart.put(c);
-        }
+        wfi();
     }
 }
 
 #[panic_handler]
-fn panic(_info: &PanicInfo) -> ! {
-    println!("{}", _info);
+fn panic(info: &PanicInfo) -> ! {
+    println!("{}", info);
     abort()
 }
 
