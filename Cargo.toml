@@ -1,7 +1,7 @@
 [package]
 authors = ["Pietro Lorefice <pietro.lorefice@gmail.com>"]
 edition = "2018"
-name = "nonix"
+name = "rv6"
 version = "0.1.0"
 
 [build-dependencies]

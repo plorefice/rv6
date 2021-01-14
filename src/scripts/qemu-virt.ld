@@ -71,12 +71,12 @@ SECTIONS
 
 /* Do not exceed this mark in the error messages above                                    | */
 ASSERT(ORIGIN(RAM) % 4 == 0, "
-ERROR(nonix): the start of the RAM must be 4-byte aligned");
+ERROR(rx6): the start of the RAM must be 4-byte aligned");
 
 ASSERT(_sdata % 4 == 0 && _edata % 4 == 0, "
-BUG(nonix): .data is not 4-byte aligned");
+BUG(rx6): .data is not 4-byte aligned");
 
 ASSERT(_sbss % 4 == 0 && _ebss % 4 == 0, "
-BUG(nonix): .bss is not 4-byte aligned");
+BUG(rx6): .bss is not 4-byte aligned");
 
 /* Do not exceed this mark in the error messages above                                    | */
