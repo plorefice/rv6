@@ -26,9 +26,7 @@ ____________________________________/\\\\////__
 pub extern "C" fn kmain() -> ! {
     println!("{}", RV6_ASCII_LOGO);
 
-    loop {
-        wfi();
-    }
+    panic!("Bye bye!");
 }
 
 #[panic_handler]
