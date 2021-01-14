@@ -12,8 +12,9 @@ MEMORY
 }
 
 /* Place stack at the end of the RAM region */
-PROVIDE(_stack_start = ORIGIN(RAM) + LENGTH(RAM));
 PROVIDE(_stack_size = 4K);
+PROVIDE(_stack_start = ORIGIN(RAM) + LENGTH(RAM));
+PROVIDE(_stack_end = _stack_start - _stack_size);
 
 /* Program entry point */
 ENTRY(_start)
@@ -61,7 +62,8 @@ SECTIONS
   .stack (NOLOAD) : ALIGN(16)
   {
     _estack = .;
-    . = ABSOLUTE(_stack_start);
+    . = ABSOLUTE(_stack_end);
+    . += _stack_size;
     _sstack = .;
   } > RAM
 

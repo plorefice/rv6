@@ -23,11 +23,6 @@ _start:
 2:
     // Allocate stack
     la sp, _stack_start
-    lui t0, %hi(_stack_size)
-    add t0, t0, %lo(_stack_size)
-    sub sp, sp, t0
-
-    // Set frame pointer
     add s0, sp, zero
 
     // Jump to Rust code
