@@ -25,10 +25,30 @@ _start:
     la sp, _stack_start
     add s0, sp, zero
 
+    // Prepare to jump to S-mode by setting mstatus[MPP] to Supervisor
+    csrr t0, mstatus
+    li t1, (0b01 << 11)
+    or t0, t0, t1
+    csrw mstatus, t0
+
+    // Load kmain symbol address to jump to Rust code
+    la t0, kmain
+    csrw mepc, t0
+
+    // Disable paging
+    csrwi satp, 0
+
+    // Delegate all interrupt and exception handling to S-mode
+    li t0, 0xffff
+    csrw mideleg, t0
+    csrw medeleg, t0
+
+    csrr t0, sie
+    ori t0, t0, (1 << 9) | (1 << 5) | (1 << 1)
+    csrw sie, t0
+
     // Jump to Rust code
-    la t1, kmain
     la ra, 3f
-    csrw mepc, t1
     mret
 3:
     wfi
