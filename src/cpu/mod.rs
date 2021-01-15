@@ -1,5 +1,7 @@
+mod time;
 mod trap;
 
+pub use time::*;
 pub use trap::*;
 
 macro_rules! csr {
@@ -32,14 +34,35 @@ macro_rules! csr {
     };
 }
 
+// Machine CSRs
+csr!(MISA, MIsa, "misa");
+csr!(MVENDORID, MVendorId, "mvendorid");
+csr!(MARCHID, MArchId, "marchid");
+csr!(MIMPID, MImpId, "mimpid");
+csr!(MHARTID, MHartId, "mhartid");
+csr!(MSTATUS, MStatus, "mstatus");
+csr!(MTVEC, MtVec, "mtvec");
+csr!(MEDELEG, MEDeleg, "medeleg");
+csr!(MIDELEG, MIDeleg, "mideleg");
+csr!(MIP, Mip, "mip");
+csr!(MIE, Mie, "mie");
+csr!(MTIME, MTime, "mtime");
+csr!(MTIMECMP, MTimeCmp, "mtimecmp");
+csr!(MCOUNTEREN, MCounterEn, "mcounteren");
+csr!(MCOUNTINHIBIT, MCountInhibit, "mcountinhibit");
+csr!(MSCRATCH, MScratch, "mscratch");
+csr!(MEPC, Mepc, "mepc");
+csr!(MCAUSE, MCause, "mcause");
+csr!(MTVAL, MtVal, "mtval");
+
 // Supervisor CSRs
-csr!(SSTATUS, Sstatus, "sstatus");
-csr!(STVEC, Stvec, "stvec");
+csr!(SSTATUS, SStatus, "sstatus");
+csr!(STVEC, StVec, "stvec");
 csr!(SIP, Sip, "sip");
 csr!(SIE, Sie, "sie");
-csr!(SCOUNTEREN, Scounteren, "scounteren");
-csr!(SSCRATCH, Sscratch, "sscratch");
+csr!(SCOUNTEREN, SCounterEn, "scounteren");
+csr!(SSCRATCH, SScratch, "sscratch");
 csr!(SEPC, Sepc, "sepc");
-csr!(SCAUSE, Scause, "scause");
-csr!(STVAL, Stval, "stval");
+csr!(SCAUSE, SCause, "scause");
+csr!(STVAL, StVal, "stval");
 csr!(SATP, Satp, "satp");
