@@ -1,10 +1,13 @@
 #![no_std]
 #![no_main]
-#![feature(asm, const_raw_ptr_deref, const_mut_refs)]
+#![feature(asm, naked_functions, const_raw_ptr_deref, const_mut_refs)]
 
+#[macro_use]
+mod macros;
+
+pub mod cpu;
 pub mod drivers;
 pub mod lib;
-pub mod macros;
 
 use core::panic::PanicInfo;
 
@@ -25,6 +28,10 @@ ____________________________________/\\\\////__
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
     println!("{}", RV6_ASCII_LOGO);
+
+    cpu::init_trap_vector();
+
+    unsafe { asm!("ebreak") };
 
     panic!("Bye bye!");
 }
