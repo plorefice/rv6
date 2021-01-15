@@ -1,8 +1,5 @@
-mod time;
+mod entry;
 mod trap;
-
-pub use time::*;
-pub use trap::*;
 
 macro_rules! csr {
     ($var:ident, $type:ident, $str:tt) => {
@@ -66,3 +63,16 @@ csr!(SEPC, Sepc, "sepc");
 csr!(SCAUSE, SCause, "scause");
 csr!(STVAL, StVal, "stval");
 csr!(SATP, Satp, "satp");
+
+/// Halts execution on the current hart.
+pub fn abort() -> ! {
+    // TODO: this should also disable interrupts.
+    loop {
+        wfi();
+    }
+}
+
+/// Blocks hart's execution until an interrupt is pending.
+fn wfi() {
+    unsafe { asm!("wfi", options(nostack)) };
+}

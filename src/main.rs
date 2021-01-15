@@ -25,11 +25,8 @@ ____________________________________/\\\\////__
        _\///______________\///_________\/////////_____
 "#;
 
-#[no_mangle]
-pub extern "C" fn kmain() -> ! {
+fn kmain() -> ! {
     println!("{}", RV6_ASCII_LOGO);
-
-    cpu::init_trap_vector();
 
     unsafe { asm!("ebreak") };
 
@@ -39,20 +36,6 @@ pub extern "C" fn kmain() -> ! {
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
     println!("{}", info);
-    abort()
-}
 
-/// Halts execution on this hart.
-fn abort() -> ! {
-    // TODO: this should also disable interrupts.
-    loop {
-        wfi();
-    }
-}
-
-/// Blocks execution until an interrupt is pending.
-fn wfi() {
-    unsafe {
-        asm!("wfi", options(nostack));
-    }
+    cpu::abort();
 }

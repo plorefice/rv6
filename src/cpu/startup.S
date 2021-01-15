@@ -31,8 +31,8 @@ _start:
     or t0, t0, t1
     csrw mstatus, t0
 
-    // Load kmain symbol address to jump to Rust code
-    la t0, kmain
+    // Load start() symbol address to jump to Rust code
+    la t0, start
     csrw mepc, t0
 
     // Disable paging
