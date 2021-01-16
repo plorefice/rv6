@@ -44,21 +44,21 @@ SECTIONS
 
   .data : ALIGN(4)
   {
-    _sdata = .;
+    __data_start = .;
     /* Must be called __global_pointer$ for linker relaxations to work. */
     PROVIDE(__global_pointer$ = . + 0x800);
     *(.sdata .sdata.* .sdata2 .sdata2.*);
     *(.data .data.*);
     . = ALIGN(4);
-    _edata = .;
+    __data_end = .;
   } > RAM
 
   .bss (NOLOAD) : ALIGN(4)
   {
-    _sbss = .;
+    __bss_start = .;
     *(.bss .bss.*);
     . = ALIGN(4);
-    _ebss = .;
+    __bss_end = .;
   } > RAM
 
   /* fictitious region that represents the memory available for the stack */
@@ -78,10 +78,10 @@ SECTIONS
 ASSERT(ORIGIN(RAM) % 4 == 0, "
 ERROR(rx6): the start of the RAM must be 4-byte aligned");
 
-ASSERT(_sdata % 4 == 0 && _edata % 4 == 0, "
+ASSERT(__data_start % 4 == 0 && __data_end % 4 == 0, "
 BUG(rx6): .data is not 4-byte aligned");
 
-ASSERT(_sbss % 4 == 0 && _ebss % 4 == 0, "
+ASSERT(__bss_start % 4 == 0 && __bss_end % 4 == 0, "
 BUG(rx6): .bss is not 4-byte aligned");
 
 /* Do not exceed this mark in the error messages above                                    | */
