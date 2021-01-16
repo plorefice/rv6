@@ -27,6 +27,9 @@ SECTIONS
     /* point of the program. */
     KEEP(*(.init));
     . = ALIGN(4);
+    (*(.trap));
+    (*(.trap.rust));
+  
     *(.text .text.*);
   } > RAM
 

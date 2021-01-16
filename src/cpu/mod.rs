@@ -43,8 +43,6 @@ csr!(MEDELEG, MEDeleg, "medeleg");
 csr!(MIDELEG, MIDeleg, "mideleg");
 csr!(MIP, Mip, "mip");
 csr!(MIE, Mie, "mie");
-csr!(MTIME, MTime, "mtime");
-csr!(MTIMECMP, MTimeCmp, "mtimecmp");
 csr!(MCOUNTEREN, MCounterEn, "mcounteren");
 csr!(MCOUNTINHIBIT, MCountInhibit, "mcountinhibit");
 csr!(MSCRATCH, MScratch, "mscratch");
