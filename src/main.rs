@@ -29,8 +29,6 @@ ____________________________________/\\\\////__
 pub extern "C" fn main() -> ! {
     println!("{}", RV6_ASCII_LOGO);
 
-    unsafe { asm!("ebreak") };
-
     panic!("Bye bye!");
 }
 

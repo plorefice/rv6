@@ -1,4 +1,5 @@
 mod entry;
+mod sbi;
 mod trap;
 
 macro_rules! csr {

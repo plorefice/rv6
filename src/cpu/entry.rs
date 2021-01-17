@@ -1,6 +1,9 @@
-use super::trap::init_trap_vector;
+use super::{sbi, trap};
 
 #[no_mangle]
 pub extern "C" fn arch_init() {
-    init_trap_vector();
+    println!();
+
+    sbi::init();
+    trap::init();
 }

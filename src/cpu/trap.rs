@@ -13,16 +13,11 @@ pub extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, _regp:
         cause, epc, tval,
     );
 
-    // Breakpoint: skip the EBREAK instruction
-    if cause == 0x3 {
-        epc + 4
-    } else {
-        epc
-    }
+    epc
 }
 
 /// Configures the trap vector used to handle traps in S-mode.
-pub fn init_trap_vector() {
+pub fn init() {
     STVEC.write(trap_entry as *const () as usize);
 
     // Enable interrupts
