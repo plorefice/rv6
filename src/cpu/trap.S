@@ -9,8 +9,8 @@
     restores caller saved registers and then returns.
 */
 .section .trap, "ax"
-.global _strap_entry
-_strap_entry:
+.global trap_entry
+trap_entry:
     // Make space to save registers
     addi sp, sp, -256
 
@@ -48,7 +48,12 @@ _strap_entry:
     sd t6, 240(sp)
 
     // Call trap-handling function in Rust code
-    call _do_handle_strap_rust
+	csrr a0, scause
+	csrr a1, sepc
+	csrr a2, stval
+	mv a3, sp
+    jal handle_exception
+    csrw sepc, a0
 
     // Restore registers
     ld ra, 0(sp)
