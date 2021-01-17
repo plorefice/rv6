@@ -8,7 +8,7 @@ _start:
     csrw sip, zero
 
     // If hart ID is not #0, park it
-    bnez a0, 3f
+    bnez a0, park_core
 
 .option push
 .option norelax
@@ -33,7 +33,9 @@ clear_bss_done:
     csrwi satp, 0
 
     // Jump to Rust code
-    call start
-3:
+    call arch_init
+    tail main
+
+park_core:
     wfi
-    j 3b
+    j park_core
