@@ -38,4 +38,7 @@ pub extern "C" fn do_handle_strap_rust() {
 /// Configures the trap vector used to handle traps in S-mode.
 pub fn init_trap_vector() {
     STVEC.write(_strap_entry as *const () as usize);
+
+    // Enable interrupts
+    SIE.modify(|r| r | (1 << 9) | (1 << 5) | (1 << 1));
 }
