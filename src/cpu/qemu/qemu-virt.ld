@@ -2,86 +2,56 @@
  * Linker script for QEMU virt machine
  */
 
-/* Target architecture (both RV32 and RV64) */
 OUTPUT_ARCH("riscv")
-
-/* Memory layout for qemu-system-risc32 */
-MEMORY
-{
-  RAM (rwx) : ORIGIN = 0x80200000, LENGTH = 128M
-}
-
-/* Place stack at the end of the RAM region */
-PROVIDE(_stack_size = 4K);
-PROVIDE(_stack_start = ORIGIN(RAM) + LENGTH(RAM));
-PROVIDE(_stack_end = _stack_start - _stack_size);
-
-/* Program entry point */
 ENTRY(_start)
 
 SECTIONS
 {
-  .text :
-  {
-    /* Put reset handler first in .text section so it ends up as the entry */
-    /* point of the program. */
+  /* OpenSBI's fw_jump.bin firmware will look here for the entry point */
+  . = ABSOLUTE(0x80200000);
+
+  . = ALIGN(4);
+  .text : {
+    /* Put reset handler first in .text section so it ends up as the entry point of the program */
     KEEP(*(.init));
-    . = ALIGN(4);
-    (*(.trap));
-    (*(.trap.rust));
-  
-    *(.text .text.*);
-  } > RAM
+    *(.trap*)
+    *(.text*)
+  }
 
-  .rodata : ALIGN(4)
-  {
-    *(.rodata .rodata.*);
-    /* 4-byte align the end (VMA) of this section.
-       This is required by LLD to ensure the LMA of the following .data
-       section will have the correct alignment. */
-    . = ALIGN(4);
-  } > RAM
+  /* Constant data area */
+  . = ALIGN(4);
+  .rodata : {
+    *(.rodata*)
+  }
 
-  .data : ALIGN(4)
-  {
-    __data_start = .;
-    /* Must be called __global_pointer$ for linker relaxations to work. */
-    PROVIDE(__global_pointer$ = . + 0x800);
-    *(.sdata .sdata.* .sdata2 .sdata2.*);
-    *(.data .data.*);
-    . = ALIGN(4);
-    __data_end = .;
-  } > RAM
+  /* Small data area - RISC-V provides optimized access to this area */
+  . = ALIGN(4);
+  .sdata : {
+    /* Point the global pointer halfway through this section */ 
+    PROVIDE(__global_pointer$ = . + (4K / 2));
+    *(.sdata*)
+  }
 
-  .bss (NOLOAD) : ALIGN(4)
-  {
-    __bss_start = .;
-    *(.bss .bss.*);
-    . = ALIGN(4);
-    __bss_end = .;
-  } > RAM
+  /* Regular data area */
+  . = ALIGN(4);
+  .data : {
+    *(.data*)
+  }
 
-  /* fictitious region that represents the memory available for the stack */
-  .stack (NOLOAD) : ALIGN(16)
-  {
-    _estack = .;
-    . = ABSOLUTE(_stack_end);
-    . += _stack_size;
-    _sstack = .;
-  } > RAM
+  /* Zero-initialized data */
+  . = ALIGN(4);
+  .bss : {
+    PROVIDE(__bss_start = .);
+    *(.sbss*) *(.bss*)
+    . = ALIGN(8);
+    PROVIDE(__bss_end = .);
+  }
 
-  .eh_frame (INFO) : { KEEP(*(.eh_frame)) }
-  .eh_frame_hdr (INFO) : { *(.eh_frame_hdr) }
+  /* Reserved stack space for startup code */
+  . = ALIGN(16);
+  .stack : {
+    PROVIDE(__stack_end = .);
+    . += 4K;
+    PROVIDE(__stack_start = .);
+  }
 }
-
-/* Do not exceed this mark in the error messages above                                    | */
-ASSERT(ORIGIN(RAM) % 4 == 0, "
-ERROR(rx6): the start of the RAM must be 4-byte aligned");
-
-ASSERT(__data_start % 4 == 0 && __data_end % 4 == 0, "
-BUG(rx6): .data is not 4-byte aligned");
-
-ASSERT(__bss_start % 4 == 0 && __bss_end % 4 == 0, "
-BUG(rx6): .bss is not 4-byte aligned");
-
-/* Do not exceed this mark in the error messages above                                    | */

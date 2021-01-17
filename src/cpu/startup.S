@@ -26,7 +26,7 @@ clear_bss:
 clear_bss_done:
 
     // Allocate stack
-    la sp, _stack_start
+    la sp, __stack_start
     add s0, sp, zero
 
     // Disable paging
