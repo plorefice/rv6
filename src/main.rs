@@ -5,7 +5,7 @@
 #[macro_use]
 mod macros;
 
-pub mod cpu;
+pub mod arch;
 pub mod drivers;
 pub mod lib;
 
@@ -30,7 +30,7 @@ pub extern "C" fn main() -> ! {
     println!("{}", RV6_ASCII_LOGO);
 
     loop {
-        cpu::wfi();
+        arch::wfi();
     }
 }
 
@@ -38,5 +38,5 @@ pub extern "C" fn main() -> ! {
 fn panic(info: &PanicInfo) -> ! {
     println!("{}", info);
 
-    cpu::abort();
+    arch::abort();
 }
