@@ -29,7 +29,9 @@ ____________________________________/\\\\////__
 pub extern "C" fn main() -> ! {
     println!("{}", RV6_ASCII_LOGO);
 
-    panic!("Bye bye!");
+    loop {
+        cpu::wfi();
+    }
 }
 
 #[panic_handler]

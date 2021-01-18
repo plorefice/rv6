@@ -92,3 +92,9 @@ impl<T> VolatileCell<T> {
         unsafe { self.inner.get().write_volatile(val) }
     }
 }
+
+/// Reads a value of type `T` from location `base + offset` in memory.
+pub fn read_volatile<T>(base: usize, offset: usize) -> T {
+    let ptr = (base + offset) as *mut T;
+    unsafe { ptr.read_volatile() }
+}

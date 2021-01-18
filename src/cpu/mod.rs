@@ -1,5 +1,6 @@
 mod entry;
 mod sbi;
+mod time;
 mod trap;
 
 macro_rules! csr {
@@ -27,6 +28,16 @@ macro_rules! csr {
             #[inline(always)]
             pub fn write(&self, val: usize) {
                 unsafe { asm!(concat!("csrw ", concat!($str, ", {}")), in(reg) val) };
+            }
+
+            #[inline(always)]
+            pub fn set(&self, mask: usize) {
+                unsafe { asm!(concat!("csrs ", concat!($str, ", {}")), in(reg) mask) };
+            }
+
+            #[inline(always)]
+            pub fn clear(&self, mask: usize) {
+                unsafe { asm!(concat!("csrc ", concat!($str, ", {}")), in(reg) mask) };
             }
         }
     };
@@ -72,6 +83,6 @@ pub fn abort() -> ! {
 }
 
 /// Blocks hart's execution until an interrupt is pending.
-fn wfi() {
+pub fn wfi() {
     unsafe { asm!("wfi", options(nostack)) };
 }

@@ -1,11 +1,13 @@
-use super::{sbi, trap};
+use super::{sbi, time, trap};
 
 #[no_mangle]
 pub extern "C" fn arch_init() {
     println!();
 
+    // Initialize core
     sbi::init();
     trap::init();
 
-    sbi::set_timer(10_000_000).unwrap();
+    // Start ticking
+    time::schedule_next_tick(time::CLINT_TIMEBASE);
 }
