@@ -10,6 +10,8 @@ SECTIONS
   /* OpenSBI's fw_jump.bin firmware will look here for the entry point */
   . = ABSOLUTE(0x80200000);
 
+  __start = .;
+
   . = ALIGN(4);
   .text : {
     /* Put reset handler first in .text section so it ends up as the entry point of the program */
@@ -54,5 +56,11 @@ SECTIONS
     PROVIDE(__stack_end = .);
     . += 4K;
     PROVIDE(__stack_start = .);
+  }
+
+  __end = .;
+
+  /DISCARD/ : {
+    *(.eh_frame*)
   }
 }
