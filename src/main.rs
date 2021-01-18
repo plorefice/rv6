@@ -7,11 +7,9 @@ mod macros;
 
 pub mod arch;
 pub mod drivers;
-pub mod lib;
+pub mod mm;
 
 use core::panic::PanicInfo;
-
-pub use lib::*;
 
 const RV6_ASCII_LOGO: &str = r#"
 ________________________________________/\\\\\_       

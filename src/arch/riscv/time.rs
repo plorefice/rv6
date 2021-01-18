@@ -1,4 +1,4 @@
-use crate::mmio::read_volatile;
+use crate::mm::mmio::read_volatile;
 
 use super::sbi;
 

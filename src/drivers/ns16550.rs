@@ -1,6 +1,6 @@
 use core::fmt::Write;
 
-use crate::mmio::{RO, RW};
+use crate::mm::mmio::{RO, RW};
 
 pub const NS16550_BASE: usize = 0x1000_0000;
 
