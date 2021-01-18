@@ -14,7 +14,8 @@ SECTIONS
   .text : {
     /* Put reset handler first in .text section so it ends up as the entry point of the program */
     KEEP(*(.init));
-    *(.trap*)
+    . = ALIGN(8);
+    *(.trap) *(.trap*)
     *(.text*)
   }
 

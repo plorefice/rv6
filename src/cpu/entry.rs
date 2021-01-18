@@ -6,4 +6,6 @@ pub extern "C" fn arch_init() {
 
     sbi::init();
     trap::init();
+
+    sbi::set_timer(10_000_000).unwrap();
 }

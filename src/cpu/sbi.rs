@@ -15,6 +15,11 @@ enum ExtBaseFid {
     ProbeExt,
 }
 
+#[repr(usize)]
+enum ExtTimeFid {
+    SetTimer = 0,
+}
+
 type Result = core::result::Result<usize, isize>;
 
 #[allow(clippy::too_many_arguments)]
@@ -82,6 +87,19 @@ fn get_major(version: usize) -> usize {
 
 fn get_minor(version: usize) -> usize {
     version & 0xffffff
+}
+
+pub fn set_timer(stime: u64) -> Result {
+    do_ecall(
+        Extension::Time as usize,
+        ExtTimeFid::SetTimer as usize,
+        stime as usize,
+        0,
+        0,
+        0,
+        0,
+        0,
+    )
 }
 
 pub fn init() {

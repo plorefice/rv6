@@ -22,4 +22,5 @@ pub fn init() {
 
     // Enable interrupts
     SIE.modify(|r| r | (1 << 9) | (1 << 5) | (1 << 1));
+    SSTATUS.modify(|r| r | (1 << 1));
 }
