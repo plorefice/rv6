@@ -34,7 +34,7 @@ clear_bss_done:
 
     // Jump to Rust code
     call arch_init
-    tail main
+    tail kmain
 
 park_core:
     wfi

@@ -30,7 +30,7 @@ ____________________________________/\\\\////__
 "#;
 
 #[no_mangle]
-pub extern "C" fn main() -> ! {
+pub extern "C" fn kmain() -> ! {
     println!("{}", RV6_ASCII_LOGO);
 
     loop {
