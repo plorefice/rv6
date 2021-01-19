@@ -1,14 +1,22 @@
 [env]
-RV6_BIN = "target/riscv64gc-unknown-none-elf/debug/rv6.bin"
+OUT_DIR = "target/riscv64gc-unknown-none-elf/debug"
+RV6_LIB = "${OUT_DIR}/librv6.a"
+RV6_ELF = "${OUT_DIR}/rv6"
+RV6_BIN = "${OUT_DIR}/rv6.bin"
 
 [tasks.build]
 command = "cargo"
 args = ["build"]
 
-[tasks.objcopy]
-command = "cargo"
-args = ["objcopy", "--", "-O", "binary", "${RV6_BIN}"]
+[tasks.link]
+command = "riscv64-unknown-elf-ld"
+args = ["--gc-sections", "-T", "linkers/riscv.ld", "-o", "${RV6_ELF}", "${RV6_LIB}" ]
 dependencies = ["build"]
+
+[tasks.objcopy]
+command = "riscv64-unknown-elf-objcopy"
+args = ["-O", "binary", "${RV6_ELF}", "${RV6_BIN}"]
+dependencies = ["link"]
 
 [tasks.run]
 command = "qemu-system-riscv64"
