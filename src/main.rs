@@ -15,6 +15,7 @@ mod macros;
 pub mod arch;
 pub mod drivers;
 pub mod mm;
+#[cfg(not(any(feature = "doc", test)))]
 pub mod panic;
 
 const RV6_ASCII_LOGO: &str = r#"
