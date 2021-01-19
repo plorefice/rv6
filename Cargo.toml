@@ -9,5 +9,8 @@ crate-type = ["staticlib", "lib"]
 name = "rv6"
 path = "src/lib.rs"
 
+[dependencies]
+spin = "0.7.1"
+
 [build-dependencies]
 cc = "1.0"
