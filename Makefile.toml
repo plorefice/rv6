@@ -1,12 +1,13 @@
 [env]
-OUT_DIR = "target/riscv64gc-unknown-none-elf/debug"
-RV6_LIB = "${OUT_DIR}/librv6.a"
-RV6_ELF = "${OUT_DIR}/rv6"
-RV6_BIN = "${OUT_DIR}/rv6.bin"
+TARGET="riscv64gc-unknown-none-elf"
+OUTDIR = "target/${TARGET}/debug"
+RV6_LIB = "${OUTDIR}/librv6.a"
+RV6_ELF = "${OUTDIR}/rv6"
+RV6_BIN = "${OUTDIR}/rv6.bin"
 
 [tasks.build]
 command = "cargo"
-args = ["build"]
+args = ["build", "--target", "${TARGET}"]
 
 [tasks.link]
 command = "riscv64-unknown-elf-ld"
@@ -29,3 +30,7 @@ args = [
     "-kernel", "${RV6_BIN}"
 ]
 dependencies = ["objcopy"]
+
+[tasks.test]
+command = "cargo"
+args = ["test"]
