@@ -1,6 +1,13 @@
 #![no_std]
 #![no_main]
-#![feature(asm, naked_functions, const_raw_ptr_deref, const_mut_refs)]
+#![feature(asm, naked_functions)]
+#![feature(lang_items)]
+#![feature(
+    const_raw_ptr_deref,
+    const_mut_refs,
+    const_fn_fn_ptr_basics,
+    const_raw_ptr_to_usize_cast
+)]
 
 #[macro_use]
 mod macros;
@@ -8,8 +15,7 @@ mod macros;
 pub mod arch;
 pub mod drivers;
 pub mod mm;
-
-use core::panic::PanicInfo;
+pub mod panic;
 
 const RV6_ASCII_LOGO: &str = r#"
 ________________________________________/\\\\\_       
@@ -28,13 +34,6 @@ pub extern "C" fn main() -> ! {
     println!("{}", RV6_ASCII_LOGO);
 
     loop {
-        arch::wfi();
+        unsafe { arch::halt() };
     }
-}
-
-#[panic_handler]
-fn panic(info: &PanicInfo) -> ! {
-    println!("{}", info);
-
-    arch::abort();
 }

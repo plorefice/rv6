@@ -74,15 +74,12 @@ csr!(SCAUSE, SCause, "scause");
 csr!(STVAL, StVal, "stval");
 csr!(SATP, Satp, "satp");
 
-/// Halts execution on the current hart.
-pub fn abort() -> ! {
-    // TODO: this should also disable interrupts.
-    loop {
-        wfi();
-    }
-}
-
-/// Blocks hart's execution until an interrupt is pending.
-pub fn wfi() {
-    unsafe { asm!("wfi", options(nostack)) };
+/// Halts execution on the current hart until the next interrupt arrives.
+///
+/// # Safety
+///
+/// Unsafe low-level machine operation.
+pub unsafe fn halt() {
+    // TODO: should also disable interrupts.
+    asm!("wfi", options(nostack));
 }
