@@ -1,3 +1,7 @@
+/// Prints to the console, which for now is the only UART in the system.
+///
+/// Equivalent to the [`println!`] macro except that a newline is not printed
+/// at the end of the message.
 #[macro_export]
 macro_rules! print {
     ($($arg:tt)*) => {{
@@ -8,6 +12,7 @@ macro_rules! print {
     }};
 }
 
+/// Prints to the console, which for now is the only UART in the system, with a newline (`\n`).
 #[macro_export]
 macro_rules! println {
     () => {

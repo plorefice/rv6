@@ -61,7 +61,7 @@ where
     }
 }
 
-/// Wrapper around a [`Cell`] that performs volatile operations.
+/// Wrapper around an [`UnsafeCell`] that performs volatile operations.
 pub struct VolatileCell<T> {
     inner: UnsafeCell<T>,
 }

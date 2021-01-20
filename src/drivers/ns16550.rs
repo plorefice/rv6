@@ -2,8 +2,10 @@ use core::fmt::Write;
 
 use crate::mm::mmio::{RO, RW};
 
+/// Base address of the UART0 device in QEMU virt machine.
 pub const NS16550_BASE: usize = 0x1000_0000;
 
+/// Device driver of the 16550 UART IC.
 pub struct Ns16550 {
     p: &'static mut RegisterBlock,
 }
