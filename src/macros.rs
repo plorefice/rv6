@@ -1,9 +1,9 @@
-/// Prints to the console, which for now is the only UART in the system.
+/// Prints to the kernel console (UART0).
 ///
-/// Equivalent to the [`println!`] macro except that a newline is not printed
+/// Equivalent to the [`kprintln!`] macro except that a newline is not printed
 /// at the end of the message.
 #[macro_export]
-macro_rules! print {
+macro_rules! kprint {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
         use crate::drivers::ns16550::*;
@@ -12,16 +12,16 @@ macro_rules! print {
     }};
 }
 
-/// Prints to the console, which for now is the only UART in the system, with a newline (`\n`).
+/// Prints to the kernel console (UART0) with a newline (`\n`).
 #[macro_export]
-macro_rules! println {
+macro_rules! kprintln {
     () => {
-        $crate::print!("\n")
+        $crate::kprint!("\n")
     };
     ($fmt:expr) => {
-        $crate::print!(concat!($fmt, "\n"))
+        $crate::kprint!(concat!($fmt, "\n"))
     };
     ($fmt:expr, $($arg:tt)+) => {
-        $crate::print!(concat!($fmt, "\n"), $($arg)+)
+        $crate::kprint!(concat!($fmt, "\n"), $($arg)+)
     };
 }

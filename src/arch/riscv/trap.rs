@@ -24,7 +24,7 @@ pub extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, _regp:
 
     if is_irq {
         if irq == IrqCause::STimer as usize {
-            println!("Tick!");
+            kprintln!("Tick!");
             time::schedule_next_tick(time::CLINT_TIMEBASE);
         }
     } else {

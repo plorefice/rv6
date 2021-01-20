@@ -11,9 +11,9 @@ pub extern "C" fn rust_eh_personality() {}
 #[panic_handler]
 #[no_mangle]
 pub extern "C" fn rust_begin_unwind(info: &PanicInfo) -> ! {
-    println!("KERNEL PANIC: {}", info);
+    kprintln!("Kernel panic: {}", info);
 
-    println!("HALT");
+    kprintln!("Halting!");
 
     loop {
         unsafe { arch::halt() };

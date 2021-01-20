@@ -47,7 +47,7 @@ ____________________________________/\\\\////__
 /// Kernel entry point after arch-specific initialization.
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
-    println!("{}", RV6_ASCII_LOGO);
+    kprintln!("{}", RV6_ASCII_LOGO);
 
     loop {
         unsafe { arch::halt() };

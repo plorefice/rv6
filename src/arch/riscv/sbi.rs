@@ -105,20 +105,20 @@ pub fn set_timer(stime: u64) -> Result {
 pub fn init() {
     let version = get_spec_version().unwrap_or(SPEC_VERSION_DEFAULT);
 
-    println!(
+    kprintln!(
         "SBI specification v{}.{} detected",
         get_major(version),
         get_minor(version)
     );
 
     if version != SPEC_VERSION_DEFAULT {
-        println!(
+        kprintln!(
             "SBI implementation ID=0x{:x} Version=0x{:x}",
             get_firmware_id(),
             get_firmware_version(),
         );
         if probe_extension(Extension::Time).is_ok() {
-            println!("SBI v0.2 TIME extension detected");
+            kprintln!("SBI v0.2 TIME extension detected");
         }
     } else {
         panic!("Unsupported SBI specification");
