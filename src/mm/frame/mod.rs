@@ -4,7 +4,7 @@ use self::bitmap::BitmapAllocator;
 
 use super::page::PhysicalAddress;
 
-mod bitmap;
+pub mod bitmap;
 
 /// A trait for page-grained memory allocators.
 pub trait FrameAllocator {
@@ -14,7 +14,7 @@ pub trait FrameAllocator {
     /// # Safety
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
-    unsafe fn allocate(&mut self, count: usize) -> Option<PhysicalAddress>;
+    unsafe fn alloc(&mut self, count: usize) -> Option<PhysicalAddress>;
 
     /// Releases the allocated memory starting at the specified address back to the kernel.
     ///
@@ -44,11 +44,11 @@ impl<T> FrameAllocator for LockedAllocator<T>
 where
     T: FrameAllocator,
 {
-    unsafe fn allocate(&mut self, count: usize) -> Option<PhysicalAddress> {
+    unsafe fn alloc(&mut self, count: usize) -> Option<PhysicalAddress> {
         let mut inner = self.inner.lock();
 
         if let Some(allocator) = &mut *inner {
-            allocator.allocate(count)
+            allocator.alloc(count)
         } else {
             None
         }

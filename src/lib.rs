@@ -5,7 +5,7 @@
 //! rv6 is developed and tested using [QEMU](https://www.qemu.org/). It has not been tested on real
 //! hardware and some things may thus not work as expected.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![feature(asm, naked_functions)]
 #![feature(lang_items)]
 #![feature(
@@ -14,6 +14,7 @@
     const_fn_fn_ptr_basics,
     const_raw_ptr_to_usize_cast
 )]
+#![feature(option_expect_none)]
 #![deny(missing_docs)]
 
 #[macro_use]

@@ -1,3 +1,5 @@
+use core::ops::{Add, Sub};
+
 /// Length of a page in bytes. Default is 4 KiB.
 pub const PAGE_LENGTH: usize = 4096;
 
@@ -5,24 +7,30 @@ pub const PAGE_LENGTH: usize = 4096;
 pub trait Address: Copy + Into<usize> + From<usize> {
     /// Aligns this address to the next page boundary.
     /// The address is returned unchanged if it already lies on a page boundary.
-    fn align_to_next_page(self) -> Self {
+    fn align_to_next_page(self, page_size: usize) -> Self {
         // TODO: this should be a static check
-        debug_assert!(PAGE_LENGTH.is_power_of_two());
+        debug_assert!(page_size.is_power_of_two());
 
-        Self::from((<Self as Into<usize>>::into(self) + PAGE_LENGTH - 1) & !(PAGE_LENGTH - 1))
+        Self::from((self.into() + page_size - 1) & !(page_size - 1))
     }
 
     /// Aligns this address to the next page boundary.
     /// The address is returned unchanged if it already lies on a page boundary.
-    fn align_to_previous_page(self) -> Self {
+    fn align_to_previous_page(self, page_size: usize) -> Self {
         // TODO: this should be a static check
-        debug_assert!(PAGE_LENGTH.is_power_of_two());
+        debug_assert!(page_size.is_power_of_two());
 
-        Self::from(<Self as Into<usize>>::into(self) & !(PAGE_LENGTH - 1))
+        Self::from(self.into() & !(page_size - 1))
+    }
+
+    /// Returns true if this address is aligned to the page boundary.
+    fn is_page_aligned(self, page_size: usize) -> bool {
+        // TODO: this should be a static check
+        debug_assert!(page_size.is_power_of_two());
+
+        (self.into() & (page_size - 1)) == 0
     }
 }
-
-impl Address for usize {}
 
 /// A physical memory address.
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
@@ -45,7 +53,39 @@ impl From<usize> for PhysicalAddress {
 
 impl From<PhysicalAddress> for usize {
     fn from(addr: PhysicalAddress) -> Self {
-        addr.into()
+        addr.0
+    }
+}
+
+impl Add for PhysicalAddress {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self(self.0 + rhs.0)
+    }
+}
+
+impl Add<usize> for PhysicalAddress {
+    type Output = Self;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Self(self.0 + rhs)
+    }
+}
+
+impl Sub for PhysicalAddress {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self(self.0 - rhs.0)
+    }
+}
+
+impl Sub<usize> for PhysicalAddress {
+    type Output = Self;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        Self(self.0 - rhs)
     }
 }
 
@@ -54,6 +94,9 @@ impl Address for PhysicalAddress {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // For testing purposes
+    impl Address for usize {}
 
     #[test]
     fn address_page_alignment() {
@@ -65,8 +108,19 @@ mod tests {
             (PAGE_LENGTH, PAGE_LENGTH, PAGE_LENGTH),
             (PAGE_LENGTH + 1, 2 * PAGE_LENGTH, PAGE_LENGTH),
         ] {
-            assert_eq!(t.1, t.0.align_to_next_page());
-            assert_eq!(t.2, t.0.align_to_previous_page());
+            assert_eq!(t.1, t.0.align_to_next_page(PAGE_LENGTH));
+            assert_eq!(t.2, t.0.align_to_previous_page(PAGE_LENGTH));
+        }
+
+        for t in &[
+            (0, true),
+            (1, false),
+            (42, false),
+            (PAGE_LENGTH - 1, false),
+            (PAGE_LENGTH, true),
+            (PAGE_LENGTH + 1, false),
+        ] {
+            assert_eq!(t.1, t.0.is_page_aligned(PAGE_LENGTH));
         }
     }
 }
