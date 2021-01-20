@@ -6,6 +6,15 @@ use super::page::PhysicalAddress;
 
 pub mod bitmap;
 
+/// The error type returned by fallible allocator operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum AllocatorError {
+    /// The provided address is not properly aligned.
+    UnalignedAddress,
+    /// The provided page size is not valid.
+    InvalidPageSize,
+}
+
 /// A trait for page-grained memory allocators.
 pub trait FrameAllocator {
     /// Allocates a memory section of `count` contiguous pages. If no countiguous section

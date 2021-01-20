@@ -18,7 +18,7 @@ use bitflags::bitflags;
 
 use crate::mm::page::Address;
 
-use super::{FrameAllocator, PhysicalAddress};
+use super::{AllocatorError, FrameAllocator, PhysicalAddress};
 
 bitflags! {
     /// Allocation status of a page.
@@ -35,6 +35,7 @@ struct PageDescriptor {
 }
 
 /// A frame allocator storing page state as a bitmap of page descriptors.
+#[derive(Debug)]
 pub struct BitmapAllocator {
     descriptors: *mut PageDescriptor,
     base_addr: PhysicalAddress,
@@ -46,19 +47,25 @@ impl BitmapAllocator {
     /// Creates a new bitmap allocator taking ownership of the memory delimited by addresses
     /// `start` and `end`, and allocating pages of size `page_size`.
     ///
-    /// # Panics
-    ///
-    /// Panics if `start` and `end` are not page-aligned, or `page_size` is not a power of two.
+    /// Returns an `AllocationError` if any of the following conditions are not met:
+    ///  - `start` and `end` are page-aligned,
+    ///  - `page_size` is a non-zero power of two.
     ///
     /// # Safety
     ///
     /// There can be no guarantee that the memory being passed to the allocator isn't already in
     /// use by the system, so tread carefully here.
-    pub unsafe fn init(start: PhysicalAddress, end: PhysicalAddress, page_size: usize) -> Self {
-        assert_ne!(page_size, 0);
-        assert!(page_size.is_power_of_two());
-        assert!(start.is_page_aligned(page_size));
-        assert!(end.is_page_aligned(page_size));
+    pub unsafe fn init(
+        start: PhysicalAddress,
+        end: PhysicalAddress,
+        page_size: usize,
+    ) -> Result<Self, AllocatorError> {
+        if page_size == 0 || !page_size.is_power_of_two() {
+            return Err(AllocatorError::InvalidPageSize);
+        }
+        if !start.is_page_aligned(page_size) || !end.is_page_aligned(page_size) {
+            return Err(AllocatorError::UnalignedAddress);
+        }
 
         let total_mem_size = usize::from(end - start);
         let total_num_pages = total_mem_size / page_size;
@@ -78,12 +85,12 @@ impl BitmapAllocator {
             });
         }
 
-        Self {
+        Ok(Self {
             descriptors,
             base_addr: avail_mem_start,
             page_size,
             num_pages: avail_pages,
-        }
+        })
     }
 }
 
@@ -209,6 +216,7 @@ mod tests {
                 PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
                 PAGE_LENGTH,
             )
+            .unwrap()
         };
 
         assert_eq!(allocator.page_size, PAGE_LENGTH);
@@ -230,50 +238,38 @@ mod tests {
     }
 
     #[test]
-    #[should_panic]
-    fn unaligned_start_address() {
-        unsafe {
-            BitmapAllocator::init(
-                PhysicalAddress::new(0x1),
-                PhysicalAddress::new(PAGE_LENGTH),
-                PAGE_LENGTH,
-            );
+    fn invalid_addresses() {
+        for t in &[
+            (1, PAGE_LENGTH),
+            (PAGE_LENGTH, 2 * PAGE_LENGTH - 1),
+            (1, PAGE_LENGTH - 1),
+        ] {
+            unsafe {
+                assert!(matches!(
+                    BitmapAllocator::init(
+                        PhysicalAddress::new(t.0),
+                        PhysicalAddress::new(t.1),
+                        PAGE_LENGTH,
+                    ),
+                    Err(AllocatorError::UnalignedAddress)
+                ));
+            }
         }
     }
 
     #[test]
-    #[should_panic]
-    fn unaligned_end_address() {
-        unsafe {
-            BitmapAllocator::init(
-                PhysicalAddress::new(0),
-                PhysicalAddress::new(PAGE_LENGTH - 1),
-                PAGE_LENGTH,
-            );
-        }
-    }
-
-    #[test]
-    #[should_panic]
-    fn page_size_is_zero() {
-        unsafe {
-            BitmapAllocator::init(
-                PhysicalAddress::new(0),
-                PhysicalAddress::new(PAGE_LENGTH),
-                0,
-            );
-        }
-    }
-
-    #[test]
-    #[should_panic]
-    fn page_size_not_a_power_of_two() {
-        unsafe {
-            BitmapAllocator::init(
-                PhysicalAddress::new(0),
-                PhysicalAddress::new(PAGE_LENGTH),
-                PAGE_LENGTH - 1,
-            );
+    fn invalid_page_size() {
+        for t in &[0, 3, 24, PAGE_LENGTH - 1, PAGE_LENGTH + 2] {
+            unsafe {
+                assert!(matches!(
+                    BitmapAllocator::init(
+                        PhysicalAddress::new(0),
+                        PhysicalAddress::new(PAGE_LENGTH),
+                        *t,
+                    ),
+                    Err(AllocatorError::InvalidPageSize)
+                ));
+            }
         }
     }
 
@@ -286,7 +282,8 @@ mod tests {
                 PhysicalAddress::new(memory.base as usize),
                 PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
                 PAGE_LENGTH,
-            );
+            )
+            .unwrap();
 
             let ptr = allocator.alloc(1).expect("allocation failed");
             assert_allocated(&mut allocator, 0, 1);
@@ -305,7 +302,8 @@ mod tests {
                 PhysicalAddress::new(memory.base as usize),
                 PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
                 PAGE_LENGTH,
-            );
+            )
+            .unwrap();
 
             let ptr = allocator.alloc(4).expect("allocation failed");
             assert_allocated(&mut allocator, 0, 4);
@@ -324,7 +322,8 @@ mod tests {
                 PhysicalAddress::new(memory.base as usize),
                 PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
                 PAGE_LENGTH,
-            );
+            )
+            .unwrap();
 
             let p1 = allocator.alloc(4).expect("allocation #1 failed");
             let p2 = allocator.alloc(1).expect("allocation #2 failed");
@@ -358,7 +357,8 @@ mod tests {
                 PhysicalAddress::new(memory.base as usize),
                 PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
                 PAGE_LENGTH,
-            );
+            )
+            .unwrap();
 
             let p1 = allocator.alloc(4).expect("allocation #1 failed");
             let p2 = allocator.alloc(2).expect("allocation #2 failed");
@@ -387,7 +387,8 @@ mod tests {
                 PhysicalAddress::new(memory.base as usize),
                 PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
                 PAGE_LENGTH,
-            );
+            )
+            .unwrap();
 
             allocator
                 .alloc(NUM_PAGES)
@@ -410,7 +411,8 @@ mod tests {
                 PhysicalAddress::new(memory.base as usize),
                 PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
                 PAGE_LENGTH,
-            );
+            )
+            .unwrap();
 
             let _ = allocator.alloc((NUM_PAGES - 1) / 3).unwrap();
             let p = allocator.alloc((NUM_PAGES - 1) / 3).unwrap();
