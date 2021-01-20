@@ -30,7 +30,3 @@ args = [
     "-kernel", "${RV6_BIN}"
 ]
 dependencies = ["objcopy"]
-
-[tasks.test]
-command = "cargo"
-args = ["test"]
