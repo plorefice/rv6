@@ -55,6 +55,7 @@ impl BitmapAllocator {
     /// There can be no guarantee that the memory being passed to the allocator isn't already in
     /// use by the system, so tread carefully here.
     pub unsafe fn init(start: PhysicalAddress, end: PhysicalAddress, page_size: usize) -> Self {
+        assert_ne!(page_size, 0);
         assert!(page_size.is_power_of_two());
         assert!(start.is_page_aligned(page_size));
         assert!(end.is_page_aligned(page_size));
@@ -224,6 +225,54 @@ mod tests {
                 PageDescriptor {
                     flags: PageFlags::empty()
                 }
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn unaligned_start_address() {
+        unsafe {
+            BitmapAllocator::init(
+                PhysicalAddress::new(0x1),
+                PhysicalAddress::new(PAGE_LENGTH),
+                PAGE_LENGTH,
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn unaligned_end_address() {
+        unsafe {
+            BitmapAllocator::init(
+                PhysicalAddress::new(0),
+                PhysicalAddress::new(PAGE_LENGTH - 1),
+                PAGE_LENGTH,
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn page_size_is_zero() {
+        unsafe {
+            BitmapAllocator::init(
+                PhysicalAddress::new(0),
+                PhysicalAddress::new(PAGE_LENGTH),
+                0,
+            );
+        }
+    }
+
+    #[test]
+    #[should_panic]
+    fn page_size_not_a_power_of_two() {
+        unsafe {
+            BitmapAllocator::init(
+                PhysicalAddress::new(0),
+                PhysicalAddress::new(PAGE_LENGTH),
+                PAGE_LENGTH - 1,
             );
         }
     }
