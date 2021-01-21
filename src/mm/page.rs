@@ -1,4 +1,7 @@
-use core::ops::{Add, Sub};
+use core::{
+    fmt,
+    ops::{Add, Sub},
+};
 
 /// Length of a page in bytes. Default is 4 KiB.
 pub const PAGE_LENGTH: usize = 4096;
@@ -33,7 +36,7 @@ pub trait Address: Copy + Into<usize> + From<usize> {
 }
 
 /// A physical memory address.
-#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
 pub struct PhysicalAddress(usize);
 
@@ -90,6 +93,12 @@ impl Sub<usize> for PhysicalAddress {
 }
 
 impl Address for PhysicalAddress {}
+
+impl fmt::Display for PhysicalAddress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{:08x}", self.0)
+    }
+}
 
 #[cfg(test)]
 mod tests {

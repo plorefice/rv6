@@ -2,7 +2,7 @@ use spin::Mutex;
 
 use self::bitmap::BitmapAllocator;
 
-use super::page::PhysicalAddress;
+use super::page::{Address, PhysicalAddress, PAGE_LENGTH};
 
 pub mod bitmap;
 
@@ -34,7 +34,7 @@ pub trait FrameAllocator {
 }
 
 /// Global frame allocator (GFA).
-pub static mut GFA: Mutex<LockedAllocator<BitmapAllocator>> = Mutex::new(LockedAllocator::new());
+pub static mut GFA: LockedAllocator<BitmapAllocator> = LockedAllocator::new();
 
 /// A frame allocator wrapped in a [`Mutex`] for concurrent access.
 pub struct LockedAllocator<T> {
@@ -70,4 +70,20 @@ where
             allocator.free(address);
         }
     }
+}
+
+/// Initializes a physical memory allocator on the specified memory range.
+///
+/// # Safety
+///
+/// There can be no guarantee that the memory being initialized isn't already in use by the system.
+pub unsafe fn init(mem_start: PhysicalAddress, mem_size: usize) -> Result<(), AllocatorError> {
+    let mem_start = mem_start.align_to_next_page(PAGE_LENGTH);
+    let mem_end = (mem_start + mem_size).align_to_previous_page(PAGE_LENGTH);
+
+    kprintln!("Free memory: {} - {}", mem_start, mem_end);
+
+    *GFA.inner.lock() = Some(BitmapAllocator::init(mem_start, mem_end, PAGE_LENGTH)?);
+
+    Ok(())
 }
