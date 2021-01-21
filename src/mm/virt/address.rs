@@ -3,34 +3,40 @@ use core::{
     ops::{Add, Sub},
 };
 
-use crate::mm::page::Address;
+use crate::mm::page::{Address, PAGE_SIZE};
 
-/// A physical memory address.
+/// A virtual memory address.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[repr(transparent)]
-pub struct PhysicalAddress(usize);
+pub struct VirtualAddress(usize);
 
-impl PhysicalAddress {
-    /// Interprets a pointer-sized integer as a physical address.
+impl VirtualAddress {
+    /// Interprets a pointer-sized integer as a virtual address.
     #[inline(always)]
     pub fn new(addr: usize) -> Self {
         Self(addr)
     }
+
+    /// Returns the page offset of the virtual address, ie. the lowest 12 bits.
+    #[inline(always)]
+    pub fn page_offset(&self) -> usize {
+        self.0 & (PAGE_SIZE - 1)
+    }
 }
 
-impl From<usize> for PhysicalAddress {
+impl From<usize> for VirtualAddress {
     fn from(v: usize) -> Self {
         Self(v)
     }
 }
 
-impl From<PhysicalAddress> for usize {
-    fn from(addr: PhysicalAddress) -> Self {
+impl From<VirtualAddress> for usize {
+    fn from(addr: VirtualAddress) -> Self {
         addr.0
     }
 }
 
-impl Add for PhysicalAddress {
+impl Add for VirtualAddress {
     type Output = Self;
 
     fn add(self, rhs: Self) -> Self::Output {
@@ -38,7 +44,7 @@ impl Add for PhysicalAddress {
     }
 }
 
-impl Add<usize> for PhysicalAddress {
+impl Add<usize> for VirtualAddress {
     type Output = Self;
 
     fn add(self, rhs: usize) -> Self::Output {
@@ -46,7 +52,7 @@ impl Add<usize> for PhysicalAddress {
     }
 }
 
-impl Sub for PhysicalAddress {
+impl Sub for VirtualAddress {
     type Output = Self;
 
     fn sub(self, rhs: Self) -> Self::Output {
@@ -54,7 +60,7 @@ impl Sub for PhysicalAddress {
     }
 }
 
-impl Sub<usize> for PhysicalAddress {
+impl Sub<usize> for VirtualAddress {
     type Output = Self;
 
     fn sub(self, rhs: usize) -> Self::Output {
@@ -62,9 +68,9 @@ impl Sub<usize> for PhysicalAddress {
     }
 }
 
-impl Address for PhysicalAddress {}
+impl Address for VirtualAddress {}
 
-impl fmt::Display for PhysicalAddress {
+impl fmt::Display for VirtualAddress {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:016x}", self.0)
     }

@@ -1,4 +1,5 @@
 mod entry;
+mod memory;
 mod sbi;
 mod time;
 mod trap;
@@ -56,6 +57,7 @@ csr!(STVEC, StVec, "stvec");
 csr!(SIP, Sip, "sip");
 csr!(SIE, Sie, "sie");
 csr!(STVAL, StVal, "stval");
+csr!(SATP, Satp, "satp");
 
 /// Halts execution on the current hart until the next interrupt arrives.
 ///
