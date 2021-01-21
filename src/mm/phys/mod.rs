@@ -2,9 +2,12 @@ use spin::Mutex;
 
 use self::bitmap::BitmapAllocator;
 
-use super::page::{Address, PhysicalAddress, PAGE_LENGTH};
+use super::page::{Address, PAGE_LENGTH};
 
+mod address;
 pub mod bitmap;
+
+pub use address::*;
 
 /// The error type returned by fallible allocator operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

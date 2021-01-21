@@ -1,5 +1,5 @@
-/// Frame allocators for physical memory pages.
-pub mod frame;
+/// Physical memory handling.
+pub mod phys;
 
 /// Functions and types for dealing with memory-mapped I/O.
 pub mod mmio;

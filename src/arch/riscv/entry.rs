@@ -1,4 +1,4 @@
-use mm::page::PhysicalAddress;
+use mm::phys::PhysicalAddress;
 
 use crate::mm;
 
@@ -30,7 +30,7 @@ pub extern "C" fn arch_init() {
         // TODO: parse DTB to get the memory size
         let phys_mem_end = PhysicalAddress::new(0x8000_0000 + 128 * 1024 * 1024);
 
-        mm::frame::init(kernel_mem_end, (phys_mem_end - kernel_mem_end).into()).unwrap();
+        mm::phys::init(kernel_mem_end, (phys_mem_end - kernel_mem_end).into()).unwrap();
     }
 
     // Start ticking
