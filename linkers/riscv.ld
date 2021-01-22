@@ -15,17 +15,26 @@ SECTIONS
   . = ALIGN(4);
   .text : {
     /* Put reset handler first in .text section so it ends up as the entry point of the program */
+    PROVIDE(__text_start = .);
     KEEP(*(.init));
     . = ALIGN(8);
     *(.trap) *(.trap*)
     *(.text*)
+    PROVIDE(__text_end = .);
   }
 
   /* Constant data area */
   . = ALIGN(4);
   .rodata : {
+    PROVIDE(__rodata_start = .);
     *(.rodata*)
+    PROVIDE(__rodata_end = .);
   }
+
+  /* Data section starts here - we page-align it so that we can properly setup the MMU later on */
+  . = ALIGN(4K);
+
+  PROVIDE(__data_start = .);
 
   /* Small data area - RISC-V provides optimized access to this area */
   . = ALIGN(4);
@@ -57,6 +66,8 @@ SECTIONS
     . += 4K;
     PROVIDE(__stack_start = .);
   }
+
+  PROVIDE(__data_end = .);
 
   __end = .;
 

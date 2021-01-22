@@ -1,8 +1,10 @@
+use core::mem::size_of;
+
 use spin::Mutex;
 
 use self::bitmap::BitmapAllocator;
 
-use super::page::{Address, PAGE_LENGTH};
+use super::page::{Address, PAGE_SIZE};
 
 mod address;
 pub mod bitmap;
@@ -34,6 +36,22 @@ pub trait FrameAllocator {
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
     unsafe fn free(&mut self, address: PhysicalAddress);
+
+    /// Same as [`alloc`], but the allocated memory is also zeroed after allocation.
+    ///
+    /// # Safety
+    ///
+    /// Low-level memory twiddling doesn't provide safety guarantees.
+    unsafe fn alloc_zeroed(&mut self, count: usize) -> Option<PhysicalAddress> {
+        let paddr = Self::alloc(self, count)?;
+        let uaddr = usize::from(paddr);
+
+        for i in 0..PAGE_SIZE / size_of::<usize>() {
+            (uaddr as *mut usize).add(i).write(0);
+        }
+
+        Some(paddr)
+    }
 }
 
 /// Global frame allocator (GFA).
@@ -81,12 +99,10 @@ where
 ///
 /// There can be no guarantee that the memory being initialized isn't already in use by the system.
 pub unsafe fn init(mem_start: PhysicalAddress, mem_size: usize) -> Result<(), AllocatorError> {
-    let mem_start = mem_start.align_to_next_page(PAGE_LENGTH);
-    let mem_end = (mem_start + mem_size).align_to_previous_page(PAGE_LENGTH);
+    let mem_start = mem_start.align_to_next_page(PAGE_SIZE);
+    let mem_end = (mem_start + mem_size).align_to_previous_page(PAGE_SIZE);
 
-    kprintln!("Free memory: {} - {}", mem_start, mem_end);
-
-    *GFA.inner.lock() = Some(BitmapAllocator::init(mem_start, mem_end, PAGE_LENGTH)?);
+    *GFA.inner.lock() = Some(BitmapAllocator::init(mem_start, mem_end, PAGE_SIZE)?);
 
     Ok(())
 }

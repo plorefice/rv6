@@ -1,5 +1,11 @@
-/// Length of a page in bytes. Default is 4 KiB.
-pub const PAGE_LENGTH: usize = 4096;
+/// Length in bits of the offset part of the page.
+pub const PAGE_SHIFT: usize = 12;
+
+/// Length of a page in bytes.
+pub const PAGE_SIZE: usize = 1 << PAGE_SHIFT;
+
+/// Bitmask of the page number part of an address.
+pub const PAGE_MASK: usize = !(PAGE_SIZE - 1);
 
 /// A trait common to all types of memory addresses.
 pub trait Address: Copy + Into<usize> + From<usize> {
@@ -41,25 +47,25 @@ mod tests {
     fn address_page_alignment() {
         for t in &[
             (0, 0, 0),
-            (1, PAGE_LENGTH, 0),
-            (42, PAGE_LENGTH, 0),
-            (PAGE_LENGTH - 1, PAGE_LENGTH, 0),
-            (PAGE_LENGTH, PAGE_LENGTH, PAGE_LENGTH),
-            (PAGE_LENGTH + 1, 2 * PAGE_LENGTH, PAGE_LENGTH),
+            (1, PAGE_SIZE, 0),
+            (42, PAGE_SIZE, 0),
+            (PAGE_SIZE - 1, PAGE_SIZE, 0),
+            (PAGE_SIZE, PAGE_SIZE, PAGE_SIZE),
+            (PAGE_SIZE + 1, 2 * PAGE_SIZE, PAGE_SIZE),
         ] {
-            assert_eq!(t.1, t.0.align_to_next_page(PAGE_LENGTH));
-            assert_eq!(t.2, t.0.align_to_previous_page(PAGE_LENGTH));
+            assert_eq!(t.1, t.0.align_to_next_page(PAGE_SIZE));
+            assert_eq!(t.2, t.0.align_to_previous_page(PAGE_SIZE));
         }
 
         for t in &[
             (0, true),
             (1, false),
             (42, false),
-            (PAGE_LENGTH - 1, false),
-            (PAGE_LENGTH, true),
-            (PAGE_LENGTH + 1, false),
+            (PAGE_SIZE - 1, false),
+            (PAGE_SIZE, true),
+            (PAGE_SIZE + 1, false),
         ] {
-            assert_eq!(t.1, t.0.is_page_aligned(PAGE_LENGTH));
+            assert_eq!(t.1, t.0.is_page_aligned(PAGE_SIZE));
         }
     }
 }
