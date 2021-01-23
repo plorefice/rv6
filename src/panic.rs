@@ -16,6 +16,8 @@ fn panic(info: &PanicInfo) -> ! {
 fn panic(info: &PanicInfo) -> ! {
     use crate::drivers::syscon::SYSCON;
 
+    kprintln!("FAILED");
+    kprintln!();
     kprintln!("Error: {}", info);
 
     // Exit from QEMU with error
