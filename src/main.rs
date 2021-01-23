@@ -63,7 +63,12 @@ pub extern "C" fn kmain() -> ! {
     kprintln!("{}", RV6_ASCII_LOGO);
 
     #[cfg(test)]
-    run_tests();
+    {
+        use drivers::syscon::SYSCON;
+
+        run_tests();
+        SYSCON.lock().poweroff(0);
+    }
 
     #[allow(clippy::empty_loop)]
     loop {}

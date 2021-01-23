@@ -304,38 +304,31 @@ pub fn init() {
             root,
             PhysicalAddress::new(&__text_start as *const usize as usize),
             PhysicalAddress::new(&__text_end as *const usize as usize),
-            PteFields::READ | PteFields::EXEC,
+            PteFields::RX,
         );
 
         id_map_range(
             root,
             PhysicalAddress::new(&__rodata_start as *const usize as usize),
             PhysicalAddress::new(&__rodata_end as *const usize as usize),
-            PteFields::READ | PteFields::EXEC,
+            PteFields::RX,
         );
 
         id_map_range(
             root,
             PhysicalAddress::new(&__data_start as *const usize as usize),
             PhysicalAddress::new(&__data_end as *const usize as usize),
-            PteFields::READ | PteFields::WRITE,
+            PteFields::RW,
         );
 
         // Identity map UART0 memory
-        id_map_range(
-            root,
-            0x1000_0000.into(),
-            0x1000_0100.into(),
-            PteFields::READ | PteFields::WRITE,
-        );
+        id_map_range(root, 0x1000_0000.into(), 0x1000_0100.into(), PteFields::RW);
 
         // Identity map CLINT memory
-        id_map_range(
-            root,
-            0x0200_0000.into(),
-            0x0201_0000.into(),
-            PteFields::READ | PteFields::WRITE,
-        );
+        id_map_range(root, 0x0200_0000.into(), 0x0201_0000.into(), PteFields::RW);
+
+        // Identity map SYSCON memory
+        id_map_range(root, 0x0010_0000.into(), 0x0010_1000.into(), PteFields::RW);
 
         // Enable MMU
         SATP.write((0x8 << 60) | ((root as *const _ as usize) >> PAGE_SHIFT));
