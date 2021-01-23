@@ -50,12 +50,6 @@ ____________________________________/\\\\////__
 pub extern "C" fn kmain() -> ! {
     kprintln!("{}", RV6_ASCII_LOGO);
 
-    // Willingly trigger a pagefault
-    unsafe {
-        *(0x8040_0050 as *mut u64) = 0;
-    }
-
-    loop {
-        unsafe { arch::halt() };
-    }
+    #[allow(clippy::empty_loop)]
+    loop {}
 }

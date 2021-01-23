@@ -4,6 +4,14 @@ mod sbi;
 mod time;
 mod trap;
 
+// {m,s}ie register flags
+const IE_SSIE: usize = 1 << 1;
+const IE_STIE: usize = 1 << 5;
+const IE_SEIE: usize = 1 << 9;
+
+// {m,s}status register flags
+const STATUS_SIE: usize = 1 << 1;
+
 macro_rules! csr {
     ($var:ident, $type:ident, $str:tt) => {
         /// Wrapper type for this CSR.
@@ -59,12 +67,19 @@ csr!(SIE, Sie, "sie");
 csr!(STVAL, StVal, "stval");
 csr!(SATP, Satp, "satp");
 
-/// Halts execution on the current hart until the next interrupt arrives.
+/// Halts execution on the current hart forever.
 ///
 /// # Safety
 ///
 /// Unsafe low-level machine operation.
-pub unsafe fn halt() {
-    // TODO: should also disable interrupts.
-    asm!("wfi", options(nostack));
+pub unsafe fn halt() -> ! {
+    // Disable all interrupts.
+    SSTATUS.clear(STATUS_SIE);
+    SIE.clear(IE_SSIE | IE_STIE | IE_SEIE);
+    SIP.write(0);
+
+    // Loop forever
+    loop {
+        asm!("wfi", options(nostack));
+    }
 }
