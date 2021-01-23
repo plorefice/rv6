@@ -13,7 +13,7 @@ pub struct VirtualAddress(usize);
 impl VirtualAddress {
     /// Interprets a pointer-sized integer as a virtual address.
     #[inline(always)]
-    pub fn new(addr: usize) -> Self {
+    pub const fn new(addr: usize) -> Self {
         Self(addr)
     }
 

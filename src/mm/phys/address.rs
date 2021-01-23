@@ -13,7 +13,7 @@ pub struct PhysicalAddress(usize);
 impl PhysicalAddress {
     /// Interprets a pointer-sized integer as a physical address.
     #[inline(always)]
-    pub fn new(addr: usize) -> Self {
+    pub const fn new(addr: usize) -> Self {
         Self(addr)
     }
 }
