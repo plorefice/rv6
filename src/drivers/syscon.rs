@@ -28,7 +28,7 @@ impl Syscon {
 
     /// Sends a shutdown signal to the SYSCON with the given exit code.
     pub fn poweroff(&mut self, code: u32) {
-        unsafe { self.p.reg.write((code << 16) | 0x5555) };
+        unsafe { self.p.reg.write((code << 16) | 0x3333) };
     }
 
     /// Sends a reboot signal to the SYSCON.

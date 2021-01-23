@@ -1,37 +1,25 @@
-use core::{alloc::Layout, panic::PanicInfo};
-
-use crate::arch;
-
-/// Used by the failure mechanism of the compiler.
-#[lang = "eh_personality"]
-#[no_mangle]
-pub extern "C" fn rust_eh_personality() {}
+use core::panic::PanicInfo;
 
 /// Implements the kernel's panic behavior.
+#[cfg(not(test))]
 #[panic_handler]
-#[no_mangle]
-pub extern "C" fn rust_begin_unwind(info: &PanicInfo) -> ! {
+fn panic(info: &PanicInfo) -> ! {
     kprintln!("Kernel panic: {}", info);
 
     kprintln!("Halting!");
 
-    loop {
-        unsafe { arch::halt() };
-    }
+    unsafe { crate::arch::halt() };
 }
 
-/// Implements the kernel's OOM behavior.
-#[lang = "oom"]
-#[no_mangle]
-pub fn rust_oom(_layout: Layout) -> ! {
-    panic!("Kernel memory allocation failed");
-}
+#[cfg(test)]
+#[panic_handler]
+fn panic(info: &PanicInfo) -> ! {
+    use crate::drivers::syscon::SYSCON;
 
-/// Required to handle panics.
-#[allow(non_snake_case)]
-#[no_mangle]
-pub extern "C" fn _Unwind_Resume() -> ! {
-    loop {
-        unsafe { arch::halt() };
-    }
+    kprintln!("Error: {}", info);
+
+    // Exit from QEMU with error
+    SYSCON.lock().poweroff(1);
+
+    unreachable!();
 }
