@@ -5,18 +5,24 @@
 //! rv6 is developed and tested using [QEMU](https://www.qemu.org/). It has not been tested on real
 //! hardware and some things may thus not work as expected.
 
-#![cfg_attr(not(test), no_std)]
+// We are building a freestanding binary, so no standard library support for us
+#![no_std]
+// Don't use the default entry point
+#![no_main]
+// Keep things clean and tidy
+#![deny(missing_docs)]
+// Bunch of features required throughout the kernel code
 #![feature(asm, naked_functions)]
 #![feature(lang_items)]
+#![feature(option_expect_none)]
 #![feature(
     const_raw_ptr_deref,
     const_mut_refs,
     const_fn_fn_ptr_basics,
     const_raw_ptr_to_usize_cast
 )]
-#![feature(option_expect_none)]
-#![deny(missing_docs)]
 
+/// Utility macros.
 #[macro_use]
 mod macros;
 
@@ -30,7 +36,6 @@ pub mod drivers;
 pub mod mm;
 
 /// Panic support.
-#[cfg(not(any(feature = "doc", test)))]
 pub mod panic;
 
 const RV6_ASCII_LOGO: &str = r#"
