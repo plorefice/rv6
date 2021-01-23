@@ -115,12 +115,7 @@ impl TrapFrame {
 
 #[no_mangle]
 #[link_section = ".trap.rust"]
-pub extern "C" fn handle_exception(
-    cause: usize,
-    epc: usize,
-    tval: usize,
-    tf: *const TrapFrame,
-) -> usize {
+pub extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapFrame) -> usize {
     let is_irq = (cause & CAUSE_IRQ_FLAG_MASK) != 0;
     let irq = cause & !CAUSE_IRQ_FLAG_MASK;
 
@@ -139,7 +134,7 @@ pub extern "C" fn handle_exception(
             ex => kprintln!("=> Unhandled exception: {:?}, tval {:016x}", ex, tval),
         }
 
-        unsafe { tf.as_ref() }.unwrap().dump(epc);
+        tf.dump(epc);
 
         loop {
             unsafe { halt() };
