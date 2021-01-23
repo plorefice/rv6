@@ -11,12 +11,14 @@ const IE_SEIE: usize = 1 << 9;
 // {m,s}status register flags
 const STATUS_SIE: usize = 1 << 1;
 
+/// Possible interrupt causes on a RISC-V CPU.
 #[repr(usize)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 enum IrqCause {
     STimer = 5,
 }
 
+/// Possible exception causes on a RISC-V CPU.
 #[repr(usize)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 enum ExceptionCause {
@@ -59,7 +61,11 @@ impl From<usize> for ExceptionCause {
 }
 
 /// Information stored by the trap handler.
-pub struct TrapFrame {
+///
+/// Note: the order of the fields in this structure **must** match the order in which registers
+/// are pushed to the stack in the handler's trampoline.
+#[repr(C)]
+struct TrapFrame {
     ra: usize,
     sp: usize,
     gp: usize,
@@ -115,7 +121,7 @@ impl TrapFrame {
 
 #[no_mangle]
 #[link_section = ".trap.rust"]
-pub extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapFrame) -> usize {
+extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapFrame) -> usize {
     let is_irq = (cause & CAUSE_IRQ_FLAG_MASK) != 0;
     let irq = cause & !CAUSE_IRQ_FLAG_MASK;
 
