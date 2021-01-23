@@ -6,9 +6,9 @@
 macro_rules! kprint {
     ($($arg:tt)*) => {{
         use core::fmt::Write;
-        use crate::drivers::ns16550::*;
+        use crate::drivers::ns16550::UART0;
 
-        write!(Ns16550::new(NS16550_BASE), $($arg)+).ok();
+        write!(UART0.lock(), $($arg)+).ok();
     }};
 }
 
