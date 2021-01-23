@@ -43,7 +43,7 @@ mod tests {
     // For testing purposes
     impl Address for usize {}
 
-    #[test]
+    #[test_case]
     fn address_page_alignment() {
         for t in &[
             (0, 0, 0),

@@ -21,6 +21,10 @@
     const_fn_fn_ptr_basics,
     const_raw_ptr_to_usize_cast
 )]
+// Features required to build a custom test framework
+#![feature(custom_test_frameworks)]
+#![test_runner(crate::testing::test_runner)]
+#![reexport_test_harness_main = "run_tests"]
 
 /// Utility macros.
 #[macro_use]
@@ -38,6 +42,9 @@ pub mod mm;
 /// Panic support.
 pub mod panic;
 
+/// Custom test framework.
+pub mod testing;
+
 const RV6_ASCII_LOGO: &str = r#"
 ________________________________________/\\\\\_       
 ____________________________________/\\\\////__       
@@ -54,6 +61,9 @@ ____________________________________/\\\\////__
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
     kprintln!("{}", RV6_ASCII_LOGO);
+
+    #[cfg(test)]
+    run_tests();
 
     #[allow(clippy::empty_loop)]
     loop {}

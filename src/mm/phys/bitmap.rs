@@ -173,58 +173,29 @@ impl FrameAllocator for BitmapAllocator {
 mod tests {
     use super::*;
 
-    use std::{
-        alloc::{self, Layout},
-        ptr,
-    };
-
-    use crate::mm::page::PAGE_LENGTH;
+    use crate::mm::page::PAGE_SIZE;
 
     const NUM_PAGES: usize = 32;
-    const MEM_SIZE: usize = NUM_PAGES * PAGE_LENGTH;
+    const MEM_SIZE: usize = NUM_PAGES * PAGE_SIZE;
+    const MEM_BASE: usize = 0x8700_0000;
 
-    #[derive(Debug)]
-    struct MemChunk {
-        base: *mut u8,
-        layout: Layout,
-    }
-
-    impl MemChunk {
-        fn alloc(size: usize, align: usize) -> Self {
-            unsafe {
-                let layout = Layout::from_size_align(size, align).unwrap();
-                let base = alloc::alloc(layout);
-                ptr::write_bytes(base, 0xAA, size);
-                Self { base, layout }
-            }
-        }
-    }
-
-    impl Drop for MemChunk {
-        fn drop(&mut self) {
-            unsafe { alloc::dealloc(self.base, self.layout) };
-        }
-    }
-
-    #[test]
+    #[cfg_attr(not(target_arch = "riscv64"), test_case)]
     fn construction() {
-        let memory = MemChunk::alloc(MEM_SIZE, PAGE_LENGTH);
-
         let allocator = unsafe {
             BitmapAllocator::init(
-                PhysicalAddress::new(memory.base as usize),
-                PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
-                PAGE_LENGTH,
+                PhysicalAddress::new(MEM_BASE),
+                PhysicalAddress::new(MEM_BASE) + MEM_SIZE,
+                PAGE_SIZE,
             )
             .unwrap()
         };
 
-        assert_eq!(allocator.page_size, PAGE_LENGTH);
+        assert_eq!(allocator.page_size, PAGE_SIZE);
         assert_eq!(allocator.num_pages, NUM_PAGES - 1);
-        assert_eq!(allocator.descriptors as *mut u8, memory.base);
+        assert_eq!(allocator.descriptors as *const (), MEM_BASE as *const ());
         assert_eq!(
             allocator.base_addr,
-            PhysicalAddress::new(memory.base as usize) + PAGE_LENGTH,
+            PhysicalAddress::new(MEM_BASE) + PAGE_SIZE,
         );
 
         for i in 0..NUM_PAGES - 1 {
@@ -237,19 +208,19 @@ mod tests {
         }
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "riscv64"), test_case)]
     fn invalid_addresses() {
         for t in &[
-            (1, PAGE_LENGTH),
-            (PAGE_LENGTH, 2 * PAGE_LENGTH - 1),
-            (1, PAGE_LENGTH - 1),
+            (1, PAGE_SIZE),
+            (PAGE_SIZE, 2 * PAGE_SIZE - 1),
+            (1, PAGE_SIZE - 1),
         ] {
             unsafe {
                 assert!(matches!(
                     BitmapAllocator::init(
                         PhysicalAddress::new(t.0),
                         PhysicalAddress::new(t.1),
-                        PAGE_LENGTH,
+                        PAGE_SIZE,
                     ),
                     Err(AllocatorError::UnalignedAddress)
                 ));
@@ -257,14 +228,14 @@ mod tests {
         }
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "riscv64"), test_case)]
     fn invalid_page_size() {
-        for t in &[0, 3, 24, PAGE_LENGTH - 1, PAGE_LENGTH + 2] {
+        for t in &[0, 3, 24, PAGE_SIZE - 1, PAGE_SIZE + 2] {
             unsafe {
                 assert!(matches!(
                     BitmapAllocator::init(
                         PhysicalAddress::new(0),
-                        PhysicalAddress::new(PAGE_LENGTH),
+                        PhysicalAddress::new(PAGE_SIZE),
                         *t,
                     ),
                     Err(AllocatorError::InvalidPageSize)
@@ -273,15 +244,13 @@ mod tests {
         }
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "riscv64"), test_case)]
     fn single_page() {
-        let memory = MemChunk::alloc(MEM_SIZE, PAGE_LENGTH);
-
         unsafe {
             let mut allocator = BitmapAllocator::init(
-                PhysicalAddress::new(memory.base as usize),
-                PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
-                PAGE_LENGTH,
+                PhysicalAddress::new(MEM_BASE),
+                PhysicalAddress::new(MEM_BASE) + MEM_SIZE,
+                PAGE_SIZE,
             )
             .unwrap();
 
@@ -293,15 +262,13 @@ mod tests {
         };
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "riscv64"), test_case)]
     fn multiple_pages() {
-        let memory = MemChunk::alloc(MEM_SIZE, PAGE_LENGTH);
-
         unsafe {
             let mut allocator = BitmapAllocator::init(
-                PhysicalAddress::new(memory.base as usize),
-                PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
-                PAGE_LENGTH,
+                PhysicalAddress::new(MEM_BASE),
+                PhysicalAddress::new(MEM_BASE) + MEM_SIZE,
+                PAGE_SIZE,
             )
             .unwrap();
 
@@ -313,15 +280,13 @@ mod tests {
         };
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "riscv64"), test_case)]
     fn multiple_allocations() {
-        let memory = MemChunk::alloc(MEM_SIZE, PAGE_LENGTH);
-
         unsafe {
             let mut allocator = BitmapAllocator::init(
-                PhysicalAddress::new(memory.base as usize),
-                PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
-                PAGE_LENGTH,
+                PhysicalAddress::new(MEM_BASE),
+                PhysicalAddress::new(MEM_BASE) + MEM_SIZE,
+                PAGE_SIZE,
             )
             .unwrap();
 
@@ -348,15 +313,13 @@ mod tests {
         };
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "riscv64"), test_case)]
     fn reuse_pages() {
-        let memory = MemChunk::alloc(MEM_SIZE, PAGE_LENGTH);
-
         unsafe {
             let mut allocator = BitmapAllocator::init(
-                PhysicalAddress::new(memory.base as usize),
-                PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
-                PAGE_LENGTH,
+                PhysicalAddress::new(MEM_BASE),
+                PhysicalAddress::new(MEM_BASE) + MEM_SIZE,
+                PAGE_SIZE,
             )
             .unwrap();
 
@@ -378,15 +341,13 @@ mod tests {
         };
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "riscv64"), test_case)]
     fn big_allocation() {
-        let memory = MemChunk::alloc(MEM_SIZE, PAGE_LENGTH);
-
         unsafe {
             let mut allocator = BitmapAllocator::init(
-                PhysicalAddress::new(memory.base as usize),
-                PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
-                PAGE_LENGTH,
+                PhysicalAddress::new(MEM_BASE),
+                PhysicalAddress::new(MEM_BASE) + MEM_SIZE,
+                PAGE_SIZE,
             )
             .unwrap();
 
@@ -402,15 +363,13 @@ mod tests {
         };
     }
 
-    #[test]
+    #[cfg_attr(not(target_arch = "riscv64"), test_case)]
     fn spare_allocation() {
-        let memory = MemChunk::alloc(MEM_SIZE, PAGE_LENGTH);
-
         unsafe {
             let mut allocator = BitmapAllocator::init(
-                PhysicalAddress::new(memory.base as usize),
-                PhysicalAddress::new(memory.base as usize) + MEM_SIZE,
-                PAGE_LENGTH,
+                PhysicalAddress::new(MEM_BASE),
+                PhysicalAddress::new(MEM_BASE) + MEM_SIZE,
+                PAGE_SIZE,
             )
             .unwrap();
 
