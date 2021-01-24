@@ -140,7 +140,7 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapF
         tf.dump(epc);
 
         // Halt the hart. This will change when exceptions are handled.
-        unsafe { halt() };
+        halt();
     }
 }
 

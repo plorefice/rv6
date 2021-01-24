@@ -11,6 +11,7 @@
 #![feature(asm)]
 
 pub mod addr;
+pub mod instructions;
 pub mod registers;
 
 pub use addr::{InvalidAddrError, PhysAddr, VirtAddr};
