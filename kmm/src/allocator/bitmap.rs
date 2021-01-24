@@ -15,7 +15,8 @@
 use core::mem::size_of;
 
 use bitflags::bitflags;
-use riscv::{addr::Align, PhysAddr};
+
+use crate::PhysicalAddress;
 
 use super::{AllocatorError, FrameAllocator};
 
@@ -35,13 +36,16 @@ struct PageDescriptor {
 
 /// A frame allocator storing page state as a bitmap of page descriptors.
 #[derive(Debug)]
-pub struct BitmapAllocator<const N: u64> {
+pub struct BitmapAllocator<A, const N: u64> {
     descriptors: *mut PageDescriptor,
-    base_addr: PhysAddr,
+    base_addr: A,
     num_pages: u64,
 }
 
-impl<const N: u64> BitmapAllocator<N> {
+impl<A, const N: u64> BitmapAllocator<A, N>
+where
+    A: PhysicalAddress<u64>,
+{
     /// Creates a new bitmap allocator taking ownership of the memory delimited by addresses
     /// `start` and `end`, and allocating pages of size `page_size`.
     ///
@@ -53,7 +57,7 @@ impl<const N: u64> BitmapAllocator<N> {
     ///
     /// There can be no guarantee that the memory being passed to the allocator isn't already in
     /// use by the system, so tread carefully here.
-    pub unsafe fn init(start: PhysAddr, end: PhysAddr) -> Result<Self, AllocatorError> {
+    pub unsafe fn init(start: A, end: A) -> Result<Self, AllocatorError> {
         if N == 0 || !N.is_power_of_two() {
             return Err(AllocatorError::InvalidPageSize);
         }
@@ -61,7 +65,7 @@ impl<const N: u64> BitmapAllocator<N> {
             return Err(AllocatorError::UnalignedAddress);
         }
 
-        let total_mem_size = u64::from(end - start);
+        let total_mem_size: u64 = (end - start).into();
         let total_num_pages = total_mem_size / N;
 
         // A portion of memory starting from `start` will be reserved to hold page descriptors.
@@ -69,10 +73,10 @@ impl<const N: u64> BitmapAllocator<N> {
         let reserved_mem = total_num_pages * size_of::<PageDescriptor>() as u64;
         let avail_mem_start = (start + reserved_mem).align_up(N);
         let avail_mem_size = end - avail_mem_start;
-        let avail_pages = u64::from(avail_mem_size) / N;
+        let avail_pages: u64 = avail_mem_size.into() / N;
 
         // Initially mark all pages as free
-        let descriptors = u64::from(start) as *mut PageDescriptor;
+        let descriptors = <A as Into<u64>>::into(start) as *mut PageDescriptor;
         for i in 0..avail_pages {
             descriptors.add(i as usize).write(PageDescriptor {
                 flags: PageFlags::empty(),
@@ -87,8 +91,11 @@ impl<const N: u64> BitmapAllocator<N> {
     }
 }
 
-impl<const N: u64> FrameAllocator<N> for BitmapAllocator<N> {
-    unsafe fn alloc(&mut self, count: usize) -> Option<PhysAddr> {
+impl<A, const N: u64> FrameAllocator<A, N> for BitmapAllocator<A, N>
+where
+    A: PhysicalAddress<u64>,
+{
+    unsafe fn alloc(&mut self, count: usize) -> Option<A> {
         let mut i = 0;
 
         'outer: while i < self.num_pages {
@@ -138,8 +145,8 @@ impl<const N: u64> FrameAllocator<N> for BitmapAllocator<N> {
         None
     }
 
-    unsafe fn free(&mut self, address: PhysAddr) {
-        let offset = u64::from(address - self.base_addr) / N;
+    unsafe fn free(&mut self, address: A) {
+        let offset: u64 = (address - self.base_addr).into() / N;
 
         for i in offset..self.num_pages {
             let descr = self.descriptors.add(i as usize);

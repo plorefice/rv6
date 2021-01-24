@@ -1,15 +1,10 @@
 [package]
 authors = ["Pietro Lorefice <pietro.lorefice@gmail.com>"]
 edition = "2018"
-name = "rv6"
+name = "kmm"
 version = "0.1.0"
 
 [dependencies]
 bitflags = "1.2.1"
-kmm = {path = "../kmm"}
-lazy_static = {version = "1.4.0", features = ["spin_no_std"]}
 riscv = {path = "../riscv"}
 spin = "0.7.1"
-
-[build-dependencies]
-cc = "1.0"

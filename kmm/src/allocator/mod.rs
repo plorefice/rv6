@@ -1,5 +1,8 @@
-use riscv::PhysAddr;
+//! Collection of memory allocators.
+
 use spin::Mutex;
+
+use crate::PhysicalAddress;
 
 pub mod bitmap;
 
@@ -13,28 +16,31 @@ pub enum AllocatorError {
 }
 
 /// A trait for page-grained memory allocators.
-pub trait FrameAllocator<const N: u64> {
+pub trait FrameAllocator<A, const N: u64>
+where
+    A: PhysicalAddress<u64>,
+{
     /// Allocates a memory section of `count` contiguous pages. If no countiguous section
     /// of the specified size can be allocated, `None` is returned.
     ///
     /// # Safety
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
-    unsafe fn alloc(&mut self, count: usize) -> Option<PhysAddr>;
+    unsafe fn alloc(&mut self, count: usize) -> Option<A>;
 
     /// Releases the allocated memory starting at the specified address back to the kernel.
     ///
     /// # Safety
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
-    unsafe fn free(&mut self, address: PhysAddr);
+    unsafe fn free(&mut self, address: A);
 
     /// Same as [`alloc`], but the allocated memory is also zeroed after allocation.
     ///
     /// # Safety
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
-    unsafe fn alloc_zeroed(&mut self, count: usize) -> Option<PhysAddr> {
+    unsafe fn alloc_zeroed(&mut self, count: usize) -> Option<A> {
         let paddr = Self::alloc(self, count)?;
         let uaddr: u64 = paddr.into();
 
@@ -47,6 +53,7 @@ pub trait FrameAllocator<const N: u64> {
 }
 
 /// A frame allocator wrapped in a [`Mutex`] for concurrent access.
+#[derive(Debug)]
 pub struct LockedAllocator<T> {
     inner: Mutex<Option<T>>,
 }
@@ -65,11 +72,12 @@ impl<T> LockedAllocator<T> {
     }
 }
 
-impl<T, const N: u64> FrameAllocator<N> for LockedAllocator<T>
+impl<A, T, const N: u64> FrameAllocator<A, N> for LockedAllocator<T>
 where
-    T: FrameAllocator<N>,
+    A: PhysicalAddress<u64>,
+    T: FrameAllocator<A, N>,
 {
-    unsafe fn alloc(&mut self, count: usize) -> Option<PhysAddr> {
+    unsafe fn alloc(&mut self, count: usize) -> Option<A> {
         let mut inner = self.inner.lock();
 
         if let Some(allocator) = &mut *inner {
@@ -79,7 +87,7 @@ where
         }
     }
 
-    unsafe fn free(&mut self, address: PhysAddr) {
+    unsafe fn free(&mut self, address: A) {
         let mut inner = self.inner.lock();
 
         if let Some(allocator) = &mut *inner {

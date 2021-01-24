@@ -1,9 +1,11 @@
 use core::fmt;
 
 use bitflags::bitflags;
-use riscv::{addr::Align, PhysAddr, VirtAddr};
-
-use crate::mm::phys::{bitmap::BitmapAllocator, AllocatorError, FrameAllocator, LockedAllocator};
+use kmm::{
+    allocator::{bitmap::BitmapAllocator, AllocatorError, FrameAllocator, LockedAllocator},
+    Align,
+};
+use riscv::{PhysAddr, VirtAddr};
 
 use super::SATP;
 
@@ -241,7 +243,7 @@ pub unsafe fn id_map_range(root: &mut PageTable, start: PhysAddr, end: PhysAddr,
 }
 
 /// Global frame allocator (GFA).
-pub static mut GFA: LockedAllocator<BitmapAllocator<PAGE_SIZE>> = LockedAllocator::new();
+pub static mut GFA: LockedAllocator<BitmapAllocator<PhysAddr, PAGE_SIZE>> = LockedAllocator::new();
 
 /// Initializes a physical memory allocator on the specified memory range.
 ///
@@ -252,7 +254,9 @@ unsafe fn phys_init(mem_start: PhysAddr, mem_size: u64) -> Result<(), AllocatorE
     let mem_start = mem_start.align_up(PAGE_SIZE);
     let mem_end = (mem_start + mem_size).align_down(PAGE_SIZE);
 
-    GFA.set_allocator(BitmapAllocator::<PAGE_SIZE>::init(mem_start, mem_end)?);
+    GFA.set_allocator(BitmapAllocator::<PhysAddr, PAGE_SIZE>::init(
+        mem_start, mem_end,
+    )?);
 
     Ok(())
 }

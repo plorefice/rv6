@@ -32,22 +32,6 @@ pub struct VirtAddr(usize);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InvalidAddrError;
 
-/// A trait for numeric types that can be aligned to a boundary.
-pub trait Align<T> {
-    /// Aligns address upwards to the specified bound.
-    ///
-    /// Returns the first address greater or equal than `addr` with alignment `align`.
-    fn align_up(&self, align: T) -> Self;
-
-    /// Aligns address downwards to the specified bound.
-    ///
-    /// Returns the first address lower or equal than `addr` with alignment `align`.
-    fn align_down(&self, align: T) -> Self;
-
-    /// Checks whether the address has the specified alignment.
-    fn is_aligned(&self, align: T) -> bool;
-}
-
 impl PhysAddr {
     /// Creates a new physical address.
     ///
@@ -99,26 +83,14 @@ impl PhysAddr {
         Self(addr)
     }
 
+    /// Returns the integer representation of this address.
+    pub fn data(self) -> u64 {
+        self.0
+    }
+
     /// Returns the lowest 12 bits of this address.
     pub fn page_offset(self) -> u64 {
         self.0 & 0xfff
-    }
-}
-
-impl Align<u64> for PhysAddr {
-    fn align_up(&self, align: u64) -> Self {
-        assert!(align.is_power_of_two(), "Alignment must be a power of two");
-        Self::new((self.0 + align - 1) & !(align - 1))
-    }
-
-    fn align_down(&self, align: u64) -> Self {
-        assert!(align.is_power_of_two(), "Alignment must be a power of two");
-        Self::new(self.0 & !(align - 1))
-    }
-
-    fn is_aligned(&self, align: u64) -> bool {
-        assert!(align.is_power_of_two(), "Alignment must be a power of two");
-        (self.0 & (align - 1)) == 0
     }
 }
 
@@ -207,32 +179,28 @@ impl Sub for PhysAddr {
     }
 }
 
+impl Sub<u64> for PhysAddr {
+    type Output = Self;
+
+    fn sub(self, rhs: u64) -> Self::Output {
+        Self::new(self.0 - rhs)
+    }
+}
+
 impl VirtAddr {
     /// Creates a new virtual address.
     pub const fn new(addr: usize) -> Self {
         Self(addr)
     }
 
+    /// Returns the integer representation of this address.
+    pub fn data(self) -> usize {
+        self.0
+    }
+
     /// Returns the lowest 12 bits of this address.
     pub fn page_offset(self) -> usize {
         self.0 & 0xfff
-    }
-}
-
-impl Align<usize> for VirtAddr {
-    fn align_up(&self, align: usize) -> Self {
-        assert!(align.is_power_of_two(), "Alignment must be a power of two");
-        Self::new((self.0 + align - 1) & !(align - 1))
-    }
-
-    fn align_down(&self, align: usize) -> Self {
-        assert!(align.is_power_of_two(), "Alignment must be a power of two");
-        Self::new(self.0 & !(align - 1))
-    }
-
-    fn is_aligned(&self, align: usize) -> bool {
-        assert!(align.is_power_of_two(), "Alignment must be a power of two");
-        (self.0 & (align - 1)) == 0
     }
 }
 

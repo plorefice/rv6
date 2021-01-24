@@ -1,4 +1,4 @@
-//! This crate provides RISV-V specific functions and data structures,
+//! This crate provides RISC-V specific functions and data structures,
 //! and access to various system registers.
 //!
 //! # Features
