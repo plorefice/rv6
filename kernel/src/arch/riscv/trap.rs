@@ -1,3 +1,5 @@
+use riscv::registers::Stvec;
+
 use super::*;
 
 // {m,s}cause register flags
@@ -149,9 +151,10 @@ pub fn init() {
         fn trap_entry();
     }
 
-    STVEC.write(trap_entry as *const () as usize);
+    // Configure trap vector to point to `trap_entry`
+    Stvec::write(trap_entry as *const () as u64);
 
     // Enable interrupts
-    SIE.set(IE_SSIE | IE_STIE | IE_SEIE);
-    SSTATUS.set(STATUS_SIE);
+    Sie::set(SiFlags::SSIE | SiFlags::STIE | SiFlags::SEIE);
+    unsafe { Sstatus::set(SstatusFlags::SIE) };
 }

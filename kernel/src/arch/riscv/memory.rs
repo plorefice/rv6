@@ -5,9 +5,10 @@ use kmm::{
     allocator::{bitmap::BitmapAllocator, AllocatorError, FrameAllocator, LockedAllocator},
     Align,
 };
-use riscv::{PhysAddr, VirtAddr};
-
-use super::SATP;
+use riscv::{
+    registers::{Satp, SatpMode},
+    PhysAddr, VirtAddr,
+};
 
 const PAGE_SHIFT: u64 = 12;
 const PAGE_SIZE: u64 = 1 << 12;
@@ -356,6 +357,7 @@ pub fn init() {
         );
 
         // Enable MMU
-        SATP.write((0x8 << 60) | ((root as *const _ as usize) >> PAGE_SHIFT));
+        Satp::write_ppn((root as *const _ as u64) >> PAGE_SHIFT);
+        Satp::write_mode(SatpMode::Sv39);
     }
 }

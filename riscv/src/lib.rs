@@ -8,7 +8,9 @@
 #![no_std]
 #![warn(missing_docs)]
 #![deny(missing_debug_implementations)]
+#![feature(asm)]
 
 pub mod addr;
+pub mod registers;
 
 pub use addr::{InvalidAddrError, PhysAddr, VirtAddr};
