@@ -1,15 +1,7 @@
-use core::mem::size_of;
-
+use riscv::PhysAddr;
 use spin::Mutex;
 
-use self::bitmap::BitmapAllocator;
-
-use super::page::{Address, PAGE_SIZE};
-
-mod address;
 pub mod bitmap;
-
-pub use address::*;
 
 /// The error type returned by fallible allocator operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -21,41 +13,38 @@ pub enum AllocatorError {
 }
 
 /// A trait for page-grained memory allocators.
-pub trait FrameAllocator {
+pub trait FrameAllocator<const N: u64> {
     /// Allocates a memory section of `count` contiguous pages. If no countiguous section
     /// of the specified size can be allocated, `None` is returned.
     ///
     /// # Safety
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
-    unsafe fn alloc(&mut self, count: usize) -> Option<PhysicalAddress>;
+    unsafe fn alloc(&mut self, count: usize) -> Option<PhysAddr>;
 
     /// Releases the allocated memory starting at the specified address back to the kernel.
     ///
     /// # Safety
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
-    unsafe fn free(&mut self, address: PhysicalAddress);
+    unsafe fn free(&mut self, address: PhysAddr);
 
     /// Same as [`alloc`], but the allocated memory is also zeroed after allocation.
     ///
     /// # Safety
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
-    unsafe fn alloc_zeroed(&mut self, count: usize) -> Option<PhysicalAddress> {
+    unsafe fn alloc_zeroed(&mut self, count: usize) -> Option<PhysAddr> {
         let paddr = Self::alloc(self, count)?;
-        let uaddr = usize::from(paddr);
+        let uaddr: u64 = paddr.into();
 
-        for i in 0..PAGE_SIZE / size_of::<usize>() {
-            (uaddr as *mut usize).add(i).write(0);
+        for i in 0..N / 8 {
+            (uaddr as *mut u64).add(i as usize).write(0);
         }
 
         Some(paddr)
     }
 }
-
-/// Global frame allocator (GFA).
-pub static mut GFA: LockedAllocator<BitmapAllocator> = LockedAllocator::new();
 
 /// A frame allocator wrapped in a [`Mutex`] for concurrent access.
 pub struct LockedAllocator<T> {
@@ -63,18 +52,24 @@ pub struct LockedAllocator<T> {
 }
 
 impl<T> LockedAllocator<T> {
-    const fn new() -> Self {
+    /// Creates a new empty locked allocator.
+    pub const fn new() -> Self {
         Self {
             inner: Mutex::new(None),
         }
     }
+
+    /// Configures the underlying allocator to be used.
+    pub fn set_allocator(&self, inner: T) {
+        *self.inner.lock() = Some(inner);
+    }
 }
 
-impl<T> FrameAllocator for LockedAllocator<T>
+impl<T, const N: u64> FrameAllocator<N> for LockedAllocator<T>
 where
-    T: FrameAllocator,
+    T: FrameAllocator<N>,
 {
-    unsafe fn alloc(&mut self, count: usize) -> Option<PhysicalAddress> {
+    unsafe fn alloc(&mut self, count: usize) -> Option<PhysAddr> {
         let mut inner = self.inner.lock();
 
         if let Some(allocator) = &mut *inner {
@@ -84,25 +79,11 @@ where
         }
     }
 
-    unsafe fn free(&mut self, address: PhysicalAddress) {
+    unsafe fn free(&mut self, address: PhysAddr) {
         let mut inner = self.inner.lock();
 
         if let Some(allocator) = &mut *inner {
             allocator.free(address);
         }
     }
-}
-
-/// Initializes a physical memory allocator on the specified memory range.
-///
-/// # Safety
-///
-/// There can be no guarantee that the memory being initialized isn't already in use by the system.
-pub unsafe fn init(mem_start: PhysicalAddress, mem_size: usize) -> Result<(), AllocatorError> {
-    let mem_start = mem_start.align_to_next_page(PAGE_SIZE);
-    let mem_end = (mem_start + mem_size).align_to_previous_page(PAGE_SIZE);
-
-    *GFA.inner.lock() = Some(BitmapAllocator::init(mem_start, mem_end, PAGE_SIZE)?);
-
-    Ok(())
 }

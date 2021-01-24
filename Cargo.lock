@@ -22,12 +22,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "riscv"
+version = "0.1.0"
+
+[[package]]
 name = "rv6"
 version = "0.1.0"
 dependencies = [
  "bitflags",
  "cc",
  "lazy_static",
+ "riscv",
  "spin 0.7.1",
 ]
 

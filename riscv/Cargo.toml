@@ -1,0 +1,9 @@
+[package]
+authors = ["Pietro Lorefice <pietro.lorefice@gmail.com>"]
+edition = "2018"
+name = "riscv"
+version = "0.1.0"
+
+[features]
+default = ["sv39"]
+sv39 = []

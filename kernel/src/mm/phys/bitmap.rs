@@ -7,7 +7,7 @@
 //! as the last (or only) page in a chunk. Discriminating between these last two states allows to
 //! free a memory chunk by knowing only its pointer and not its size.
 //!
-//! # Complexity
+//! # Complexity
 //!
 //! Freeing a page in a bitmap allocator has `O(1)` complexity, but allocation is more expensive
 //! (`O(n)`) since we need to find a large-enough chunk of free pages.
@@ -15,10 +15,9 @@
 use core::mem::size_of;
 
 use bitflags::bitflags;
+use riscv::PhysAddr;
 
-use crate::mm::page::Address;
-
-use super::{AllocatorError, FrameAllocator, PhysicalAddress};
+use super::{AllocatorError, FrameAllocator};
 
 bitflags! {
     /// Allocation status of a page.
@@ -36,51 +35,46 @@ struct PageDescriptor {
 
 /// A frame allocator storing page state as a bitmap of page descriptors.
 #[derive(Debug)]
-pub struct BitmapAllocator {
+pub struct BitmapAllocator<const N: u64> {
     descriptors: *mut PageDescriptor,
-    base_addr: PhysicalAddress,
-    page_size: usize,
-    num_pages: usize,
+    base_addr: PhysAddr,
+    num_pages: u64,
 }
 
-impl BitmapAllocator {
+impl<const N: u64> BitmapAllocator<N> {
     /// Creates a new bitmap allocator taking ownership of the memory delimited by addresses
     /// `start` and `end`, and allocating pages of size `page_size`.
     ///
     /// Returns an `AllocationError` if any of the following conditions are not met:
-    ///  - `start` and `end` are page-aligned,
+    ///  - `start` and `end` are page-aligned,
     ///  - `page_size` is a non-zero power of two.
     ///
     /// # Safety
     ///
     /// There can be no guarantee that the memory being passed to the allocator isn't already in
     /// use by the system, so tread carefully here.
-    pub unsafe fn init(
-        start: PhysicalAddress,
-        end: PhysicalAddress,
-        page_size: usize,
-    ) -> Result<Self, AllocatorError> {
-        if page_size == 0 || !page_size.is_power_of_two() {
+    pub unsafe fn init(start: PhysAddr, end: PhysAddr) -> Result<Self, AllocatorError> {
+        if N == 0 || !N.is_power_of_two() {
             return Err(AllocatorError::InvalidPageSize);
         }
-        if !start.is_page_aligned(page_size) || !end.is_page_aligned(page_size) {
+        if !start.is_aligned(N) || !end.is_aligned(N) {
             return Err(AllocatorError::UnalignedAddress);
         }
 
-        let total_mem_size = usize::from(end - start);
-        let total_num_pages = total_mem_size / page_size;
+        let total_mem_size = u64::from(end - start);
+        let total_num_pages = total_mem_size / N;
 
-        // A portion of memory starting from `start` will be reserved to hold page descriptors.
+        // A portion of memory starting from `start` will be reserved to hold page descriptors.
         // Memory available for allocation starts after this reserved memory.
-        let reserved_mem = total_num_pages * size_of::<PageDescriptor>();
-        let avail_mem_start = (start + reserved_mem).align_to_next_page(page_size);
+        let reserved_mem = total_num_pages * size_of::<PageDescriptor>() as u64;
+        let avail_mem_start = (start + reserved_mem).align_up(N);
         let avail_mem_size = end - avail_mem_start;
-        let avail_pages = usize::from(avail_mem_size) / page_size;
+        let avail_pages = u64::from(avail_mem_size) / N;
 
         // Initially mark all pages as free
-        let descriptors = usize::from(start) as *mut PageDescriptor;
+        let descriptors = u64::from(start) as *mut PageDescriptor;
         for i in 0..avail_pages {
-            descriptors.add(i).write(PageDescriptor {
+            descriptors.add(i as usize).write(PageDescriptor {
                 flags: PageFlags::empty(),
             });
         }
@@ -88,18 +82,17 @@ impl BitmapAllocator {
         Ok(Self {
             descriptors,
             base_addr: avail_mem_start,
-            page_size,
             num_pages: avail_pages,
         })
     }
 }
 
-impl FrameAllocator for BitmapAllocator {
-    unsafe fn alloc(&mut self, count: usize) -> Option<PhysicalAddress> {
+impl<const N: u64> FrameAllocator<N> for BitmapAllocator<N> {
+    unsafe fn alloc(&mut self, count: usize) -> Option<PhysAddr> {
         let mut i = 0;
 
         'outer: while i < self.num_pages {
-            let descr = self.descriptors.add(i);
+            let descr = self.descriptors.add(i as usize);
 
             // Page already taken => keep going.
             if (*descr)
@@ -111,15 +104,15 @@ impl FrameAllocator for BitmapAllocator {
             }
 
             // Not enough pages left => abort.
-            if self.num_pages - i < count {
+            if self.num_pages - i < count as u64 {
                 return None;
             }
 
             // Check if enough contiguous pages are free
             // NOTE: `x` here to make clippy happy.
             let x = i;
-            for j in x..x + count {
-                let descr = self.descriptors.add(j);
+            for j in x..x + count as u64 {
+                let descr = self.descriptors.add(j as usize);
 
                 if (*descr)
                     .flags
@@ -130,26 +123,26 @@ impl FrameAllocator for BitmapAllocator {
                 }
             }
 
-            // If we get here, we managed to find `count` free pages.
-            for j in i..i + count {
-                (*self.descriptors.add(j)).flags |= if j == i + count - 1 {
+            // If we get here, we managed to find `count` free pages.
+            for j in i..i + count as u64 {
+                (*self.descriptors.add(j as usize)).flags |= if j == i + count as u64 - 1 {
                     PageFlags::LAST
                 } else {
                     PageFlags::TAKEN
                 };
             }
 
-            return Some(self.base_addr + i * self.page_size);
+            return Some(self.base_addr + i * N);
         }
 
         None
     }
 
-    unsafe fn free(&mut self, address: PhysicalAddress) {
-        let offset = usize::from(address - self.base_addr) / self.page_size;
+    unsafe fn free(&mut self, address: PhysAddr) {
+        let offset = u64::from(address - self.base_addr) / N;
 
         for i in offset..self.num_pages {
-            let descr = self.descriptors.add(i);
+            let descr = self.descriptors.add(i as usize);
             let flags = &mut (*descr).flags;
 
             let is_last = flags.contains(PageFlags::LAST);
