@@ -19,22 +19,34 @@ use core::{
 #[repr(transparent)]
 pub struct PhysAddr(u64);
 
-/// A 64-bit virtual memory address.
+/// A virtual memory address.
 ///
-/// This is a wrapper type around an `u64`, so it is always 8 bytes, even when compiled on
-/// non 64-bit systems. The [`TryFrom`](core::convert::TryFrom) trait can be used
-/// for performing conversions between `u64` and `usize`.
-///
-/// The actual address width depends on the chosen MMU specification: 32 bits for Sv32, 39 bits
-/// for Sv39 and 48 bits for Sv48. The remaining bits can be freely used by the OS to encode
+/// The address width depends on the chosen MMU specification: 4 bytes for Sv32, and 8 bytes for
+/// Sv39 and Sv48. The unused bits in Sv39 and Sv48 mode can be freely used by the OS to encode
 /// additional information within the address.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
-pub struct VirtAddr(u64);
+pub struct VirtAddr(usize);
 
 /// Error type returned by failed address conversions or operations on invalid addresses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InvalidAddrError;
+
+/// A trait for numeric types that can be aligned to a boundary.
+pub trait Align<T> {
+    /// Aligns address upwards to the specified bound.
+    ///
+    /// Returns the first address greater or equal than `addr` with alignment `align`.
+    fn align_up(&self, align: T) -> Self;
+
+    /// Aligns address downwards to the specified bound.
+    ///
+    /// Returns the first address lower or equal than `addr` with alignment `align`.
+    fn align_down(&self, align: T) -> Self;
+
+    /// Checks whether the address has the specified alignment.
+    fn is_aligned(&self, align: T) -> bool;
+}
 
 impl PhysAddr {
     /// Creates a new physical address.
@@ -87,45 +99,26 @@ impl PhysAddr {
         Self(addr)
     }
 
-    /// Aligns address upwards to the specified bound.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `align` is not a power of two or the result is not a valid physical address.
-    pub fn align_up<U>(self, align: U) -> Self
-    where
-        U: Into<u64>,
-    {
-        Self::new(align_up(self.0, align.into()))
-    }
-
-    /// Aligns address downwards to the specified bound.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `align` is not a power of two
-    pub fn align_down<U>(self, align: U) -> Self
-    where
-        U: Into<u64>,
-    {
-        Self::new(align_down(self.0, align.into()))
-    }
-
-    /// Checks whether the address has the specified alignment.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `align` is not a power of two
-    pub fn is_aligned<U>(self, align: U) -> bool
-    where
-        U: Into<u64>,
-    {
-        is_aligned(self.0, align.into())
-    }
-
     /// Returns the lowest 12 bits of this address.
     pub fn page_offset(self) -> u64 {
         self.0 & 0xfff
+    }
+}
+
+impl Align<u64> for PhysAddr {
+    fn align_up(&self, align: u64) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        Self::new((self.0 + align - 1) & !(align - 1))
+    }
+
+    fn align_down(&self, align: u64) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        Self::new(self.0 & !(align - 1))
+    }
+
+    fn is_aligned(&self, align: u64) -> bool {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        (self.0 & (align - 1)) == 0
     }
 }
 
@@ -216,60 +209,41 @@ impl Sub for PhysAddr {
 
 impl VirtAddr {
     /// Creates a new virtual address.
-    pub const fn new(addr: u64) -> Self {
+    pub const fn new(addr: usize) -> Self {
         Self(addr)
     }
 
-    /// Aligns address upwards to the specified bound.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `align` is not a power of two or the result is not a valid physical address.
-    pub fn align_up<U>(self, align: U) -> Self
-    where
-        U: Into<u64>,
-    {
-        Self::new(align_up(self.0, align.into()))
-    }
-
-    /// Aligns address downwards to the specified bound.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `align` is not a power of two
-    pub fn align_down<U>(self, align: U) -> Self
-    where
-        U: Into<u64>,
-    {
-        Self::new(align_down(self.0, align.into()))
-    }
-
-    /// Checks whether the address has the specified alignment.
-    ///
-    /// # Panics
-    ///
-    /// Panics if `align` is not a power of two
-    pub fn is_aligned<U>(self, align: U) -> bool
-    where
-        U: Into<u64>,
-    {
-        is_aligned(self.0, align.into())
-    }
-
     /// Returns the lowest 12 bits of this address.
-    pub fn page_offset(self) -> u64 {
+    pub fn page_offset(self) -> usize {
         self.0 & 0xfff
     }
 }
 
-impl From<VirtAddr> for u64 {
+impl Align<usize> for VirtAddr {
+    fn align_up(&self, align: usize) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        Self::new((self.0 + align - 1) & !(align - 1))
+    }
+
+    fn align_down(&self, align: usize) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        Self::new(self.0 & !(align - 1))
+    }
+
+    fn is_aligned(&self, align: usize) -> bool {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        (self.0 & (align - 1)) == 0
+    }
+}
+
+impl From<VirtAddr> for usize {
     fn from(va: VirtAddr) -> Self {
         va.0
     }
 }
 
-impl From<u64> for VirtAddr {
-    fn from(addr: u64) -> Self {
+impl From<usize> for VirtAddr {
+    fn from(addr: usize) -> Self {
         Self::new(addr)
     }
 }
@@ -318,75 +292,5 @@ impl fmt::Pointer for VirtAddr {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Pointer::fmt(&(self.0 as *const ()), f)
-    }
-}
-
-/// Aligns address upwards to the specified bound.
-///
-/// Returns the first address greater or equal than `addr` with alignment `align`.
-///
-/// # Panics
-///
-/// Panics if the alignment is not a power of two.
-#[inline]
-fn align_up(addr: u64, align: u64) -> u64 {
-    assert!(align.is_power_of_two(), "Alignment must be a power of two");
-    (addr + align - 1) & !(align - 1)
-}
-
-/// Aligns address downwards to the specified bound.
-///
-/// Returns the first address lower or equal than `addr` with alignment `align`.
-///
-/// # Panics
-///
-/// Panics if the alignment is not a power of two.
-#[inline]
-fn align_down(addr: u64, align: u64) -> u64 {
-    assert!(align.is_power_of_two(), "Alignment must be a power of two");
-    addr & !(align - 1)
-}
-
-/// Checks whether the address has the specified alignment.
-///
-/// # Panics
-///
-/// Panics if the alignment is not a power of two.
-#[inline]
-fn is_aligned(addr: u64, align: u64) -> bool {
-    assert!(align.is_power_of_two(), "Alignment must be a power of two");
-    (addr & (align - 1)) == 0
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn alignment() {
-        const ALIGN: u64 = 4096;
-
-        for t in &[
-            (0, 0, 0),
-            (1, ALIGN, 0),
-            (42, ALIGN, 0),
-            (ALIGN - 1, ALIGN, 0),
-            (ALIGN, ALIGN, ALIGN),
-            (ALIGN + 1, 2 * ALIGN, ALIGN),
-        ] {
-            assert_eq!(t.1, align_up(t.0, ALIGN));
-            assert_eq!(t.2, align_down(t.0, ALIGN));
-        }
-
-        for t in &[
-            (0, true),
-            (1, false),
-            (42, false),
-            (ALIGN - 1, false),
-            (ALIGN, true),
-            (ALIGN + 1, false),
-        ] {
-            assert_eq!(t.1, is_aligned(t.0, ALIGN));
-        }
     }
 }

@@ -1,7 +1,7 @@
 use core::fmt;
 
 use bitflags::bitflags;
-use riscv::{PhysAddr, VirtAddr};
+use riscv::{addr::Align, PhysAddr, VirtAddr};
 
 use crate::mm::phys::{bitmap::BitmapAllocator, AllocatorError, FrameAllocator, LockedAllocator};
 
@@ -159,15 +159,15 @@ impl Entry {
 /// All low-level memory operations are intrinsically unsafe.
 pub unsafe fn map(root: &mut PageTable, vaddr: VirtAddr, paddr: PhysAddr, flags: PteFields) {
     let vpn = [
-        (u64::from(vaddr) >> 12) & 0x1ff,
-        (u64::from(vaddr) >> 21) & 0x1ff,
-        (u64::from(vaddr) >> 30) & 0x1ff,
+        (usize::from(vaddr) >> 12) & 0x1ff,
+        (usize::from(vaddr) >> 21) & 0x1ff,
+        (usize::from(vaddr) >> 30) & 0x1ff,
     ];
 
     let mut table = root;
 
     for i in (0..=2).rev() {
-        let pte = table.get_entry_mut(vpn[i] as usize).unwrap();
+        let pte = table.get_entry_mut(vpn[i]).unwrap();
 
         if !pte.is_valid() {
             if i != 0 {
@@ -202,20 +202,20 @@ pub unsafe fn map(root: &mut PageTable, vaddr: VirtAddr, paddr: PhysAddr, flags:
 #[allow(dead_code)]
 pub unsafe fn virt_to_phys(root: &PageTable, vaddr: VirtAddr) -> Option<PhysAddr> {
     let vpn = [
-        (u64::from(vaddr) >> 12) & 0x1ff,
-        (u64::from(vaddr) >> 21) & 0x1ff,
-        (u64::from(vaddr) >> 30) & 0x1ff,
+        (usize::from(vaddr) >> 12) & 0x1ff,
+        (usize::from(vaddr) >> 21) & 0x1ff,
+        (usize::from(vaddr) >> 30) & 0x1ff,
     ];
 
     let mut table = root;
 
     for i in (0..=2).rev() {
-        let pte = table.get_entry(vpn[i] as usize).unwrap();
+        let pte = table.get_entry(vpn[i]).unwrap();
 
         if !pte.is_valid() {
             break;
         } else if pte.is_leaf() {
-            return Some(PhysAddr::new(pte.get_pnn() << PAGE_SHIFT) + vaddr.page_offset());
+            return Some(PhysAddr::new(pte.get_pnn() << PAGE_SHIFT) + vaddr.page_offset() as u64);
         } else {
             table = ((pte.get_pnn() << PAGE_SHIFT) as *const PageTable)
                 .as_ref()
@@ -236,7 +236,7 @@ pub unsafe fn id_map_range(root: &mut PageTable, start: PhysAddr, end: PhysAddr,
 
     for i in 0..num_pages {
         let addr = start + (i << PAGE_SHIFT);
-        map(root, VirtAddr::new(addr.into()), addr, flags);
+        map(root, VirtAddr::new(u64::from(addr) as usize), addr, flags);
     }
 }
 

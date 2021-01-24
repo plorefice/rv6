@@ -15,7 +15,7 @@
 use core::mem::size_of;
 
 use bitflags::bitflags;
-use riscv::PhysAddr;
+use riscv::{addr::Align, PhysAddr};
 
 use super::{AllocatorError, FrameAllocator};
 
