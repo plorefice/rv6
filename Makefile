@@ -28,7 +28,7 @@ run: $(RV6_BIN)
 test:
 # HACK: extract the path to the generated test binary by setting the runner to "echo"
 #      and assigning its stdout to the TEST_ELF variable.
-	$(eval TEST_ELF=$(shell CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUNNER="echo" cargo test))
+	$(eval TEST_ELF=$(shell cd kernel && CARGO_TARGET_RISCV64GC_UNKNOWN_NONE_ELF_RUNNER="echo" cargo test))
 	@$(OBJCOPY) -O binary "$(TEST_ELF)" "$(TEST_BIN)"
 	@$(QEMU) "$(TEST_BIN)"
 
