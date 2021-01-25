@@ -1,0 +1,12 @@
+[package]
+authors = ["Pietro Lorefice <pietro.lorefice@gmail.com>"]
+edition = "2018"
+name = "riscv"
+version = "0.1.0"
+
+[dependencies]
+bitflags = "1.2.1"
+
+[features]
+default = ["sv39"]
+sv39 = []

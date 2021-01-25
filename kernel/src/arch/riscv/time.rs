@@ -1,7 +1,5 @@
 use crate::mm::mmio::read_volatile;
 
-use super::sbi;
-
 const CLINT_BASE: usize = 0x0200_0000;
 const CLINT_TIME_OFFSET: usize = 0xbff8;
 
@@ -15,5 +13,5 @@ pub fn get_cycles() -> u64 {
 
 /// Schedules a timer interrupt to happend `interval` ticks in the future.
 pub fn schedule_next_tick(interval: u64) {
-    sbi::set_timer(get_cycles() + interval).unwrap();
+    sbi::Timer::set_timer(get_cycles() + interval).unwrap();
 }

@@ -1,4 +1,7 @@
 [workspace]
 members = [
   "kernel",
+  "riscv",
+  "kmm",
+  "sbi",
 ]

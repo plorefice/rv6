@@ -1,0 +1,5 @@
+[package]
+authors = ["Pietro Lorefice <pietro.lorefice@gmail.com>"]
+edition = "2018"
+name = "sbi"
+version = "0.1.0"

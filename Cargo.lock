@@ -13,6 +13,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c0496836a84f8d0495758516b8621a622beb77c0fed418570e50764093ced48"
 
 [[package]]
+name = "kmm"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+ "riscv",
+ "spin 0.7.1",
+]
+
+[[package]]
 name = "lazy_static"
 version = "1.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -22,14 +31,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "riscv"
+version = "0.1.0"
+dependencies = [
+ "bitflags",
+]
+
+[[package]]
 name = "rv6"
 version = "0.1.0"
 dependencies = [
  "bitflags",
  "cc",
+ "kmm",
  "lazy_static",
+ "riscv",
+ "sbi",
  "spin 0.7.1",
 ]
+
+[[package]]
+name = "sbi"
+version = "0.1.0"
 
 [[package]]
 name = "spin"

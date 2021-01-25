@@ -1,15 +1,17 @@
 use core::fmt;
 
 use bitflags::bitflags;
-
-use crate::mm::{
-    self,
-    page::{Address, PAGE_SHIFT, PAGE_SIZE},
-    phys::{FrameAllocator, PhysicalAddress, GFA},
-    virt::VirtualAddress,
+use kmm::{
+    allocator::{bitmap::BitmapAllocator, AllocatorError, FrameAllocator, LockedAllocator},
+    Align,
+};
+use riscv::{
+    registers::{Satp, SatpMode},
+    PhysAddr, VirtAddr,
 };
 
-use super::SATP;
+const PAGE_SHIFT: u64 = 12;
+const PAGE_SIZE: u64 = 1 << 12;
 
 const PTE_PPN_MASK: u64 = 0x3ff_ffff;
 const PTE_PPN_OFFSET: u64 = 10;
@@ -140,13 +142,13 @@ impl Entry {
         self.inner.insert(flags);
     }
 
-    fn get_pnn(&self) -> usize {
-        ((self.inner.bits() >> PTE_PPN_OFFSET) & PTE_PPN_MASK) as usize
+    fn get_pnn(&self) -> u64 {
+        (self.inner.bits() >> PTE_PPN_OFFSET) & PTE_PPN_MASK
     }
 
-    fn set_ppn(&mut self, ppn: usize) {
+    fn set_ppn(&mut self, ppn: u64) {
         self.inner.bits &= !(PTE_PPN_MASK << PTE_PPN_OFFSET);
-        self.inner.bits |= (ppn as u64 & PTE_PPN_MASK) << PTE_PPN_OFFSET;
+        self.inner.bits |= (ppn & PTE_PPN_MASK) << PTE_PPN_OFFSET;
     }
 }
 
@@ -158,12 +160,7 @@ impl Entry {
 /// # Safety
 ///
 /// All low-level memory operations are intrinsically unsafe.
-pub unsafe fn map(
-    root: &mut PageTable,
-    vaddr: VirtualAddress,
-    paddr: PhysicalAddress,
-    flags: PteFields,
-) {
+pub unsafe fn map(root: &mut PageTable, vaddr: VirtAddr, paddr: PhysAddr, flags: PteFields) {
     let vpn = [
         (usize::from(vaddr) >> 12) & 0x1ff,
         (usize::from(vaddr) >> 21) & 0x1ff,
@@ -178,14 +175,14 @@ pub unsafe fn map(
         if !pte.is_valid() {
             if i != 0 {
                 // Allocate next level of page table
-                let new_table_addr = usize::from(GFA.alloc_zeroed(1).unwrap());
+                let new_table_addr = u64::from(GFA.alloc_zeroed(1).unwrap());
                 pte.set_flags(PteFields::VALID);
                 pte.set_ppn(new_table_addr >> PAGE_SHIFT);
                 table = (new_table_addr as *mut PageTable).as_mut().unwrap();
             } else {
                 // Fill in leaf PTE
                 pte.set_flags(flags | PteFields::VALID);
-                pte.set_ppn(usize::from(paddr) >> PAGE_SHIFT);
+                pte.set_ppn(u64::from(paddr) >> PAGE_SHIFT);
             }
         } else if i != 0 {
             // Descend to next table level
@@ -206,7 +203,7 @@ pub unsafe fn map(
 /// Returns the physical address mapped to the specified virtual address, by traversing the
 /// provided page table.
 #[allow(dead_code)]
-pub unsafe fn virt_to_phys(root: &PageTable, vaddr: VirtualAddress) -> Option<PhysicalAddress> {
+pub unsafe fn virt_to_phys(root: &PageTable, vaddr: VirtAddr) -> Option<PhysAddr> {
     let vpn = [
         (usize::from(vaddr) >> 12) & 0x1ff,
         (usize::from(vaddr) >> 21) & 0x1ff,
@@ -221,7 +218,7 @@ pub unsafe fn virt_to_phys(root: &PageTable, vaddr: VirtualAddress) -> Option<Ph
         if !pte.is_valid() {
             break;
         } else if pte.is_leaf() {
-            return Some(PhysicalAddress::new(pte.get_pnn() << PAGE_SHIFT) + vaddr.page_offset());
+            return Some(PhysAddr::new(pte.get_pnn() << PAGE_SHIFT) + vaddr.page_offset() as u64);
         } else {
             table = ((pte.get_pnn() << PAGE_SHIFT) as *const PageTable)
                 .as_ref()
@@ -234,21 +231,35 @@ pub unsafe fn virt_to_phys(root: &PageTable, vaddr: VirtualAddress) -> Option<Ph
 
 /// Sets up identity mapping for a range of addresses, meaning that `vaddr == paddr` for all
 /// addresses the specifed range.
-pub unsafe fn id_map_range(
-    root: &mut PageTable,
-    start: PhysicalAddress,
-    end: PhysicalAddress,
-    flags: PteFields,
-) {
-    let start = start.align_to_previous_page(PAGE_SIZE);
-    let end = end.align_to_next_page(PAGE_SIZE);
+pub unsafe fn id_map_range(root: &mut PageTable, start: PhysAddr, end: PhysAddr, flags: PteFields) {
+    let start = start.align_down(PAGE_SIZE);
+    let end = end.align_up(PAGE_SIZE);
 
-    let num_pages = usize::from(end - start) >> PAGE_SHIFT;
+    let num_pages = u64::from(end - start) >> PAGE_SHIFT;
 
     for i in 0..num_pages {
         let addr = start + (i << PAGE_SHIFT);
-        map(root, VirtualAddress::new(addr.into()), addr, flags);
+        map(root, VirtAddr::new(u64::from(addr) as usize), addr, flags);
     }
+}
+
+/// Global frame allocator (GFA).
+pub static mut GFA: LockedAllocator<BitmapAllocator<PhysAddr, PAGE_SIZE>> = LockedAllocator::new();
+
+/// Initializes a physical memory allocator on the specified memory range.
+///
+/// # Safety
+///
+/// There can be no guarantee that the memory being initialized isn't already in use by the system.
+unsafe fn phys_init(mem_start: PhysAddr, mem_size: u64) -> Result<(), AllocatorError> {
+    let mem_start = mem_start.align_up(PAGE_SIZE);
+    let mem_end = (mem_start + mem_size).align_down(PAGE_SIZE);
+
+    GFA.set_allocator(BitmapAllocator::<PhysAddr, PAGE_SIZE>::init(
+        mem_start, mem_end,
+    )?);
+
+    Ok(())
 }
 
 /// Initializes the system memory, by setting up a frame allocator and enabling virtual memory.
@@ -274,14 +285,14 @@ pub fn init() {
     }
 
     unsafe {
-        let kernel_mem_end = PhysicalAddress::new(&__end as *const usize as usize);
+        let kernel_mem_end = PhysAddr::new(&__end as *const usize as u64);
 
-        let text_start = PhysicalAddress::new(&__text_start as *const usize as usize);
-        let text_end = PhysicalAddress::new(&__text_end as *const usize as usize);
-        let rodata_start = PhysicalAddress::new(&__rodata_start as *const usize as usize);
-        let rodata_end = PhysicalAddress::new(&__rodata_end as *const usize as usize);
-        let data_start = PhysicalAddress::new(&__data_start as *const usize as usize);
-        let data_end = PhysicalAddress::new(&__data_end as *const usize as usize);
+        let text_start = PhysAddr::new(&__text_start as *const usize as u64);
+        let text_end = PhysAddr::new(&__text_end as *const usize as u64);
+        let rodata_start = PhysAddr::new(&__rodata_start as *const usize as u64);
+        let rodata_end = PhysAddr::new(&__rodata_end as *const usize as u64);
+        let data_start = PhysAddr::new(&__data_start as *const usize as u64);
+        let data_end = PhysAddr::new(&__data_end as *const usize as u64);
 
         kprintln!("Kernel memory map:");
         kprintln!("  [{} - {}] .text", text_start, text_end);
@@ -289,48 +300,64 @@ pub fn init() {
         kprintln!("  [{} - {}] .data", data_start, data_end);
 
         // TODO: parse DTB to get the memory size
-        let phys_mem_end = PhysicalAddress::new(0x8000_0000 + 128 * 1024 * 1024);
+        let phys_mem_end = PhysAddr::new(0x8000_0000 + 128 * 1024 * 1024);
 
         // Configure physical memory
-        mm::phys::init(kernel_mem_end, (phys_mem_end - kernel_mem_end).into()).unwrap();
+        phys_init(kernel_mem_end, (phys_mem_end - kernel_mem_end).into()).unwrap();
 
         // Setup root page table for virtual address translation
-        let root = (usize::from(GFA.alloc_zeroed(1).unwrap()) as *mut PageTable)
+        let root = (u64::from(GFA.alloc_zeroed(1).unwrap()) as *mut PageTable)
             .as_mut()
             .unwrap();
 
         // Identity map all kernel sections
         id_map_range(
             root,
-            PhysicalAddress::new(&__text_start as *const usize as usize),
-            PhysicalAddress::new(&__text_end as *const usize as usize),
+            PhysAddr::new(&__text_start as *const usize as u64),
+            PhysAddr::new(&__text_end as *const usize as u64),
             PteFields::RX,
         );
 
         id_map_range(
             root,
-            PhysicalAddress::new(&__rodata_start as *const usize as usize),
-            PhysicalAddress::new(&__rodata_end as *const usize as usize),
+            PhysAddr::new(&__rodata_start as *const usize as u64),
+            PhysAddr::new(&__rodata_end as *const usize as u64),
             PteFields::RX,
         );
 
         id_map_range(
             root,
-            PhysicalAddress::new(&__data_start as *const usize as usize),
-            PhysicalAddress::new(&__data_end as *const usize as usize),
+            PhysAddr::new(&__data_start as *const usize as u64),
+            PhysAddr::new(&__data_end as *const usize as u64),
             PteFields::RW,
         );
 
         // Identity map UART0 memory
-        id_map_range(root, 0x1000_0000.into(), 0x1000_0100.into(), PteFields::RW);
+        id_map_range(
+            root,
+            PhysAddr::new(0x1000_0000),
+            PhysAddr::new(0x1000_0100),
+            PteFields::RW,
+        );
 
         // Identity map CLINT memory
-        id_map_range(root, 0x0200_0000.into(), 0x0201_0000.into(), PteFields::RW);
+        id_map_range(
+            root,
+            PhysAddr::new(0x0200_0000),
+            PhysAddr::new(0x0201_0000),
+            PteFields::RW,
+        );
 
         // Identity map SYSCON memory
-        id_map_range(root, 0x0010_0000.into(), 0x0010_1000.into(), PteFields::RW);
+        id_map_range(
+            root,
+            PhysAddr::new(0x0010_0000),
+            PhysAddr::new(0x0010_1000),
+            PteFields::RW,
+        );
 
         // Enable MMU
-        SATP.write((0x8 << 60) | ((root as *const _ as usize) >> PAGE_SHIFT));
+        Satp::write_ppn((root as *const _ as u64) >> PAGE_SHIFT);
+        Satp::write_mode(SatpMode::Sv39);
     }
 }
