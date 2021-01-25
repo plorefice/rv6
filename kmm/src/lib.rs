@@ -1,6 +1,6 @@
 //! Kernel memory management.
 
-#![no_std]
+#![cfg_attr(not(test), no_std)]
 #![warn(missing_docs)]
 #![deny(missing_debug_implementations)]
 
@@ -24,6 +24,7 @@ pub trait AddressOps<U>:
     + Sized
 {
 }
+
 /// A trait for numeric types that can be aligned to a boundary.
 pub trait Align<U> {
     /// Aligns address upwards to the specified bound.

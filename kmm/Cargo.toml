@@ -8,3 +8,6 @@ version = "0.1.0"
 bitflags = "1.2.1"
 riscv = {path = "../riscv"}
 spin = "0.7.1"
+
+[dev-dependencies]
+lazy_static = "1.4.0"
