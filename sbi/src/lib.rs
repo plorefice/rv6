@@ -132,6 +132,51 @@ impl From<usize> for HartState {
     }
 }
 
+/// System reset type being requested.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ResetType {
+    /// Physical power down of the entire system.
+    Shutdown,
+    /// Physical power cycle of the entire system.
+    ColdReboot,
+    /// Power cycle of main processor and parts of the system.
+    WarmReboot,
+    /// Implementation-defined reset type.
+    Custom(usize),
+}
+
+impl From<ResetType> for usize {
+    fn from(v: ResetType) -> Self {
+        match v {
+            ResetType::Shutdown => 0,
+            ResetType::ColdReboot => 1,
+            ResetType::WarmReboot => 2,
+            ResetType::Custom(v) => v,
+        }
+    }
+}
+
+/// Reason for the system reset.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ResetReason {
+    /// No reason for reset.
+    None,
+    /// Unexpected system failure.
+    SystemFailure,
+    /// Implementation-defined reason.
+    Custom(usize),
+}
+
+impl From<ResetReason> for usize {
+    fn from(v: ResetReason) -> Self {
+        match v {
+            ResetReason::None => 0,
+            ResetReason::SystemFailure => 1,
+            ResetReason::Custom(v) => v,
+        }
+    }
+}
+
 macro_rules! ecall {
     ($ext:expr, $fid:expr) => {
         ecall($ext, $fid, 0, 0, 0, 0, 0, 0)
@@ -398,6 +443,24 @@ pub mod hsm {
     /// Gets the current status (or HSM state) of the given hart.
     pub fn get_hart_status() -> Result<HartState> {
         ecall!(Extension::Hsm, 2).map(HartState::from)
+    }
+}
+
+/// Namespace for the System Reset extension.
+pub mod sysrst {
+    use super::*;
+
+    /// Resets the system based on provided type and reason.
+    ///
+    /// This is a synchronous call and does not return if it succeeds.
+    pub fn system_reset(reset_type: ResetType, reset_reason: ResetReason) -> Result<()> {
+        ecall!(
+            Extension::SystemReset,
+            0,
+            reset_type.into(),
+            reset_reason.into()
+        )
+        .map(|_| ())
     }
 }
 
