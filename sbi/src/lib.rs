@@ -110,10 +110,10 @@ pub struct SpecVersion {
 /// Possible hart states.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HartState {
-    /// The hart is not executing in S-Mode or any lower privilege mode.
-    Stopped,
     /// The hart is physically powered-up and executing normally.
     Started,
+    /// The hart is not executing in S-Mode or any lower privilege mode.
+    Stopped,
     /// Some other hart has requested to start (or power-up) the hart from the `Stopped` state.
     StartPending,
     /// The hart has requested to stop (or power-down) itself from the `Started` state.
@@ -123,8 +123,8 @@ pub enum HartState {
 impl From<usize> for HartState {
     fn from(code: usize) -> Self {
         match code {
-            0 => HartState::Stopped,
-            1 => HartState::Started,
+            0 => HartState::Started,
+            1 => HartState::Stopped,
             2 => HartState::StartPending,
             3 => HartState::StopPending,
             _ => unreachable!("unexpected hart state code"),
