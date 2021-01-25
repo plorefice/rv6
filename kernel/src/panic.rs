@@ -1,7 +1,5 @@
 use core::panic::PanicInfo;
 
-use crate::arch::halt;
-
 /// Implements the kernel's panic behavior.
 #[cfg(not(test))]
 #[panic_handler]
@@ -10,7 +8,7 @@ fn panic(info: &PanicInfo) -> ! {
 
     kprintln!("Halting!");
 
-    halt();
+    crate::arch::halt();
 }
 
 #[cfg(test)]
