@@ -114,16 +114,21 @@ macro_rules! ecall {
     ($ext:expr, $fid:expr, $a0:expr) => {
         ecall($ext, $fid, $a0, 0, 0, 0, 0, 0)
     };
-    ($ext:expr, $fid:expr, $a0:expr, $a1: expr) => {
+    ($ext:expr, $fid:expr, $a0:expr, $a1:expr) => {
         ecall($ext, $fid, $a0, $a1, 0, 0, 0, 0)
+    };
+    ($ext:expr, $fid:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr) => {
+        ecall($ext, $fid, $a0, $a1, $a2, $a3, 0, 0)
+    };
+    ($ext:expr, $fid:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr, $a4:expr) => {
+        ecall($ext, $fid, $a0, $a1, $a2, $a3, $a4, 0)
     };
 }
 
-/// SBI Base Extension.
-#[derive(Debug)]
-pub struct Base;
+/// Namespace for the Base Extension.
+pub mod base {
+    use super::*;
 
-impl Base {
     /// Returns the current SBI specification version.
     pub fn get_spec_version() -> SpecVersion {
         let v = ecall!(Extension::Base, 0).unwrap();
@@ -175,11 +180,10 @@ impl Base {
     }
 }
 
-/// SBI Timer Extension.
-#[derive(Debug)]
-pub struct Timer;
+/// Namespace for the Timer Extension.
+pub mod timer {
+    use super::*;
 
-impl Timer {
     /// Programs the clock for next event after `stime` time, in absolute time.
     ///
     /// If the supervisor wishes to clear the timer interrupt without scheduling the next
@@ -191,6 +195,148 @@ impl Timer {
         } else {
             ecall!(Extension::Timer, 0, stime as usize).map(|_| ())
         }
+    }
+}
+
+/// Namespace for the IPI Extension.
+pub mod ipi {
+    use super::*;
+
+    /// Sends an inter-processor interrupt to all the requested harts.
+    /// Interprocessor interrupts manifest at the receiving harts as S-Mode software interrupts.
+    ///
+    /// `hart_mask` is a scalar bit-vector containing hartids.
+    /// `hart_mask_base` is the starting hartid from which bit-vector must be computed, or `None`
+    /// to indicate that `hart_mask` can be ignored and all available harts must be considered.
+    pub fn send_ipi(hart_mask: usize, hart_mask_base: Option<usize>) -> Result<()> {
+        let hart_mask_base = hart_mask_base.unwrap_or(usize::MAX);
+        ecall!(Extension::Ipi, 0, hart_mask, hart_mask_base).map(|_| ())
+    }
+}
+
+/// Namespace for the RFENCE extension.
+///
+/// See [`send_ipi`](crate::ipi::send_ipi) for details on `hart_mask` and `hart_mask_base`.
+pub mod rfence {
+    use super::*;
+
+    /// Instructs remote harts to execute FENCE.I instruction.
+    pub fn remote_fence_i(hart_mask: usize, hart_mask_base: Option<usize>) -> Result<()> {
+        let hart_mask_base = hart_mask_base.unwrap_or(usize::MAX);
+        ecall!(Extension::Rfence, 0, hart_mask, hart_mask_base).map(|_| ())
+    }
+
+    /// Instructs the remote harts to execute one or more SFENCE.VMA instructions,
+    /// covering the range of virtual addresses between `start` and `size`.
+    pub fn remote_sfence_vma(
+        hart_mask: usize,
+        hart_mask_base: Option<usize>,
+        start: usize,
+        size: usize,
+    ) -> Result<()> {
+        let hart_mask_base = hart_mask_base.unwrap_or(usize::MAX);
+        ecall!(Extension::Rfence, 1, hart_mask, hart_mask_base, start, size).map(|_| ())
+    }
+
+    /// Instructs the remote harts to execute one or more SFENCE.VMA instructions,
+    /// covering the range of virtual addresses between `start` and `size`.
+    /// This covers only the given ASID.
+    pub fn remote_sfence_vma_asid(
+        hart_mask: usize,
+        hart_mask_base: Option<usize>,
+        start: usize,
+        size: usize,
+        asid: usize,
+    ) -> Result<()> {
+        let hart_mask_base = hart_mask_base.unwrap_or(usize::MAX);
+        ecall!(
+            Extension::Rfence,
+            2,
+            hart_mask,
+            hart_mask_base,
+            start,
+            size,
+            asid
+        )
+        .map(|_| ())
+    }
+
+    /// Instructs the remote harts to execute one or more HFENCE.GVMA instructions, covering
+    /// the range of guest physical addresses between `start` and `size` only for the given VMID.
+    ///
+    /// This function call is only valid for harts implementing hypervisor extension.
+    pub fn remote_hfence_gvma_vmid(
+        hart_mask: usize,
+        hart_mask_base: Option<usize>,
+        start: usize,
+        size: usize,
+        vmid: usize,
+    ) -> Result<()> {
+        let hart_mask_base = hart_mask_base.unwrap_or(usize::MAX);
+        ecall!(
+            Extension::Rfence,
+            3,
+            hart_mask,
+            hart_mask_base,
+            start,
+            size,
+            vmid
+        )
+        .map(|_| ())
+    }
+
+    /// Instructs the remote harts to execute one or more HFENCE.GVMA instructions, covering
+    /// the range of guest physical addresses between `start` and `size` for all the guests.
+    ///
+    /// This function call is only valid for harts implementing hypervisor extension.
+    pub fn remote_hfence_gvma(
+        hart_mask: usize,
+        hart_mask_base: Option<usize>,
+        start: usize,
+        size: usize,
+    ) -> Result<()> {
+        let hart_mask_base = hart_mask_base.unwrap_or(usize::MAX);
+        ecall!(Extension::Rfence, 4, hart_mask, hart_mask_base, start, size).map(|_| ())
+    }
+
+    /// Instructs the remote harts to execute one or more HFENCE.VVMA instructions, covering
+    /// the range of guest virtual addresses between `start` and `size` for the given ASID and
+    /// current VMID (in `hgatp` CSR) of calling hart.
+    ///
+    /// This function call is only valid for harts implementing hypervisor extension.
+    pub fn remote_hfence_vvma_asid(
+        hart_mask: usize,
+        hart_mask_base: Option<usize>,
+        start: usize,
+        size: usize,
+        asid: usize,
+    ) -> Result<()> {
+        let hart_mask_base = hart_mask_base.unwrap_or(usize::MAX);
+        ecall!(
+            Extension::Rfence,
+            5,
+            hart_mask,
+            hart_mask_base,
+            start,
+            size,
+            asid
+        )
+        .map(|_| ())
+    }
+
+    /// Instructs the remote harts to execute one or more HFENCE.VVMA instructions, covering
+    /// the range of guest virtual addresses between `start` and `size` for current VMID
+    /// (in `hgatp` CSR) of calling hart.
+    ///
+    /// This function call is only valid for harts implementing hypervisor extension.
+    pub fn remote_hfence_vvma(
+        hart_mask: usize,
+        hart_mask_base: Option<usize>,
+        start: usize,
+        size: usize,
+    ) -> Result<()> {
+        let hart_mask_base = hart_mask_base.unwrap_or(usize::MAX);
+        ecall!(Extension::Rfence, 6, hart_mask, hart_mask_base, start, size).map(|_| ())
     }
 }
 

@@ -13,5 +13,5 @@ pub fn get_cycles() -> u64 {
 
 /// Schedules a timer interrupt to happend `interval` ticks in the future.
 pub fn schedule_next_tick(interval: u64) {
-    sbi::Timer::set_timer(get_cycles() + interval).unwrap();
+    sbi::timer::set_timer(get_cycles() + interval).unwrap();
 }
