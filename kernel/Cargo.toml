@@ -9,6 +9,7 @@ bitflags = "1.2.1"
 kmm = {path = "../kmm"}
 lazy_static = {version = "1.4.0", features = ["spin_no_std"]}
 riscv = {path = "../riscv"}
+sbi = {path = "../sbi"}
 spin = "0.7.1"
 
 [build-dependencies]

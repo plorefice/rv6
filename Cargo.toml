@@ -3,4 +3,5 @@ members = [
   "kernel",
   "riscv",
   "kmm",
+  "sbi",
 ]
