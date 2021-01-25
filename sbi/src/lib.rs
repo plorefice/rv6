@@ -36,7 +36,7 @@ impl From<isize> for SbiError {
             -4 => SbiError::Denied,
             -5 => SbiError::InvalidAddress,
             -6 => SbiError::AlreadyAvailable,
-            _ => unreachable!("invalid SBI error code"),
+            _ => unreachable!("unexpected SBI error code"),
         }
     }
 }
@@ -107,6 +107,31 @@ pub struct SpecVersion {
     pub minor: usize,
 }
 
+/// Possible hart states.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HartState {
+    /// The hart is not executing in S-Mode or any lower privilege mode.
+    Stopped,
+    /// The hart is physically powered-up and executing normally.
+    Started,
+    /// Some other hart has requested to start (or power-up) the hart from the `Stopped` state.
+    StartPending,
+    /// The hart has requested to stop (or power-down) itself from the `Started` state.
+    StopPending,
+}
+
+impl From<usize> for HartState {
+    fn from(code: usize) -> Self {
+        match code {
+            0 => HartState::Stopped,
+            1 => HartState::Started,
+            2 => HartState::StartPending,
+            3 => HartState::StopPending,
+            _ => unreachable!("unexpected hart state code"),
+        }
+    }
+}
+
 macro_rules! ecall {
     ($ext:expr, $fid:expr) => {
         ecall($ext, $fid, 0, 0, 0, 0, 0, 0)
@@ -116,6 +141,9 @@ macro_rules! ecall {
     };
     ($ext:expr, $fid:expr, $a0:expr, $a1:expr) => {
         ecall($ext, $fid, $a0, $a1, 0, 0, 0, 0)
+    };
+    ($ext:expr, $fid:expr, $a0:expr, $a1:expr, $a2:expr) => {
+        ecall($ext, $fid, $a0, $a1, $a2, 0, 0, 0)
     };
     ($ext:expr, $fid:expr, $a0:expr, $a1:expr, $a2:expr, $a3:expr) => {
         ecall($ext, $fid, $a0, $a1, $a2, $a3, 0, 0)
@@ -337,6 +365,39 @@ pub mod rfence {
     ) -> Result<()> {
         let hart_mask_base = hart_mask_base.unwrap_or(usize::MAX);
         ecall!(Extension::Rfence, 6, hart_mask, hart_mask_base, start, size).map(|_| ())
+    }
+}
+
+/// Namespace for the HSM extension.
+pub mod hsm {
+    use super::*;
+
+    /// Requests the SBI implementation to start executing the given hart at specified address
+    /// in S-Mode.
+    ///
+    /// This call is asynchronous. More specifically, the function may return before target hart
+    /// starts executing, as long as the SBI implemenation is capable of ensuring the return code
+    /// is accurate.
+    ///
+    /// The `start` parameter points to a runtime-specified physical address, where the hart
+    /// can start executing in S-Mode. The `opaque` parameter is a XLEN-bit value which
+    /// will be set in the `a1` register when the hart starts executing at `start`.
+    pub fn start_hart(hartid: usize, start: usize, opaque: usize) -> Result<()> {
+        ecall!(Extension::Hsm, 0, hartid, start, opaque).map(|_| ())
+    }
+
+    /// Requests the SBI implementation to stop executing the calling hart in S-Mode and return
+    /// its ownership to the SBI implementation.
+    ///
+    /// This call is not expected to return under normal conditions, and must be called
+    /// with the S-Mode interrupts disabled.
+    pub fn stop_hart() -> Result<()> {
+        ecall!(Extension::Hsm, 1).map(|_| ())
+    }
+
+    /// Gets the current status (or HSM state) of the given hart.
+    pub fn get_hart_status() -> Result<HartState> {
+        ecall!(Extension::Hsm, 2).map(HartState::from)
     }
 }
 
