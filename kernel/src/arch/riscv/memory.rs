@@ -129,6 +129,6 @@ pub fn init() {
 
         // Enable MMU
         Satp::write_ppn((root as *const _ as u64) >> PAGE_SHIFT);
-        Satp::write_mode(SatpMode::Sv39);
+        Satp::write_mode(SatpMode::Sv48);
     }
 }
