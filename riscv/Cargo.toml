@@ -11,3 +11,4 @@ kmm = {path = "../kmm"}
 [features]
 default = ["sv39"]
 sv39 = []
+sv48 = []

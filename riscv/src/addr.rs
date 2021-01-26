@@ -33,25 +33,15 @@ impl PhysAddr {
     /// Panics if `addr` is not a valid physical address for the target ISA.
     /// See [`PhysAddr`] documentation for details.
     pub fn new(addr: u64) -> Self {
-        #[cfg(target_arch = "riscv64")]
-        assert_eq!(addr >> 56, 0);
-        #[cfg(target_arch = "riscv32")]
-        assert_eq!(addr >> 34, 0);
-
-        Self(addr)
+        Self::try_new(addr)
+            .expect("address passed to PhysAddr::new must not contain any data in bits 56 to 63")
     }
 
     /// Tries for create a new physical address.
     ///
     /// Returns an error if `addr` is not a valid physical address for the target ISA.
     pub fn try_new(addr: u64) -> Result<Self, InvalidAddrError> {
-        let msb = if cfg!(target_arch = "riscv64") {
-            56
-        } else {
-            34
-        };
-
-        if addr >> msb != 0 {
+        if addr >> 56 != 0 {
             Err(InvalidAddrError)
         } else {
             Ok(Self(addr))
@@ -60,11 +50,7 @@ impl PhysAddr {
 
     /// Creates a new physical address throwing away the upper bits of the address.
     pub const fn new_truncated(addr: u64) -> Self {
-        if cfg!(target_arch = "riscv64") {
-            Self((addr << 8) >> 8)
-        } else {
-            Self((addr << 30) >> 30)
-        }
+        Self((addr << 8) >> 8)
     }
 
     /// Creates a new physical address without checking whether `addr` is a valid address.
@@ -203,16 +189,66 @@ impl Sub<u64> for PhysAddr {
 
 /// A virtual memory address.
 ///
-/// The address width depends on the chosen MMU specification: 4 bytes for Sv32, and 8 bytes for
-/// Sv39 and Sv48. The unused bits in Sv39 and Sv48 mode can be freely used by the OS to encode
-/// additional information within the address.
+/// The address width depends on the chosen MMU specification.
+///  - In Sv32 mode, virtual addresses are 32-bit wide and all bits are used in the translation.
+///  - In Sv39 mode, virtual addresses are 64-bit wide but only the lower 39 bits are used by the
+///    MMU. Bits 63–39 must all be equal to bit 38, or else a page-fault exception will occur.
+///  - In Sv48 mode, virtual addresses are 64-bit wide but only the lower 48 bits are used by the
+///    MMU. Bits 63–48 must all be equal to bit 47, or else a page-fault exception will occur.
+///
+/// The safe methods of this type ensure that the above constraints are met.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct VirtAddr(usize);
 
 impl VirtAddr {
     /// Creates a new virtual address.
-    pub const fn new(addr: usize) -> Self {
+    ///
+    /// # Panics
+    ///
+    /// Panics if `addr` is not a valid virtual address for the target ISA and MMU specification.
+    /// See [`VirtAddr`] documentation for details.
+    pub fn new(addr: usize) -> Self {
+        Self::try_new(addr).expect("address passed to VirtAddr::new must be properly sign-extended")
+    }
+
+    /// Tries for create a new virtual address.
+    ///
+    /// This function tries to performs sign extension to make the address canonical.
+    /// It succeeds if upper bits are either a correct sign extension or all null.
+    /// Else, an error is returned.
+    pub fn try_new(addr: usize) -> Result<Self, InvalidAddrError> {
+        let shr = if cfg!(feature = "sv39") { 38 } else { 47 };
+
+        match addr >> shr {
+            #[cfg(feature = "sv39")]
+            0 | 0x3FFFFFF => Ok(Self(addr)),
+            #[cfg(feature = "sv48")]
+            0 | 0x1FFFF => Ok(Self(addr)),
+            1 => Ok(Self::new_truncated(addr)),
+            _ => Err(InvalidAddrError),
+        }
+    }
+
+    /// Creates a new virtual address, throwing away the upper bits of the address.
+    ///
+    /// This function performs sign extension to make the address canonical, so upper bits are
+    /// overwritten. If you want to check that these bits contain no data, use `new` or `try_new`.
+    pub const fn new_truncated(addr: usize) -> Self {
+        if cfg!(feature = "sv39") {
+            VirtAddr(((addr << 25) as isize >> 25) as usize)
+        } else {
+            /* feature = "sv48" */
+            VirtAddr(((addr << 16) as isize >> 16) as usize)
+        }
+    }
+
+    /// Creates a new virtual address without checking whether `addr` is a valid address.
+    ///
+    /// # Safety
+    ///
+    /// The address may end up representing an invalid address.
+    pub const unsafe fn new_unchecked(addr: usize) -> Self {
         Self(addr)
     }
 

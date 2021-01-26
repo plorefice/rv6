@@ -13,8 +13,17 @@ pub const PAGE_SHIFT: u64 = 12;
 /// Size of a page in bytes.
 pub const PAGE_SIZE: u64 = 1 << 12;
 
+#[cfg(feature = "sv39")]
 const PTE_PPN_MASK: u64 = 0x3ff_ffff;
+#[cfg(feature = "sv48")]
+const PTE_PPN_MASK: u64 = 0xfff_ffff_ffff;
+
 const PTE_PPN_OFFSET: u64 = 10;
+
+#[cfg(feature = "sv39")]
+const PAGE_LEVELS: usize = 3;
+#[cfg(feature = "sv48")]
+const PAGE_LEVELS: usize = 4;
 
 bitflags! {
     /// Bitfields of a page table entry.
@@ -197,15 +206,24 @@ pub unsafe fn map<A>(
 ) where
     A: FrameAllocator<PhysAddr, PAGE_SIZE>,
 {
+    #[cfg(feature = "sv39")]
     let vpn = [
         (usize::from(vaddr) >> 12) & 0x1ff,
         (usize::from(vaddr) >> 21) & 0x1ff,
         (usize::from(vaddr) >> 30) & 0x1ff,
     ];
 
+    #[cfg(feature = "sv48")]
+    let vpn = [
+        (usize::from(vaddr) >> 12) & 0x1ff,
+        (usize::from(vaddr) >> 21) & 0x1ff,
+        (usize::from(vaddr) >> 30) & 0x1ff,
+        (usize::from(vaddr) >> 39) & 0x1ff,
+    ];
+
     let mut table = root;
 
-    for i in (0..=2).rev() {
+    for i in (0..PAGE_LEVELS).rev() {
         let pte = table.get_entry_mut(vpn[i]).unwrap();
 
         if !pte.is_valid() {
@@ -240,15 +258,24 @@ pub unsafe fn map<A>(
 /// provided page table.
 #[allow(dead_code)]
 pub fn virt_to_phys(root: &PageTable, vaddr: VirtAddr) -> Option<PhysAddr> {
+    #[cfg(feature = "sv39")]
     let vpn = [
         (usize::from(vaddr) >> 12) & 0x1ff,
         (usize::from(vaddr) >> 21) & 0x1ff,
         (usize::from(vaddr) >> 30) & 0x1ff,
     ];
 
+    #[cfg(feature = "sv48")]
+    let vpn = [
+        (usize::from(vaddr) >> 12) & 0x1ff,
+        (usize::from(vaddr) >> 21) & 0x1ff,
+        (usize::from(vaddr) >> 30) & 0x1ff,
+        (usize::from(vaddr) >> 39) & 0x1ff,
+    ];
+
     let mut table = root;
 
-    for i in (0..=2).rev() {
+    for i in (0..PAGE_LEVELS).rev() {
         let pte = table.get_entry(vpn[i]).unwrap();
 
         if !pte.is_valid() {
