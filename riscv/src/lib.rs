@@ -12,6 +12,7 @@
 
 pub mod addr;
 pub mod instructions;
+pub mod mmu;
 pub mod registers;
 
 pub use addr::{InvalidAddrError, PhysAddr, VirtAddr};

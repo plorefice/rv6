@@ -6,6 +6,12 @@ use core::{
     ops::{Add, Sub},
 };
 
+use kmm::{AddressOps, Align, PhysicalAddress};
+
+/// Error type returned by failed address conversions or operations on invalid addresses.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct InvalidAddrError;
+
 /// A 64-bit physical memory address.
 ///
 /// This is a wrapper type around an `u64`, so it is always 8 bytes, even when compiled on
@@ -18,19 +24,6 @@ use core::{
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 #[repr(transparent)]
 pub struct PhysAddr(u64);
-
-/// A virtual memory address.
-///
-/// The address width depends on the chosen MMU specification: 4 bytes for Sv32, and 8 bytes for
-/// Sv39 and Sv48. The unused bits in Sv39 and Sv48 mode can be freely used by the OS to encode
-/// additional information within the address.
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-#[repr(transparent)]
-pub struct VirtAddr(usize);
-
-/// Error type returned by failed address conversions or operations on invalid addresses.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct InvalidAddrError;
 
 impl PhysAddr {
     /// Creates a new physical address.
@@ -91,6 +84,27 @@ impl PhysAddr {
     /// Returns the lowest 12 bits of this address.
     pub fn page_offset(self) -> u64 {
         self.0 & 0xfff
+    }
+}
+
+impl PhysicalAddress<u64> for PhysAddr {}
+
+impl AddressOps<u64> for PhysAddr {}
+
+impl Align<u64> for PhysAddr {
+    fn align_up(&self, align: u64) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        Self::new((self.data() + align - 1) & !(align - 1))
+    }
+
+    fn align_down(&self, align: u64) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        Self::new(self.data() & !(align - 1))
+    }
+
+    fn is_aligned(&self, align: u64) -> bool {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        (self.data() & (align - 1)) == 0
     }
 }
 
@@ -187,6 +201,15 @@ impl Sub<u64> for PhysAddr {
     }
 }
 
+/// A virtual memory address.
+///
+/// The address width depends on the chosen MMU specification: 4 bytes for Sv32, and 8 bytes for
+/// Sv39 and Sv48. The unused bits in Sv39 and Sv48 mode can be freely used by the OS to encode
+/// additional information within the address.
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[repr(transparent)]
+pub struct VirtAddr(usize);
+
 impl VirtAddr {
     /// Creates a new virtual address.
     pub const fn new(addr: usize) -> Self {
@@ -201,6 +224,23 @@ impl VirtAddr {
     /// Returns the lowest 12 bits of this address.
     pub fn page_offset(self) -> usize {
         self.0 & 0xfff
+    }
+}
+
+impl Align<usize> for VirtAddr {
+    fn align_up(&self, align: usize) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        Self::new((self.data() + align - 1) & !(align - 1))
+    }
+
+    fn align_down(&self, align: usize) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        Self::new(self.data() & !(align - 1))
+    }
+
+    fn is_aligned(&self, align: usize) -> bool {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        (self.data() & (align - 1)) == 0
     }
 }
 

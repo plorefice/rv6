@@ -6,10 +6,7 @@
 
 use core::ops::{Add, Sub};
 
-pub use arch::*;
-
 pub mod allocator;
-mod arch;
 
 /// A physical memory address representable as an integer of type `U`.
 pub trait PhysicalAddress<U>: Copy + Clone + Into<U> + AddressOps<U> {}

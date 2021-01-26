@@ -18,7 +18,6 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "lazy_static",
- "riscv",
  "spin 0.7.1",
 ]
 
@@ -36,6 +35,7 @@ name = "riscv"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "kmm",
 ]
 
 [[package]]
