@@ -82,7 +82,8 @@ pub fn init() {
             PhysAddr::new(&__text_end as *const usize as u64),
             EntryFlags::RX,
             &mut GFA,
-        );
+        )
+        .expect("failed to map kernel .text section");
 
         riscv::mmu::id_map_range(
             root,
@@ -90,7 +91,8 @@ pub fn init() {
             PhysAddr::new(&__rodata_end as *const usize as u64),
             EntryFlags::RX,
             &mut GFA,
-        );
+        )
+        .expect("failed to map kernel .rodata section");
 
         riscv::mmu::id_map_range(
             root,
@@ -98,7 +100,8 @@ pub fn init() {
             PhysAddr::new(&__data_end as *const usize as u64),
             EntryFlags::RW,
             &mut GFA,
-        );
+        )
+        .expect("failed to map kernel .data section");
 
         // Identity map UART0 memory
         riscv::mmu::id_map_range(
@@ -107,7 +110,8 @@ pub fn init() {
             PhysAddr::new(0x1000_0100),
             EntryFlags::RW,
             &mut GFA,
-        );
+        )
+        .expect("failed to map UART MMIO");
 
         // Identity map CLINT memory
         riscv::mmu::id_map_range(
@@ -116,7 +120,8 @@ pub fn init() {
             PhysAddr::new(0x0201_0000),
             EntryFlags::RW,
             &mut GFA,
-        );
+        )
+        .expect("failed to map CLINT MMIO");
 
         // Identity map SYSCON memory
         riscv::mmu::id_map_range(
@@ -125,7 +130,8 @@ pub fn init() {
             PhysAddr::new(0x0010_1000),
             EntryFlags::RW,
             &mut GFA,
-        );
+        )
+        .expect("failed to map SYSCON MMIO");
 
         // Enable MMU
         Satp::write_ppn((root as *const _ as u64) >> PAGE_SHIFT);

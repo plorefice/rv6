@@ -51,6 +51,8 @@ bitflags! {
         const RX = Self::READ.bits | Self::EXEC.bits;
         /// If set, this page contains read-write-exec memory.
         const RWX = Self::READ.bits | Self::WRITE.bits | Self::EXEC.bits;
+        /// Mask of user-settable flags on a page table entry.
+        const RWXUG = Self::RWX.bits | Self::USER.bits | Self::GLOBAL.bits;
 
         /// Comination of all the above.
         const ALL = 0xf;
@@ -184,10 +186,48 @@ impl fmt::Display for Entry {
     }
 }
 
-/// Maps the page containing the specified virtual address to a physical address, by creating
-/// a new entry in the MMU page table with the provided flags.
+/// Possible sizes for page table mappings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum PageSize {
+    /// 4KiB page.
+    Kb,
+    /// 2MiB _megapage_.
+    Mb,
+    /// 1GiB _gigapage_.
+    Gb,
+    /// 512GiB _terapage_.
+    #[cfg(feature = "sv48")]
+    Tb,
+}
+
+impl PageSize {
+    /// Converts this page size to the page table level which this page maps to.
+    fn to_table_level(self) -> usize {
+        match self {
+            PageSize::Kb => 0,
+            PageSize::Mb => 1,
+            PageSize::Gb => 2,
+            #[cfg(feature = "sv48")]
+            PageSize::Tb => 3,
+        }
+    }
+}
+
+/// An error condition returned by memory mapping functions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum MapError {
+    /// The requested page was already mapped with different flags.
+    AlreadyMapped,
+    /// Frame allocation failed.
+    AllocationFailed,
+}
+
+/// Maps a memory page of size `page_size` using the provided root page table.
 ///
-/// Only 4 KiB pages are supported at the moment.
+/// The created mapping will translate addresses in the page `vaddr` to physical addresses in the
+/// frame `paddr` according to the specified flags.
+///
+/// If necessary, new frames for page tables will be allocated using `frame_allocator`.
 ///
 /// # Safety
 ///
@@ -201,9 +241,11 @@ pub unsafe fn map<A>(
     root: &mut PageTable,
     vaddr: VirtAddr,
     paddr: PhysAddr,
-    flags: EntryFlags,
+    page_size: PageSize,
+    mut flags: EntryFlags,
     frame_allocator: &mut A,
-) where
+) -> Result<(), MapError>
+where
     A: FrameAllocator<PhysAddr, PAGE_SIZE>,
 {
     #[cfg(feature = "sv39")]
@@ -221,37 +263,44 @@ pub unsafe fn map<A>(
         (usize::from(vaddr) >> 39) & 0x1ff,
     ];
 
-    let mut table = root;
+    let mut pte = root.get_entry_mut(vpn[PAGE_LEVELS - 1]).unwrap();
 
-    for i in (0..PAGE_LEVELS).rev() {
-        let pte = table.get_entry_mut(vpn[i]).unwrap();
+    for i in (page_size.to_table_level()..PAGE_LEVELS - 1).rev() {
+        let table;
 
         if !pte.is_valid() {
-            if i != 0 {
-                // Allocate next level of page table
-                let new_table_addr = u64::from(frame_allocator.alloc_zeroed(1).unwrap());
-                pte.set_flags(EntryFlags::VALID);
-                pte.set_ppn(new_table_addr >> PAGE_SHIFT);
-                table = (new_table_addr as *mut PageTable).as_mut().unwrap();
-            } else {
-                // Fill in leaf PTE
-                pte.set_flags(flags | EntryFlags::VALID);
-                pte.set_ppn(u64::from(paddr) >> PAGE_SHIFT);
-            }
-        } else if i != 0 {
+            // Allocate next level of page table
+            let new_table_addr = u64::from(
+                frame_allocator
+                    .alloc_zeroed(1)
+                    .ok_or(MapError::AllocationFailed)?,
+            );
+            pte.set_flags(EntryFlags::VALID);
+            pte.set_ppn(new_table_addr >> PAGE_SHIFT);
+            table = (new_table_addr as *mut PageTable).as_mut().unwrap();
+        } else {
             // Descend to next table level
             table = ((pte.get_pnn() << PAGE_SHIFT) as *mut PageTable)
                 .as_mut()
                 .unwrap();
-        } else if pte.flags() & EntryFlags::RWX != flags {
-            panic!(
-                "Entry {} already mapped with different flags ({:?} != {:?})",
-                vaddr,
-                pte.flags(),
-                flags
-            );
         }
+
+        pte = table.get_entry_mut(vpn[i]).unwrap();
     }
+
+    // Normalize flags
+    flags &= EntryFlags::RWXUG;
+
+    // Check if a mapping already exists with different flags.
+    if pte.is_valid() && pte.flags() & EntryFlags::RWXUG != flags {
+        return Err(MapError::AlreadyMapped);
+    }
+
+    // Fill in leaf PTE
+    pte.set_flags(flags | EntryFlags::VALID);
+    pte.set_ppn(u64::from(paddr) >> PAGE_SHIFT);
+
+    Ok(())
 }
 
 /// Returns the physical address mapped to the specified virtual address, by traversing the
@@ -303,7 +352,8 @@ pub unsafe fn id_map_range<A>(
     end: PhysAddr,
     flags: EntryFlags,
     frame_allocator: &mut A,
-) where
+) -> Result<(), MapError>
+where
     A: FrameAllocator<PhysAddr, PAGE_SIZE>,
 {
     let start = start.align_down(PAGE_SIZE);
@@ -317,8 +367,11 @@ pub unsafe fn id_map_range<A>(
             root,
             VirtAddr::new(u64::from(addr) as usize),
             addr,
+            PageSize::Kb,
             flags,
             frame_allocator,
-        );
+        )?;
     }
+
+    Ok(())
 }
