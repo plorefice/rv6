@@ -43,6 +43,17 @@ impl PhysAddr {
             .expect("address passed to PhysAddr::new must not contain any data in bits 56 to 63")
     }
 
+    /// Creates a new physical address from a physical page index.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `ppn` is not a valid physical page index for the target ISA.
+    /// See [`PhysAddr`] documentation for details.
+    pub fn from_ppn(ppn: u64) -> Self {
+        Self::try_new(ppn << PAGE_SHIFT)
+            .expect("index passed to PhysAddr::from_ppn is not a valid page number")
+    }
+
     /// Tries for create a new physical address.
     ///
     /// Returns an error if `addr` is not a valid physical address for the target ISA.
