@@ -1,6 +1,6 @@
 //! Abstractions for page tables and other paging related structures.
 
-use core::fmt;
+use core::{fmt, slice::Iter};
 
 use bitflags::bitflags;
 use kmm::{allocator::FrameAllocator, Align};
@@ -71,6 +71,11 @@ impl PageTable {
     /// Returns a mutable reference to an entry in this page table.
     pub fn get_entry_mut(&mut self, i: usize) -> Option<&mut Entry> {
         self.entries.get_mut(i)
+    }
+
+    /// Returns an iterator over the entries in this page table.
+    pub fn iter(&self) -> Iter<'_, Entry> {
+        self.entries.iter()
     }
 }
 
