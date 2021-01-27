@@ -334,7 +334,7 @@ pub fn virt_to_phys(root: &PageTable, vaddr: VirtAddr) -> Option<PhysAddr> {
 /// # Safety
 ///
 /// See [`map`] for safety consideration.
-pub unsafe fn id_map_range<A>(
+pub unsafe fn identity_map_range<A>(
     root: &mut PageTable,
     start: PhysAddr,
     end: PhysAddr,

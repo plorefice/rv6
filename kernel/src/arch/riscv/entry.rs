@@ -1,7 +1,15 @@
 use super::{memory, sbi, time, trap};
 
+/// Architecture-specific entry point.
+///
+/// This function performs any RISC-V-specific setup before handing control to the kernel.
+///
+/// # Safety
+///
+/// Physical and virtual memory setup is performed here among other things, so a lot of stuff
+/// can go wrong.
 #[no_mangle]
-pub extern "C" fn arch_init() {
+pub unsafe extern "C" fn arch_init() {
     kprintln!();
 
     // Initialize core subsystems
