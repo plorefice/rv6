@@ -249,19 +249,10 @@ where
     A: FrameAllocator<PhysAddr, PAGE_SIZE>,
 {
     #[cfg(feature = "sv39")]
-    let vpn = [
-        (usize::from(vaddr) >> 12) & 0x1ff,
-        (usize::from(vaddr) >> 21) & 0x1ff,
-        (usize::from(vaddr) >> 30) & 0x1ff,
-    ];
+    let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2()];
 
     #[cfg(feature = "sv48")]
-    let vpn = [
-        (usize::from(vaddr) >> 12) & 0x1ff,
-        (usize::from(vaddr) >> 21) & 0x1ff,
-        (usize::from(vaddr) >> 30) & 0x1ff,
-        (usize::from(vaddr) >> 39) & 0x1ff,
-    ];
+    let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2(), vaddr.vpn3()];
 
     let mut pte = root.get_entry_mut(vpn[PAGE_LEVELS - 1]).unwrap();
 

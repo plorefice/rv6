@@ -261,6 +261,27 @@ impl VirtAddr {
     pub fn page_offset(self) -> usize {
         self.0 & 0xfff
     }
+
+    /// Returns the 9-bit level 0 page table index.
+    pub fn vpn0(self) -> usize {
+        (usize::from(self) >> 12) & 0x1ff
+    }
+
+    /// Returns the 9-bit level 1 page table index.
+    pub fn vpn1(self) -> usize {
+        (usize::from(self) >> 21) & 0x1ff
+    }
+
+    /// Returns the 9-bit level 2 page table index.
+    pub fn vpn2(self) -> usize {
+        (usize::from(self) >> 30) & 0x1ff
+    }
+
+    /// Returns the 9-bit level 3 page table index.
+    #[cfg(feature = "sv48")]
+    pub fn vpn3(self) -> usize {
+        (usize::from(self) >> 39) & 0x1ff
+    }
 }
 
 impl Align<usize> for VirtAddr {
