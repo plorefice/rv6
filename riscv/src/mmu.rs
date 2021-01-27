@@ -259,18 +259,14 @@ where
         if !pte.is_valid() {
             // Allocate next level of page table
             let new_table_addr = u64::from(
-                frame_allocator
-                    .alloc_zeroed(1)
-                    .ok_or(MapError::AllocationFailed)?,
+                unsafe { frame_allocator.alloc_zeroed(1) }.ok_or(MapError::AllocationFailed)?,
             );
             pte.set_flags(EntryFlags::VALID);
             pte.set_ppn(new_table_addr >> PAGE_SHIFT);
-            table = (new_table_addr as *mut PageTable).as_mut().unwrap();
+            table = unsafe { (new_table_addr as *mut PageTable).as_mut() }.unwrap();
         } else {
             // Descend to next table level
-            table = ((pte.get_pnn() << PAGE_SHIFT) as *mut PageTable)
-                .as_mut()
-                .unwrap();
+            table = unsafe { ((pte.get_pnn() << PAGE_SHIFT) as *mut PageTable).as_mut() }.unwrap();
         }
 
         pte = table.get_entry_mut(vpn[i]).unwrap();
@@ -351,14 +347,17 @@ where
 
     for i in 0..num_pages {
         let addr = start + (i << PAGE_SHIFT);
-        map(
-            root,
-            VirtAddr::new(u64::from(addr) as usize),
-            addr,
-            PageSize::Kb,
-            flags,
-            frame_allocator,
-        )?;
+
+        unsafe {
+            map(
+                root,
+                VirtAddr::new(u64::from(addr) as usize),
+                addr,
+                PageSize::Kb,
+                flags,
+                frame_allocator,
+            )?;
+        }
     }
 
     Ok(())

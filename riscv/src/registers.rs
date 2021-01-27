@@ -56,7 +56,7 @@ impl Sstatus {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn write(flags: SstatusFlags) {
-        Self::write_raw(flags.bits())
+        unsafe { Self::write_raw(flags.bits()) }
     }
 
     /// Writes raw bits to `sstatus`.
@@ -66,7 +66,7 @@ impl Sstatus {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn write_raw(flags: u64) {
-        asm!("csrw sstatus, {}", in(reg) flags, options(nostack));
+        unsafe { asm!("csrw sstatus, {}", in(reg) flags, options(nostack)) };
     }
 
     /// Updates the content of `sstatus`.
@@ -81,7 +81,7 @@ impl Sstatus {
     {
         let mut v = Self::read();
         f(&mut v);
-        Self::write(v);
+        unsafe { Self::write(v) };
     }
 
     /// Sets the specified flags to `sstatus`.
@@ -91,7 +91,7 @@ impl Sstatus {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn set(flags: SstatusFlags) {
-        asm!("csrs sstatus, {}", in(reg) flags.bits(), options(nostack));
+        unsafe { asm!("csrs sstatus, {}", in(reg) flags.bits(), options(nostack)) };
     }
 
     /// Clears the specified flags from `sstatus`.
@@ -101,7 +101,7 @@ impl Sstatus {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn clear(flags: SstatusFlags) {
-        asm!("csrc sstatus, {}", in(reg) flags.bits(), options(nostack));
+        unsafe { asm!("csrc sstatus, {}", in(reg) flags.bits(), options(nostack)) };
     }
 }
 
@@ -342,7 +342,7 @@ impl Satp {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn write_ppn(ppn: u64) {
-        Self::write_raw((Self::read_raw() & !0xfff_ffff_ffff_u64) | ppn)
+        unsafe { Self::write_raw((Self::read_raw() & !0xfff_ffff_ffff_u64) | ppn) }
     }
 
     /// Writes the address-space identifier to the `stval` register.
@@ -353,7 +353,7 @@ impl Satp {
     #[inline]
     pub unsafe fn write_asid(asid: u64) {
         let mask = 0xffff << 44;
-        Self::write_raw((Self::read_raw() & !mask) | (asid << 44))
+        unsafe { Self::write_raw((Self::read_raw() & !mask) | (asid << 44)) }
     }
 
     /// Writes the virtual translation mode to the `stval` register.
@@ -364,7 +364,7 @@ impl Satp {
     #[inline]
     pub unsafe fn write_mode(mode: SatpMode) {
         let mask = 0xf << 60;
-        Self::write_raw((Self::read_raw() & !mask) | ((mode as u64) << 60))
+        unsafe { Self::write_raw((Self::read_raw() & !mask) | ((mode as u64) << 60)) }
     }
 
     /// Writes raw bits to `satp`.
@@ -374,6 +374,6 @@ impl Satp {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn write_raw(v: u64) {
-        asm!("csrw satp, {}", in(reg) v, options(nostack));
+        unsafe { asm!("csrw satp, {}", in(reg) v, options(nostack)) }
     }
 }
