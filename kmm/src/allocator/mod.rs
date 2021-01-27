@@ -41,11 +41,11 @@ where
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
     unsafe fn alloc_zeroed(&mut self, count: usize) -> Option<A> {
-        let paddr = Self::alloc(self, count)?;
+        let paddr = unsafe { Self::alloc(self, count)? };
         let uaddr: u64 = paddr.into();
 
         for i in 0..N / 8 {
-            (uaddr as *mut u64).add(i as usize).write(0);
+            unsafe { (uaddr as *mut u64).add(i as usize).write(0) };
         }
 
         Some(paddr)
@@ -81,7 +81,7 @@ where
         let mut inner = self.inner.lock();
 
         if let Some(allocator) = &mut *inner {
-            allocator.alloc(count)
+            unsafe { allocator.alloc(count) }
         } else {
             None
         }
@@ -91,7 +91,7 @@ where
         let mut inner = self.inner.lock();
 
         if let Some(allocator) = &mut *inner {
-            allocator.free(address);
+            unsafe { allocator.free(address) };
         }
     }
 }

@@ -78,9 +78,11 @@ where
         // Initially mark all pages as free
         let descriptors = <A as Into<u64>>::into(start) as *mut PageDescriptor;
         for i in 0..avail_pages {
-            descriptors.add(i as usize).write(PageDescriptor {
-                flags: PageFlags::empty(),
-            });
+            unsafe {
+                descriptors.add(i as usize).write(PageDescriptor {
+                    flags: PageFlags::empty(),
+                })
+            };
         }
 
         Ok(Self {
@@ -99,13 +101,10 @@ where
         let mut i = 0;
 
         'outer: while i < self.num_pages {
-            let descr = self.descriptors.add(i as usize);
+            let descr = unsafe { self.descriptors.add(i as usize).as_ref() }.unwrap();
 
             // Page already taken => keep going.
-            if (*descr)
-                .flags
-                .intersects(PageFlags::TAKEN | PageFlags::LAST)
-            {
+            if descr.flags.intersects(PageFlags::TAKEN | PageFlags::LAST) {
                 i += 1;
                 continue;
             }
@@ -119,12 +118,9 @@ where
             // NOTE: `x` here to make clippy happy.
             let x = i;
             for j in x..x + count as u64 {
-                let descr = self.descriptors.add(j as usize);
+                let descr = unsafe { self.descriptors.add(i as usize).as_ref() }.unwrap();
 
-                if (*descr)
-                    .flags
-                    .intersects(PageFlags::TAKEN | PageFlags::LAST)
-                {
+                if descr.flags.intersects(PageFlags::TAKEN | PageFlags::LAST) {
                     i = j;
                     continue 'outer;
                 }
@@ -132,7 +128,9 @@ where
 
             // If we get here, we managed to find `count` free pages.
             for j in i..i + count as u64 {
-                (*self.descriptors.add(j as usize)).flags |= if j == i + count as u64 - 1 {
+                let descr = unsafe { self.descriptors.add(j as usize).as_mut() }.unwrap();
+
+                descr.flags |= if j == i + count as u64 - 1 {
                     PageFlags::LAST
                 } else {
                     PageFlags::TAKEN
@@ -149,8 +147,8 @@ where
         let offset: u64 = (address - self.base_addr).into() / N;
 
         for i in offset..self.num_pages {
-            let descr = self.descriptors.add(i as usize);
-            let flags = &mut (*descr).flags;
+            let descr = unsafe { self.descriptors.add(i as usize).as_mut() }.unwrap();
+            let flags = &mut descr.flags;
 
             let is_last = flags.contains(PageFlags::LAST);
 
