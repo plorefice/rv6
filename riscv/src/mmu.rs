@@ -5,13 +5,10 @@ use core::fmt;
 use bitflags::bitflags;
 use kmm::{allocator::FrameAllocator, Align};
 
-use crate::{PhysAddr, VirtAddr};
-
-/// Number of bits that an address needs to be shifted to the left to obtain its page number.
-pub const PAGE_SHIFT: u64 = 12;
-
-/// Size of a page in bytes.
-pub const PAGE_SIZE: u64 = 1 << 12;
+use crate::{
+    addr::{PAGE_SHIFT, PAGE_SIZE},
+    PhysAddr, VirtAddr,
+};
 
 #[cfg(feature = "sv39")]
 const PTE_PPN_MASK: u64 = 0x3ff_ffff;

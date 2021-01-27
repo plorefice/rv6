@@ -8,6 +8,12 @@ use core::{
 
 use kmm::{AddressOps, Align, PhysicalAddress};
 
+/// Number of bits that an address needs to be shifted to the left to obtain its page number.
+pub const PAGE_SHIFT: u64 = 12;
+
+/// Size of a page in bytes.
+pub const PAGE_SIZE: u64 = 1 << 12;
+
 /// Error type returned by failed address conversions or operations on invalid addresses.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct InvalidAddrError;
@@ -70,6 +76,39 @@ impl PhysAddr {
     /// Returns the lowest 12 bits of this address.
     pub fn page_offset(self) -> u64 {
         self.0 & 0xfff
+    }
+
+    /// Returns the full page number of this address.
+    pub fn page_index(self) -> u64 {
+        (u64::from(self) >> PAGE_SHIFT) & 0xfff_ffff_ffff
+    }
+
+    /// Returns the 9-bit level 0 page table index.
+    pub fn ppn0(self) -> u64 {
+        (u64::from(self) >> 12) & 0x1ff
+    }
+
+    /// Returns the 9-bit level 1 page table index.
+    pub fn ppn1(self) -> u64 {
+        (u64::from(self) >> 21) & 0x1ff
+    }
+
+    /// Returns the level 2 page table index.
+    ///
+    /// The size of this field varies depending on the MMU specification.
+    pub fn ppn2(self) -> u64 {
+        if cfg!(target = "sv39") {
+            (u64::from(self) >> 30) & 0x3ff_ffff
+        } else {
+            /* feature = "sv48" */
+            (u64::from(self) >> 30) & 0x1ff
+        }
+    }
+
+    /// Returns the 17-bit level 3 page table index.
+    #[cfg(feature = "sv48")]
+    pub fn ppn3(self) -> u64 {
+        (u64::from(self) >> 39) & 0x1ffff
     }
 }
 
@@ -222,9 +261,9 @@ impl VirtAddr {
 
         match addr >> shr {
             #[cfg(feature = "sv39")]
-            0 | 0x3FFFFFF => Ok(Self(addr)),
+            0 | 0x3ffffff => Ok(Self(addr)),
             #[cfg(feature = "sv48")]
-            0 | 0x1FFFF => Ok(Self(addr)),
+            0 | 0x1ffff => Ok(Self(addr)),
             1 => Ok(Self::new_truncated(addr)),
             _ => Err(InvalidAddrError),
         }
@@ -260,6 +299,16 @@ impl VirtAddr {
     /// Returns the lowest 12 bits of this address.
     pub fn page_offset(self) -> usize {
         self.0 & 0xfff
+    }
+
+    /// Returns the full page number of this address.
+    pub fn page_index(self) -> usize {
+        if cfg!(feature = "sv39") {
+            (usize::from(self) >> PAGE_SHIFT) & 0x7ff_ffff
+        } else {
+            /* feature = "sv48" */
+            (usize::from(self) >> PAGE_SHIFT) & 0xf_ffff_ffff
+        }
     }
 
     /// Returns the 9-bit level 0 page table index.

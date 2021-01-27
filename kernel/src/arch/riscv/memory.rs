@@ -3,7 +3,8 @@ use kmm::{
     Align,
 };
 use riscv::{
-    mmu::{EntryFlags, PageTable, PAGE_SHIFT, PAGE_SIZE},
+    addr::PAGE_SIZE,
+    mmu::{EntryFlags, PageTable},
     registers::{Satp, SatpMode},
     PhysAddr,
 };
@@ -134,7 +135,7 @@ pub fn init() {
         .expect("failed to map SYSCON MMIO");
 
         // Enable MMU
-        Satp::write_ppn((root as *const _ as u64) >> PAGE_SHIFT);
+        Satp::write_ppn(PhysAddr::new_unchecked(root as *const _ as u64).page_index());
         Satp::write_mode(SatpMode::Sv48);
     }
 }
