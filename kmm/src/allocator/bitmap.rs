@@ -12,7 +12,7 @@
 //! Freeing a page in a bitmap allocator has `O(1)` complexity, but allocation is more expensive
 //! (`O(n)`) since we need to find a large-enough chunk of free pages.
 
-use core::mem::size_of;
+use core::{mem::size_of, slice};
 
 use bitflags::bitflags;
 
@@ -37,7 +37,7 @@ struct PageDescriptor {
 /// A frame allocator storing page state as a bitmap of page descriptors.
 #[derive(Debug)]
 pub struct BitmapAllocator<A, const N: u64> {
-    descriptors: *mut PageDescriptor,
+    descriptors: &'static mut [PageDescriptor],
     base_addr: A,
     num_pages: u64,
 }
@@ -75,13 +75,17 @@ where
         let avail_mem_size = end - avail_mem_start;
         let avail_pages: u64 = avail_mem_size.into() / N;
 
+        let descriptors = unsafe {
+            slice::from_raw_parts_mut(
+                <A as Into<u64>>::into(start) as *mut PageDescriptor,
+                avail_pages as usize,
+            )
+        };
+
         // Initially mark all pages as free
-        let descriptors = <A as Into<u64>>::into(start) as *mut PageDescriptor;
-        for i in 0..avail_pages {
-            unsafe {
-                descriptors.add(i as usize).write(PageDescriptor {
-                    flags: PageFlags::empty(),
-                })
+        for descr in descriptors.iter_mut() {
+            *descr = PageDescriptor {
+                flags: PageFlags::empty(),
             };
         }
 
@@ -98,10 +102,10 @@ where
     A: PhysicalAddress<u64>,
 {
     unsafe fn alloc(&mut self, count: usize) -> Option<A> {
-        let mut i = 0;
+        let mut i: usize = 0;
 
-        'outer: while i < self.num_pages {
-            let descr = unsafe { self.descriptors.add(i as usize).as_ref() }.unwrap();
+        'outer: while i < self.num_pages as usize {
+            let descr = &mut self.descriptors[i];
 
             // Page already taken => keep going.
             if descr.flags.intersects(PageFlags::TAKEN | PageFlags::LAST) {
@@ -110,15 +114,15 @@ where
             }
 
             // Not enough pages left => abort.
-            if self.num_pages - i < count as u64 {
+            if self.num_pages as usize - i < count {
                 return None;
             }
 
             // Check if enough contiguous pages are free
             // NOTE: `x` here to make clippy happy.
             let x = i;
-            for j in x..x + count as u64 {
-                let descr = unsafe { self.descriptors.add(i as usize).as_ref() }.unwrap();
+            for j in x..x + count {
+                let descr = &mut self.descriptors[j];
 
                 if descr.flags.intersects(PageFlags::TAKEN | PageFlags::LAST) {
                     i = j;
@@ -127,17 +131,15 @@ where
             }
 
             // If we get here, we managed to find `count` free pages.
-            for j in i..i + count as u64 {
-                let descr = unsafe { self.descriptors.add(j as usize).as_mut() }.unwrap();
-
-                descr.flags |= if j == i + count as u64 - 1 {
+            for j in i..i + count {
+                self.descriptors[j].flags |= if j == i + count - 1 {
                     PageFlags::LAST
                 } else {
                     PageFlags::TAKEN
                 };
             }
 
-            return Some(self.base_addr + i * N);
+            return Some(self.base_addr + i as u64 * N);
         }
 
         None
@@ -147,8 +149,7 @@ where
         let offset: u64 = (address - self.base_addr).into() / N;
 
         for i in offset..self.num_pages {
-            let descr = unsafe { self.descriptors.add(i as usize).as_mut() }.unwrap();
-            let flags = &mut descr.flags;
+            let flags = &mut self.descriptors[i as usize].flags;
 
             let is_last = flags.contains(PageFlags::LAST);
 
@@ -186,12 +187,12 @@ mod tests {
         let (base, allocator) = create_allocator();
 
         assert_eq!(allocator.num_pages, NUM_PAGES - 1);
-        assert_eq!(allocator.descriptors as u64, base);
+        assert_eq!(allocator.descriptors.as_ptr() as u64, base);
         assert_eq!(allocator.base_addr, base + PAGE_SIZE,);
 
         for i in 0..NUM_PAGES - 1 {
             assert_eq!(
-                unsafe { allocator.descriptors.add(i as usize).read() },
+                allocator.descriptors[i as usize],
                 PageDescriptor {
                     flags: PageFlags::empty()
                 }
@@ -397,7 +398,7 @@ mod tests {
     ) {
         for i in start..start + count - 1 {
             assert_eq!(
-                unsafe { allocator.descriptors.add(i as usize).read() },
+                allocator.descriptors[i as usize],
                 PageDescriptor {
                     flags: PageFlags::TAKEN
                 }
@@ -405,12 +406,7 @@ mod tests {
         }
 
         assert_eq!(
-            unsafe {
-                allocator
-                    .descriptors
-                    .add((start + count - 1) as usize)
-                    .read()
-            },
+            allocator.descriptors[(start + count - 1) as usize],
             PageDescriptor {
                 flags: PageFlags::LAST
             }
@@ -420,7 +416,7 @@ mod tests {
     fn assert_free<const N: u64>(allocator: &mut BitmapAllocator<u64, N>, start: u64, count: u64) {
         for i in start..start + count {
             assert_eq!(
-                unsafe { allocator.descriptors.add(i as usize).read() },
+                allocator.descriptors[i as usize],
                 PageDescriptor {
                     flags: PageFlags::empty()
                 }
