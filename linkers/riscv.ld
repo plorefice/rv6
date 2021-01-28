@@ -63,7 +63,7 @@ SECTIONS
   . = ALIGN(16);
   .stack : {
     PROVIDE(__stack_end = .);
-    . += 4K;
+    . += 64K;
     PROVIDE(__stack_start = .);
   }
 
