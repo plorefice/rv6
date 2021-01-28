@@ -9,6 +9,9 @@ use riscv::{
     PhysAddr, VirtAddr,
 };
 
+/// Virtual memory offset at which the physical address space is mapped.
+pub const PHYS_MEM_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_8880_0000_0000) };
+
 // Defined in linker script
 extern "C" {
     /// The starting word of the kernel in memory.
@@ -107,7 +110,7 @@ unsafe fn setup_vm(root: &mut PageTable) {
     // Map the whole physical address space to VA 0xffff_8880_0000_0000
     mmu::map(
         root,
-        VirtAddr::new(0xffff_8880_0000_0000),
+        PHYS_MEM_OFFSET,
         PhysAddr::new(0),
         PageSize::Tb,
         EntryFlags::RWX,
