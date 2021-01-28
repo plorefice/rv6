@@ -7,6 +7,7 @@ use kmm::{allocator::FrameAllocator, Align};
 
 use crate::{
     addr::{PAGE_SHIFT, PAGE_SIZE},
+    registers::Satp,
     PhysAddr, VirtAddr,
 };
 
@@ -160,7 +161,7 @@ impl Entry {
     }
 
     /// Returns the PPN portion of this entry.
-    pub fn get_pnn(&self) -> u64 {
+    pub fn get_ppn(&self) -> u64 {
         (self.inner.bits() >> PTE_PPN_OFFSET) & PTE_PPN_MASK
     }
 
@@ -173,7 +174,7 @@ impl Entry {
 
 impl fmt::Display for Entry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "phy: 0x{:016x} ", self.get_pnn() << PTE_PPN_OFFSET)?;
+        write!(f, "phy: 0x{:016x} ", self.get_ppn() << PTE_PPN_OFFSET)?;
         write!(
             f,
             "{} {} {} {} {} {} {}",
@@ -271,7 +272,7 @@ where
             table = unsafe { (new_table_addr as *mut PageTable).as_mut() }.unwrap();
         } else {
             // Descend to next table level
-            table = unsafe { ((pte.get_pnn() << PAGE_SHIFT) as *mut PageTable).as_mut() }.unwrap();
+            table = unsafe { ((pte.get_ppn() << PAGE_SHIFT) as *mut PageTable).as_mut() }.unwrap();
         }
 
         pte = table.get_entry_mut(vpn[i]).unwrap();
@@ -292,10 +293,14 @@ where
     Ok(())
 }
 
-/// Returns the physical address mapped to the specified virtual address, by traversing the
-/// provided page table.
-#[allow(dead_code)]
-pub fn virt_to_phys(root: &PageTable, vaddr: VirtAddr) -> Option<PhysAddr> {
+/// Returns the physical address mapped to the specified virtual address, or `None` if the address
+/// is not mapped.
+///
+/// # Safety
+///
+/// The caller must guarantee that virtual address translation is enabled and the physical
+/// address space is mapped to virtual memory at `phys_mem_offset`.
+pub unsafe fn virt_to_phys(vaddr: VirtAddr, phys_mem_offset: VirtAddr) -> Option<PhysAddr> {
     #[cfg(feature = "sv39")]
     let vpn = [
         (usize::from(vaddr) >> 12) & 0x1ff,
@@ -311,19 +316,29 @@ pub fn virt_to_phys(root: &PageTable, vaddr: VirtAddr) -> Option<PhysAddr> {
         (usize::from(vaddr) >> 39) & 0x1ff,
     ];
 
-    let mut table = root;
+    let mut table_paddr = PhysAddr::new(Satp::read_ppn() << PAGE_SHIFT);
 
     for i in (0..PAGE_LEVELS).rev() {
+        let table_vaddr = VirtAddr::new(u64::from(table_paddr) as usize) + phys_mem_offset;
+        let table = unsafe { (usize::from(table_vaddr) as *const PageTable).as_ref() }.unwrap();
         let pte = table.get_entry(vpn[i]).unwrap();
 
         if !pte.is_valid() {
             break;
-        } else if pte.is_leaf() {
-            return Some(PhysAddr::new(pte.get_pnn() << PAGE_SHIFT) + vaddr.page_offset() as u64);
-        } else {
-            table =
-                unsafe { ((pte.get_pnn() << PAGE_SHIFT) as *const PageTable).as_ref() }.unwrap();
         }
+
+        if pte.is_leaf() {
+            let mut ppn = pte.get_ppn();
+
+            // For i > 0, the lower bits of PPN are taken from the virtual address
+            for (lvl, vpn) in vpn.iter().enumerate().take(i) {
+                ppn |= (vpn << (lvl * 9)) as u64;
+            }
+
+            return Some(PhysAddr::new(ppn << PAGE_SHIFT) + vaddr.page_offset() as u64);
+        }
+
+        table_paddr = PhysAddr::new(pte.get_ppn() << PAGE_SHIFT);
     }
 
     None
