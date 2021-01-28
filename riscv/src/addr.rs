@@ -419,3 +419,35 @@ impl fmt::Pointer for VirtAddr {
         fmt::Pointer::fmt(&(self.0 as *const ()), f)
     }
 }
+
+impl Add for VirtAddr {
+    type Output = Self;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::new(self.0 + rhs.0)
+    }
+}
+
+impl Add<usize> for VirtAddr {
+    type Output = Self;
+
+    fn add(self, rhs: usize) -> Self::Output {
+        Self::new(self.0 + rhs)
+    }
+}
+
+impl Sub for VirtAddr {
+    type Output = Self;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self::new(self.0 - rhs.0)
+    }
+}
+
+impl Sub<usize> for VirtAddr {
+    type Output = Self;
+
+    fn sub(self, rhs: usize) -> Self::Output {
+        Self::new(self.0 - rhs)
+    }
+}
