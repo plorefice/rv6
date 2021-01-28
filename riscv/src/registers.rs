@@ -307,19 +307,19 @@ impl From<u64> for SatpMode {
 pub struct Satp;
 
 impl Satp {
-    /// Reads the physical page number of root page table from the `stval` register.
+    /// Reads the physical page number of root page table from the `satp` register.
     #[inline]
     pub fn read_ppn() -> u64 {
         Self::read_raw() & 0xfff_ffff_ffff
     }
 
-    /// Reads the address-space identifier from the `stval` register.
+    /// Reads the address-space identifier from the `satp` register.
     #[inline]
     pub fn read_asid() -> u64 {
         (Self::read_raw() >> 44) & 0xffff
     }
 
-    /// Reads the virtual translation mode from the `stval` register.
+    /// Reads the virtual translation mode from the `satp` register.
     #[inline]
     pub fn read_mode() -> SatpMode {
         SatpMode::from(Self::read_raw() >> 60)
@@ -335,7 +335,7 @@ impl Satp {
         value
     }
 
-    /// Writes the physical page number of the root page table to the `stval` register.
+    /// Writes the physical page number of the root page table to the `satp` register.
     ///
     /// ## Safety
     ///
@@ -345,7 +345,7 @@ impl Satp {
         unsafe { Self::write_raw((Self::read_raw() & !0xfff_ffff_ffff_u64) | ppn) }
     }
 
-    /// Writes the address-space identifier to the `stval` register.
+    /// Writes the address-space identifier to the `satp` register.
     ///
     /// ## Safety
     ///
@@ -356,7 +356,7 @@ impl Satp {
         unsafe { Self::write_raw((Self::read_raw() & !mask) | (asid << 44)) }
     }
 
-    /// Writes the virtual translation mode to the `stval` register.
+    /// Writes the virtual translation mode to the `satp` register.
     ///
     /// ## Safety
     ///
