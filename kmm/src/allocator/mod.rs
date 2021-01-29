@@ -34,22 +34,6 @@ where
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
     unsafe fn free(&mut self, address: A);
-
-    /// Same as [`alloc`], but the allocated memory is also zeroed after allocation.
-    ///
-    /// # Safety
-    ///
-    /// Low-level memory twiddling doesn't provide safety guarantees.
-    unsafe fn alloc_zeroed(&mut self, count: usize) -> Option<A> {
-        let paddr = unsafe { Self::alloc(self, count)? };
-        let uaddr: u64 = paddr.into();
-
-        for i in 0..N / 8 {
-            unsafe { (uaddr as *mut u64).add(i as usize).write(0) };
-        }
-
-        Some(paddr)
-    }
 }
 
 /// A frame allocator wrapped in a [`Mutex`] for concurrent access.

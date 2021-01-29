@@ -47,7 +47,15 @@ dependencies = [
  "kmm",
  "lazy_static",
  "riscv",
+ "rvalloc",
  "sbi",
+ "spin 0.7.1",
+]
+
+[[package]]
+name = "rvalloc"
+version = "0.1.0"
+dependencies = [
  "spin 0.7.1",
 ]
 

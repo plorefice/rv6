@@ -1,6 +1,9 @@
 //! Abstractions for page tables and other paging related structures.
 
-use core::{fmt, slice::Iter};
+use core::{
+    fmt,
+    slice::{Iter, IterMut},
+};
 
 use bitflags::bitflags;
 use kmm::{allocator::FrameAllocator, Align};
@@ -64,6 +67,13 @@ pub struct PageTable {
 }
 
 impl PageTable {
+    /// Resets all the entries of this page table to zero.
+    pub fn clear(&mut self) {
+        for entry in &mut self.entries {
+            entry.clear();
+        }
+    }
+
     /// Returns a reference to an entry in this page table.
     pub fn get_entry(&self, i: usize) -> Option<&Entry> {
         self.entries.get(i)
@@ -77,6 +87,11 @@ impl PageTable {
     /// Returns an iterator over the entries in this page table.
     pub fn iter(&self) -> Iter<'_, Entry> {
         self.entries.iter()
+    }
+
+    /// Returns a mutable iterator over the entries in this page table.
+    pub fn iter_mut(&mut self) -> IterMut<'_, Entry> {
+        self.entries.iter_mut()
     }
 }
 
@@ -155,9 +170,15 @@ impl Entry {
         self.inner & EntryFlags::ALL
     }
 
+    /// Resets the bits of this entry to zero.
+    pub fn clear(&mut self) {
+        self.inner.bits = 0;
+    }
+
     /// Sets this entry's flags.
     pub fn set_flags(&mut self, flags: EntryFlags) {
-        self.inner.insert(flags);
+        self.inner &= !EntryFlags::ALL;
+        self.inner |= flags;
     }
 
     /// Returns the PPN portion of this entry.
@@ -225,175 +246,195 @@ pub enum MapError {
     AllocationFailed,
 }
 
-/// Maps a memory page of size `page_size` using the provided root page table.
-///
-/// The created mapping will translate addresses in the page `vaddr` to physical addresses in the
-/// frame `paddr` according to the specified flags.
-///
-/// If necessary, new frames for page tables will be allocated using `frame_allocator`.
-///
-/// # Safety
-///
-/// This operation is fundamentally unsafe because it provides several opportunities to break
-/// memory safety guarantees. For example, re-mapping a page to a different frame will invalidate
-/// all the references within that page.
-///
-/// It is up to the caller to guarantee that no undefined behavior or memory violations can occur
-/// through the new mapping.
-pub unsafe fn map<A>(
-    root: &mut PageTable,
-    vaddr: VirtAddr,
-    paddr: PhysAddr,
-    page_size: PageSize,
-    mut flags: EntryFlags,
-    frame_allocator: &mut A,
-) -> Result<(), MapError>
-where
-    A: FrameAllocator<PhysAddr, PAGE_SIZE>,
-{
-    #[cfg(feature = "sv39")]
-    let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2()];
-
-    #[cfg(feature = "sv48")]
-    let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2(), vaddr.vpn3()];
-
-    let mut pte = root.get_entry_mut(vpn[PAGE_LEVELS - 1]).unwrap();
-
-    for i in (page_size.to_table_level()..PAGE_LEVELS - 1).rev() {
-        let table;
-
-        if !pte.is_valid() {
-            // Allocate next level of page table
-            let new_table_addr = u64::from(
-                unsafe { frame_allocator.alloc_zeroed(1) }.ok_or(MapError::AllocationFailed)?,
-            );
-            pte.set_flags(EntryFlags::VALID);
-            pte.set_ppn(new_table_addr >> PAGE_SHIFT);
-            table = unsafe { (new_table_addr as *mut PageTable).as_mut() }.unwrap();
-        } else {
-            // Descend to next table level
-            table = unsafe { ((pte.get_ppn() << PAGE_SHIFT) as *mut PageTable).as_mut() }.unwrap();
-        }
-
-        pte = table.get_entry_mut(vpn[i]).unwrap();
-    }
-
-    // Normalize flags
-    flags &= EntryFlags::RWXUG;
-
-    // Check if a mapping already exists with different flags.
-    if pte.is_valid() && pte.flags() & EntryFlags::RWXUG != flags {
-        return Err(MapError::AlreadyMapped);
-    }
-
-    // Fill in leaf PTE
-    pte.set_flags(flags | EntryFlags::VALID);
-    pte.set_ppn(u64::from(paddr) >> PAGE_SHIFT);
-
-    Ok(())
+/// A memory mapper that requires that the whole physical address space is mapped at some offset
+/// in the virtual address space.
+#[derive(Debug)]
+pub struct OffsetPageMapper<'a> {
+    rpt: &'a mut PageTable,
+    phys_offset: VirtAddr,
 }
 
-/// Returns the physical address mapped to the specified virtual address, or `None` if the address
-/// is not mapped.
-///
-/// # Safety
-///
-/// The caller must guarantee that virtual address translation is enabled and the physical
-/// address space is mapped to virtual memory at `phys_mem_offset`.
-pub unsafe fn virt_to_phys(vaddr: VirtAddr, phys_mem_offset: VirtAddr) -> Option<PhysAddr> {
-    #[cfg(feature = "sv39")]
-    let vpn = [
-        (vaddr.data() >> 12) & 0x1ff,
-        (vaddr.data() >> 21) & 0x1ff,
-        (vaddr.data() >> 30) & 0x1ff,
-    ];
+impl<'a> OffsetPageMapper<'a> {
+    /// Creates a new mapper that uses the given offset to translate physical to virtual addresses.
+    ///
+    /// The complete physical memory must be mapped in the virtual address space starting at
+    /// `phys_offset`. This is required because the mapper must access page tables, which are not
+    /// mapped to virtual memory by default.
+    ///
+    /// # Safety
+    ///
+    /// The caller must guarantee that `rpt` points to a valid root page table, and all physical
+    /// memory has been mapped at `phys_offset`.
+    pub unsafe fn new(rpt: &'a mut PageTable, phys_offset: VirtAddr) -> Self {
+        Self { rpt, phys_offset }
+    }
 
-    #[cfg(feature = "sv48")]
-    let vpn = [
-        (vaddr.data() >> 12) & 0x1ff,
-        (vaddr.data() >> 21) & 0x1ff,
-        (vaddr.data() >> 30) & 0x1ff,
-        (vaddr.data() >> 39) & 0x1ff,
-    ];
+    /// Maps a memory page of size `page_size` using the provided root page table.
+    ///
+    /// The created mapping will translate addresses in the page `vaddr` to physical addresses in the
+    /// frame `paddr` according to the specified flags.
+    ///
+    /// If necessary, new frames for page tables will be allocated using `frame_allocator`.
+    ///
+    /// # Safety
+    ///
+    /// This operation is fundamentally unsafe because it provides several opportunities to break
+    /// memory safety guarantees. For example, re-mapping a page to a different frame will invalidate
+    /// all the references within that page.
+    ///
+    /// It is up to the caller to guarantee that no undefined behavior or memory violations can occur
+    /// through the new mapping.
+    pub unsafe fn map<A>(
+        &mut self,
+        vaddr: VirtAddr,
+        paddr: PhysAddr,
+        page_size: PageSize,
+        mut flags: EntryFlags,
+        frame_allocator: &mut A,
+    ) -> Result<(), MapError>
+    where
+        A: FrameAllocator<PhysAddr, PAGE_SIZE>,
+    {
+        #[cfg(feature = "sv39")]
+        let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2()];
 
-    let mut table_paddr = PhysAddr::new(Satp::read_ppn() << PAGE_SHIFT);
+        #[cfg(feature = "sv48")]
+        let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2(), vaddr.vpn3()];
 
-    for i in (0..PAGE_LEVELS).rev() {
-        let table = unsafe {
-            phys_to_virt(table_paddr, phys_mem_offset)
-                .as_ptr::<PageTable>()
-                .as_ref()
-                .unwrap()
-        };
+        let mut pte = self.rpt.get_entry_mut(vpn[PAGE_LEVELS - 1]).unwrap();
 
-        let pte = table.get_entry(vpn[i]).unwrap();
+        for i in (page_size.to_table_level()..PAGE_LEVELS - 1).rev() {
+            // Traverse page table entry to the next level, or allocate a new level of page table
+            let table_paddr = if !pte.is_valid() {
+                let new_table_addr =
+                    unsafe { frame_allocator.alloc(1) }.ok_or(MapError::AllocationFailed)?;
+                pte.clear();
+                pte.set_flags(EntryFlags::VALID);
+                pte.set_ppn(new_table_addr.page_index());
+                new_table_addr
+            } else {
+                PhysAddr::new(pte.get_ppn() << PAGE_SHIFT)
+            };
 
-        if !pte.is_valid() {
-            break;
+            let table = unsafe {
+                self.phys_to_virt(table_paddr)
+                    .as_mut_ptr::<PageTable>()
+                    .as_mut()
+                    .unwrap()
+            };
+
+            pte = table.get_entry_mut(vpn[i]).unwrap();
         }
 
-        if pte.is_leaf() {
-            let mut ppn = pte.get_ppn();
+        // Normalize flags
+        flags &= EntryFlags::RWXUG;
 
-            // For i > 0, the lower bits of PPN are taken from the virtual address
-            for (lvl, vpn) in vpn.iter().enumerate().take(i) {
-                ppn |= (vpn << (lvl * 9)) as u64;
+        // Check if a mapping already exists with different flags.
+        if pte.is_valid() && pte.flags() & EntryFlags::RWXUG != flags {
+            return Err(MapError::AlreadyMapped);
+        }
+
+        // Fill in leaf PTE
+        pte.set_flags(flags | EntryFlags::VALID);
+        pte.set_ppn(paddr.page_index());
+
+        Ok(())
+    }
+
+    /// Sets up identity mapping for a range of addresses, meaning that `vaddr == paddr` for all
+    /// addresses the specifed range.
+    ///
+    /// # Safety
+    ///
+    /// See [`map`] for safety consideration.
+    pub unsafe fn identity_map_range<A>(
+        &mut self,
+        start: PhysAddr,
+        end: PhysAddr,
+        flags: EntryFlags,
+        frame_allocator: &mut A,
+    ) -> Result<(), MapError>
+    where
+        A: FrameAllocator<PhysAddr, PAGE_SIZE>,
+    {
+        let start = start.align_down(PAGE_SIZE);
+        let end = end.align_up(PAGE_SIZE);
+
+        let num_pages = u64::from(end - start) >> PAGE_SHIFT;
+
+        for i in 0..num_pages {
+            let addr = start + (i << PAGE_SHIFT);
+
+            unsafe {
+                self.map(
+                    VirtAddr::new(u64::from(addr) as usize),
+                    addr,
+                    PageSize::Kb,
+                    flags,
+                    frame_allocator,
+                )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Translates a physical address into the corresponding virtual address.
+    ///
+    /// Since this mapper assumes that all physical memory is mapped to the virtual address space,
+    /// this operation is trivial and will always succeed.
+    pub fn phys_to_virt(&self, paddr: PhysAddr) -> VirtAddr {
+        VirtAddr::new(paddr.data() as usize) + self.phys_offset
+    }
+
+    /// Returns the physical address mapped to the specified virtual address, or `None` if the
+    /// address is not mapped.
+    pub fn virt_to_phys(&self, vaddr: VirtAddr) -> Option<PhysAddr> {
+        #[cfg(feature = "sv39")]
+        let vpn = [
+            (vaddr.data() >> 12) & 0x1ff,
+            (vaddr.data() >> 21) & 0x1ff,
+            (vaddr.data() >> 30) & 0x1ff,
+        ];
+
+        #[cfg(feature = "sv48")]
+        let vpn = [
+            (vaddr.data() >> 12) & 0x1ff,
+            (vaddr.data() >> 21) & 0x1ff,
+            (vaddr.data() >> 30) & 0x1ff,
+            (vaddr.data() >> 39) & 0x1ff,
+        ];
+
+        let mut table_paddr = PhysAddr::new(Satp::read_ppn() << PAGE_SHIFT);
+
+        for i in (0..PAGE_LEVELS).rev() {
+            let table = unsafe {
+                self.phys_to_virt(table_paddr)
+                    .as_ptr::<PageTable>()
+                    .as_ref()
+                    .unwrap()
+            };
+
+            let pte = table.get_entry(vpn[i]).unwrap();
+
+            if !pte.is_valid() {
+                break;
             }
 
-            return Some(PhysAddr::new(ppn << PAGE_SHIFT) + vaddr.page_offset() as u64);
+            if pte.is_leaf() {
+                let mut ppn = pte.get_ppn();
+
+                // For i > 0, the lower bits of PPN are taken from the virtual address
+                for (lvl, vpn) in vpn.iter().enumerate().take(i) {
+                    ppn |= (vpn << (lvl * 9)) as u64;
+                }
+
+                return Some(PhysAddr::new(ppn << PAGE_SHIFT) + vaddr.page_offset() as u64);
+            }
+
+            table_paddr = PhysAddr::new(pte.get_ppn() << PAGE_SHIFT);
         }
 
-        table_paddr = PhysAddr::new(pte.get_ppn() << PAGE_SHIFT);
+        None
     }
-
-    None
-}
-
-/// Translates a physical address into the corresponding virtual address.
-///
-/// # Safety
-///
-/// The caller must guarantee that the physical address space is virtual memory mapped starting
-/// at `phys_mem_offset`.
-pub unsafe fn phys_to_virt(paddr: PhysAddr, phys_mem_offset: VirtAddr) -> VirtAddr {
-    VirtAddr::new(paddr.data() as usize) + phys_mem_offset
-}
-
-/// Sets up identity mapping for a range of addresses, meaning that `vaddr == paddr` for all
-/// addresses the specifed range.
-///
-/// # Safety
-///
-/// See [`map`] for safety consideration.
-pub unsafe fn identity_map_range<A>(
-    root: &mut PageTable,
-    start: PhysAddr,
-    end: PhysAddr,
-    flags: EntryFlags,
-    frame_allocator: &mut A,
-) -> Result<(), MapError>
-where
-    A: FrameAllocator<PhysAddr, PAGE_SIZE>,
-{
-    let start = start.align_down(PAGE_SIZE);
-    let end = end.align_up(PAGE_SIZE);
-
-    let num_pages = u64::from(end - start) >> PAGE_SHIFT;
-
-    for i in 0..num_pages {
-        let addr = start + (i << PAGE_SHIFT);
-
-        unsafe {
-            map(
-                root,
-                VirtAddr::new(u64::from(addr) as usize),
-                addr,
-                PageSize::Kb,
-                flags,
-                frame_allocator,
-            )?;
-        }
-    }
-
-    Ok(())
 }

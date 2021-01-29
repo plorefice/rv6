@@ -25,6 +25,13 @@
 #![feature(custom_test_frameworks)]
 #![test_runner(crate::testing::test_runner)]
 #![reexport_test_harness_main = "run_tests"]
+// Required to use the alloc crate with no_std
+#![feature(alloc_error_handler)]
+
+use alloc::{boxed::Box, string::String};
+
+#[macro_use]
+extern crate alloc;
 
 /// Utility macros.
 #[macro_use]
@@ -61,6 +68,13 @@ ____________________________________/\\\\////__
 #[no_mangle]
 pub extern "C" fn kmain() -> ! {
     kprintln!("{}", RV6_ASCII_LOGO);
+
+    kprintln!();
+    kprintln!("Testing dynamic allocation:");
+    kprintln!("  String: {:?}", String::from("Hello kernel! 👋"));
+    kprintln!("     Vec: {:?}", vec![1, 2, 45, 12312]);
+    kprintln!("     Box: {:?}", Box::new(Some(42)));
+    kprintln!();
 
     #[cfg(test)]
     run_tests();
