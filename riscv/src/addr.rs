@@ -80,46 +80,46 @@ impl PhysAddr {
     }
 
     /// Returns the integer representation of this address.
-    pub fn data(self) -> u64 {
+    pub const fn data(self) -> u64 {
         self.0
     }
 
     /// Returns the lowest 12 bits of this address.
-    pub fn page_offset(self) -> u64 {
+    pub const fn page_offset(self) -> u64 {
         self.0 & 0xfff
     }
 
     /// Returns the full page number of this address.
-    pub fn page_index(self) -> u64 {
-        (u64::from(self) >> PAGE_SHIFT) & 0xfff_ffff_ffff
+    pub const fn page_index(self) -> u64 {
+        (self.data() >> PAGE_SHIFT) & 0xfff_ffff_ffff
     }
 
     /// Returns the 9-bit level 0 page table index.
-    pub fn ppn0(self) -> u64 {
-        (u64::from(self) >> 12) & 0x1ff
+    pub const fn ppn0(self) -> u64 {
+        (self.data() >> 12) & 0x1ff
     }
 
     /// Returns the 9-bit level 1 page table index.
-    pub fn ppn1(self) -> u64 {
-        (u64::from(self) >> 21) & 0x1ff
+    pub const fn ppn1(self) -> u64 {
+        (self.data() >> 21) & 0x1ff
     }
 
     /// Returns the level 2 page table index.
     ///
     /// The size of this field varies depending on the MMU specification.
-    pub fn ppn2(self) -> u64 {
+    pub const fn ppn2(self) -> u64 {
         if cfg!(target = "sv39") {
-            (u64::from(self) >> 30) & 0x3ff_ffff
+            (self.data() >> 30) & 0x3ff_ffff
         } else {
             /* feature = "sv48" */
-            (u64::from(self) >> 30) & 0x1ff
+            (self.data() >> 30) & 0x1ff
         }
     }
 
     /// Returns the 17-bit level 3 page table index.
     #[cfg(feature = "sv48")]
-    pub fn ppn3(self) -> u64 {
-        (u64::from(self) >> 39) & 0x1ffff
+    pub const fn ppn3(self) -> u64 {
+        (self.data() >> 39) & 0x1ffff
     }
 }
 
@@ -303,44 +303,54 @@ impl VirtAddr {
     }
 
     /// Returns the integer representation of this address.
-    pub fn data(self) -> usize {
+    pub const fn data(self) -> usize {
         self.0
     }
 
+    /// Interprets this address as a raw pointer to `T`.
+    pub const fn as_ptr<T>(self) -> *const T {
+        self.data() as *const T
+    }
+
+    /// Interprets this address as an unsafe mutable pointer to `T`.
+    pub const fn as_mut_ptr<T>(self) -> *mut T {
+        self.data() as *mut T
+    }
+
     /// Returns the lowest 12 bits of this address.
-    pub fn page_offset(self) -> usize {
+    pub const fn page_offset(self) -> usize {
         self.0 & 0xfff
     }
 
     /// Returns the full page number of this address.
-    pub fn page_index(self) -> usize {
+    pub const fn page_index(self) -> usize {
         if cfg!(feature = "sv39") {
-            (usize::from(self) >> PAGE_SHIFT) & 0x7ff_ffff
+            (self.data() >> PAGE_SHIFT) & 0x7ff_ffff
         } else {
             /* feature = "sv48" */
-            (usize::from(self) >> PAGE_SHIFT) & 0xf_ffff_ffff
+            (self.data() >> PAGE_SHIFT) & 0xf_ffff_ffff
         }
     }
 
     /// Returns the 9-bit level 0 page table index.
-    pub fn vpn0(self) -> usize {
-        (usize::from(self) >> 12) & 0x1ff
+    pub const fn vpn0(self) -> usize {
+        (self.data() >> 12) & 0x1ff
     }
 
     /// Returns the 9-bit level 1 page table index.
-    pub fn vpn1(self) -> usize {
-        (usize::from(self) >> 21) & 0x1ff
+    pub const fn vpn1(self) -> usize {
+        (self.data() >> 21) & 0x1ff
     }
 
     /// Returns the 9-bit level 2 page table index.
-    pub fn vpn2(self) -> usize {
-        (usize::from(self) >> 30) & 0x1ff
+    pub const fn vpn2(self) -> usize {
+        (self.data() >> 30) & 0x1ff
     }
 
     /// Returns the 9-bit level 3 page table index.
     #[cfg(feature = "sv48")]
-    pub fn vpn3(self) -> usize {
-        (usize::from(self) >> 39) & 0x1ff
+    pub const fn vpn3(self) -> usize {
+        (self.data() >> 39) & 0x1ff
     }
 }
 

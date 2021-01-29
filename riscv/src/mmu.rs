@@ -303,24 +303,29 @@ where
 pub unsafe fn virt_to_phys(vaddr: VirtAddr, phys_mem_offset: VirtAddr) -> Option<PhysAddr> {
     #[cfg(feature = "sv39")]
     let vpn = [
-        (usize::from(vaddr) >> 12) & 0x1ff,
-        (usize::from(vaddr) >> 21) & 0x1ff,
-        (usize::from(vaddr) >> 30) & 0x1ff,
+        (vaddr.data() >> 12) & 0x1ff,
+        (vaddr.data() >> 21) & 0x1ff,
+        (vaddr.data() >> 30) & 0x1ff,
     ];
 
     #[cfg(feature = "sv48")]
     let vpn = [
-        (usize::from(vaddr) >> 12) & 0x1ff,
-        (usize::from(vaddr) >> 21) & 0x1ff,
-        (usize::from(vaddr) >> 30) & 0x1ff,
-        (usize::from(vaddr) >> 39) & 0x1ff,
+        (vaddr.data() >> 12) & 0x1ff,
+        (vaddr.data() >> 21) & 0x1ff,
+        (vaddr.data() >> 30) & 0x1ff,
+        (vaddr.data() >> 39) & 0x1ff,
     ];
 
     let mut table_paddr = PhysAddr::new(Satp::read_ppn() << PAGE_SHIFT);
 
     for i in (0..PAGE_LEVELS).rev() {
-        let table_vaddr = VirtAddr::new(u64::from(table_paddr) as usize) + phys_mem_offset;
-        let table = unsafe { (usize::from(table_vaddr) as *const PageTable).as_ref() }.unwrap();
+        let table = unsafe {
+            phys_to_virt(table_paddr, phys_mem_offset)
+                .as_ptr::<PageTable>()
+                .as_ref()
+                .unwrap()
+        };
+
         let pte = table.get_entry(vpn[i]).unwrap();
 
         if !pte.is_valid() {
@@ -342,6 +347,16 @@ pub unsafe fn virt_to_phys(vaddr: VirtAddr, phys_mem_offset: VirtAddr) -> Option
     }
 
     None
+}
+
+/// Translates a physical address into the corresponding virtual address.
+///
+/// # Safety
+///
+/// The caller must guarantee that the physical address space is virtual memory mapped starting
+/// at `phys_mem_offset`.
+pub unsafe fn phys_to_virt(paddr: PhysAddr, phys_mem_offset: VirtAddr) -> VirtAddr {
+    VirtAddr::new(paddr.data() as usize) + phys_mem_offset
 }
 
 /// Sets up identity mapping for a range of addresses, meaning that `vaddr == paddr` for all
