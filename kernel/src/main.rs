@@ -10,7 +10,7 @@
 // Don't use the default entry point
 #![no_main]
 // Keep things clean and tidy
-#![deny(missing_docs)]
+#![warn(missing_docs)]
 // Bunch of features required throughout the kernel code
 #![feature(asm, naked_functions)]
 #![feature(lang_items)]
