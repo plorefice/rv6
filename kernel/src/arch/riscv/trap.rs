@@ -1,4 +1,5 @@
 use riscv::registers::Stvec;
+use stackframe::unwind_stack_frame;
 
 use super::*;
 
@@ -98,18 +99,18 @@ impl TrapFrame {
     #[rustfmt::skip]
     fn dump(&self, pc: usize) {
         let s = self;
-        kprintln!("PC was at {:016x}", pc);
-        kprintln!("RA was at {:016x}", s.ra);
-        kprintln!("sp : {:016x}  gp : {:016x}  tp : {:016x}", s.sp, s.gp, s.tp);
-        kprintln!("t0 : {:016x}  t1 : {:016x}  t2 : {:016x}", s.t0, s.t1, s.t2);
-        kprintln!("s0 : {:016x}  s1 : {:016x}  a0 : {:016x}", s.s0, s.s1, s.a0);
-        kprintln!("a1 : {:016x}  a2 : {:016x}  a3 : {:016x}", s.a1, s.a2, s.a3);
-        kprintln!("a4 : {:016x}  a5 : {:016x}  a6 : {:016x}", s.a4, s.a5, s.a6);
-        kprintln!("a7 : {:016x}  s2 : {:016x}  s3 : {:016x}", s.a7, s.s2, s.s3);
-        kprintln!("s4 : {:016x}  s5 : {:016x}  s6 : {:016x}", s.s4, s.s5, s.s6);
-        kprintln!("s7 : {:016x}  s8 : {:016x}  s9 : {:016x}", s.s7, s.s8, s.s9);
-        kprintln!("s10: {:016x}  s11: {:016x}  t3 : {:016x}", s.s10, s.s11, s.t3);
-        kprintln!("t4 : {:016x}  t5 : {:016x}  t6 : {:016x}", s.t4, s.t5, s.t6);
+        kprintln!(" PC was at {:016x}", pc);
+        kprintln!(" RA was at {:016x}", s.ra);
+        kprintln!(" sp : {:016x}  gp : {:016x}  tp : {:016x}", s.sp, s.gp, s.tp);
+        kprintln!(" t0 : {:016x}  t1 : {:016x}  t2 : {:016x}", s.t0, s.t1, s.t2);
+        kprintln!(" s0 : {:016x}  s1 : {:016x}  a0 : {:016x}", s.s0, s.s1, s.a0);
+        kprintln!(" a1 : {:016x}  a2 : {:016x}  a3 : {:016x}", s.a1, s.a2, s.a3);
+        kprintln!(" a4 : {:016x}  a5 : {:016x}  a6 : {:016x}", s.a4, s.a5, s.a6);
+        kprintln!(" a7 : {:016x}  s2 : {:016x}  s3 : {:016x}", s.a7, s.s2, s.s3);
+        kprintln!(" s4 : {:016x}  s5 : {:016x}  s6 : {:016x}", s.s4, s.s5, s.s6);
+        kprintln!(" s7 : {:016x}  s8 : {:016x}  s9 : {:016x}", s.s7, s.s8, s.s9);
+        kprintln!(" s10: {:016x}  s11: {:016x}  t3 : {:016x}", s.s10, s.s11, s.t3);
+        kprintln!(" t4 : {:016x}  t5 : {:016x}  t6 : {:016x}", s.t4, s.t5, s.t6);
     }
 }
 
@@ -137,7 +138,9 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapF
             ex => kprintln!("=> Unhandled exception: {:?}, tval {:016x}", ex, tval),
         }
 
+        // Debug facilities
         tf.dump(epc);
+        unwind_stack_frame();
 
         // Halt the hart. This will change when exceptions are handled.
         halt();
