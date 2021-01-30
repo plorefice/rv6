@@ -21,7 +21,7 @@ $(RV6_STATICLIB): FORCE
 	@cargo build
 
 $(RV6_DYLIB): $(RV6_STATICLIB)
-	@$(LD) -T linkers/riscv.ld -o "$@" "$<"
+	@$(LD) -T linkers/riscv.ld -o "$@" --whole-archive "$<"
 
 $(RV6_BIN): $(RV6_DYLIB)
 	@$(OBJCOPY) -O binary "$<" "$@"
