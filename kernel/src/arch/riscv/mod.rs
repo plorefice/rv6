@@ -6,6 +6,7 @@ use riscv::{
 mod entry;
 mod memory;
 mod sbi;
+mod stackframe;
 mod time;
 mod trap;
 
