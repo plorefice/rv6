@@ -27,7 +27,12 @@ clear_bss_done:
 
     // Allocate stack
     la sp, __stack_start
-    add s0, sp, zero
+
+    // Setup dummy stack frame
+    addi sp, sp, -16
+    sd zero, 8(sp)
+    sd zero, 0(sp)
+    addi s0, sp, 16
 
     // Disable paging
     csrwi satp, 0
