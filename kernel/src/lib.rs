@@ -7,8 +7,6 @@
 
 // We are building a freestanding binary, so no standard library support for us
 #![no_std]
-// Don't use the default entry point
-#![no_main]
 // Keep things clean and tidy
 #![warn(missing_docs)]
 // Bunch of features required throughout the kernel code
@@ -21,10 +19,6 @@
     const_fn_fn_ptr_basics,
     const_raw_ptr_to_usize_cast
 )]
-// Features required to build a custom test framework
-#![feature(custom_test_frameworks)]
-#![test_runner(crate::testing::test_runner)]
-#![reexport_test_harness_main = "run_tests"]
 // Required to use the alloc crate with no_std
 #![feature(alloc_error_handler)]
 
@@ -49,9 +43,6 @@ pub mod mm;
 /// Panic support.
 pub mod panic;
 
-/// Custom test framework.
-pub mod testing;
-
 const RV6_ASCII_LOGO: &str = r#"
 ________________________________________/\\\\\_       
 ____________________________________/\\\\////__       
@@ -75,9 +66,6 @@ pub extern "C" fn kmain() -> ! {
     kprintln!("     Vec: {:?}", vec![1, 2, 45, 12312]);
     kprintln!("     Box: {:?}", Box::new(Some(42)));
     kprintln!();
-
-    #[cfg(test)]
-    run_tests();
 
     #[allow(clippy::empty_loop)]
     loop {}

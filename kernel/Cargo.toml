@@ -4,6 +4,9 @@ edition = "2018"
 name = "rv6"
 version = "0.1.0"
 
+[lib]
+crate-type = ["lib", "staticlib"]
+
 [dependencies]
 bitflags = "1.2.1"
 kmm = {path = "../kmm"}
