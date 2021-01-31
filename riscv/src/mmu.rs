@@ -10,7 +10,6 @@ use kmm::{allocator::FrameAllocator, Align};
 
 use crate::{
     addr::{PAGE_SHIFT, PAGE_SIZE},
-    registers::Satp,
     PhysAddr, VirtAddr,
 };
 
@@ -405,16 +404,9 @@ impl<'a> OffsetPageMapper<'a> {
             (vaddr.data() >> 39) & 0x1ff,
         ];
 
-        let mut table_paddr = PhysAddr::new(Satp::read_ppn() << PAGE_SHIFT);
+        let mut table = &*self.rpt;
 
         for i in (0..PAGE_LEVELS).rev() {
-            let table = unsafe {
-                self.phys_to_virt(table_paddr)
-                    .as_ptr::<PageTable>()
-                    .as_ref()
-                    .unwrap()
-            };
-
             let pte = table.get_entry(vpn[i]).unwrap();
 
             if !pte.is_valid() {
@@ -432,7 +424,12 @@ impl<'a> OffsetPageMapper<'a> {
                 return Some(PhysAddr::new(ppn << PAGE_SHIFT) + vaddr.page_offset() as u64);
             }
 
-            table_paddr = PhysAddr::new(pte.get_ppn() << PAGE_SHIFT);
+            table = unsafe {
+                self.phys_to_virt(PhysAddr::from_ppn(pte.get_ppn()))
+                    .as_ptr::<PageTable>()
+                    .as_ref()
+                    .unwrap()
+            };
         }
 
         None
