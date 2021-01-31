@@ -5,4 +5,5 @@ members = [
   "kmm",
   "sbi",
   "rvalloc",
+  "ksymsgen",
 ]

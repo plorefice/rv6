@@ -1,0 +1,8 @@
+[package]
+authors = ["Pietro Lorefice <pietro.lorefice@gmail.com>"]
+edition = "2018"
+name = "ksymsgen"
+version = "0.1.0"
+
+[dependencies]
+rustc-demangle = "0.1.18"

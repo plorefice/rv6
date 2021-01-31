@@ -41,7 +41,7 @@ link()
 # Create ${2} .S file with all symbols from the ${1} object file
 ksyms()
 {
-	nm -C ${1} | rg " [Tt] [a-zA-Z_]" | script/gen-ksyms.py > ${2}
+	nm ${1} | rg " [Tt] [a-zA-Z_]" | target/debug/ksymsgen > ${2}
 }
 
 # Perform one step in ksyms generation, including temporary linking of rv6.
