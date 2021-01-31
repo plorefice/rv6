@@ -37,6 +37,7 @@ impl Ns16550 {
 
     /// Writes a single byte to the serial interface.
     pub fn put(&mut self, val: u8) {
+        while self.p.lsr.read() & 0b0010_0000 == 0 {}
         unsafe { self.p.rthr.write(val) };
     }
 
