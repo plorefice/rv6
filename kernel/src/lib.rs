@@ -11,7 +11,7 @@
 #![warn(missing_docs)]
 // Bunch of features required throughout the kernel code
 #![feature(asm, naked_functions)]
-#![feature(lang_items)]
+#![feature(linkage)]
 #![feature(option_expect_none)]
 #![feature(
     const_raw_ptr_deref,
@@ -36,6 +36,9 @@ pub mod arch;
 
 /// Device and peripheral drivers.
 pub mod drivers;
+
+/// Access to kernel symbols for debugging.
+pub mod ksyms;
 
 /// Memory management facilities.
 pub mod mm;

@@ -3,6 +3,8 @@
 //! **IMPORTANT:** in order for unwinding to work, the kernel must be compiled using `rustc`'s
 //! `force-frame-pointers=yes` option.
 
+use crate::ksyms;
+
 /// Structure of a stack frame on RISC-V.
 struct StackFrame {
     fp: usize,
@@ -36,7 +38,7 @@ fn walk_stack_frame() {
         // Unwind stack frame
         let frame = unsafe { (fp as *const StackFrame).sub(1).as_ref() }.unwrap();
         fp = frame.fp;
-        pc = trace_ret_addr(frame.ra);
+        pc = frame.ra;
     }
 }
 
@@ -52,11 +54,12 @@ fn is_kernel_text_address(pc: usize) -> bool {
     }
 }
 
+/// Traces the function to which PC belongs and displays both its name and the offset within.
 fn print_trace_address(pc: usize) {
-    kprintln!(" [{:016x}] name_goes_here", pc);
-}
-
-fn trace_ret_addr(ra: usize) -> usize {
-    // TODO: use `ra` to find the corresponding symbol
-    ra
+    kprint!(" [<{:016x}>] ", pc);
+    if let Some((sym, off)) = ksyms::resolve_symbol(pc) {
+        kprintln!("<{}>+0x{:x}", sym, off);
+    } else {
+        kprintln!("?");
+    }
 }

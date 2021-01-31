@@ -5,8 +5,8 @@ TARGET = riscv64gc-unknown-none-elf
 OUTDIR = target/$(TARGET)/debug
 OPENSBI_BIN = opensbi/build/platform/generic/firmware/fw_jump.bin
 RV6_STATICLIB = $(OUTDIR)/librv6.a
-RV6_DYLIB = $(OUTDIR)/rv6.o
-RV6_BIN = $(OUTDIR)/rv6
+RV6_DYLIB = rv6
+RV6_BIN = rv6.bin
 
 # Tools and utilities
 CROSS_COMPILE ?= riscv64-unknown-elf-
@@ -21,7 +21,7 @@ $(RV6_STATICLIB): FORCE
 	@cargo build
 
 $(RV6_DYLIB): $(RV6_STATICLIB)
-	@$(LD) -T linkers/riscv.ld -o "$@" --whole-archive "$<"
+	@CROSS_COMPILE=$(CROSS_COMPILE) script/link-rv6.sh "$<"
 
 $(RV6_BIN): $(RV6_DYLIB)
 	@$(OBJCOPY) -O binary "$<" "$@"
@@ -34,5 +34,6 @@ run: $(RV6_BIN) $(OPENSBI_BIN)
 
 clean:
 	@cargo clean
+	@rm -f "$(RV6_BIN)" "$(RV6_DYLIB)"
 
 FORCE:
