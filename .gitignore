@@ -1,2 +1,7 @@
+# Build artifacts
 /target
+/rv6
+/rv6.bin
+
+# Editor files
 .vscode
