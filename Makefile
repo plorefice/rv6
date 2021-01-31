@@ -15,7 +15,7 @@ LD = $(CROSS_COMPILE)ld
 QEMU = qemu-system-riscv64 -M virt -m 256M -nographic -serial mon:stdio \
 	-bios $(OPENSBI_BIN) -kernel
 
-.PHONY = run test clean FORCE
+.PHONY = qemu test clean FORCE
 
 $(RV6_STATICLIB): FORCE
 	@cargo build
@@ -29,7 +29,7 @@ $(RV6_BIN): $(RV6_DYLIB)
 $(OPENSBI_BIN):
 	@make -C opensbi CROSS_COMPILE=riscv64-unknown-elf- PLATFORM=generic
 
-run: $(RV6_BIN) $(OPENSBI_BIN)
+qemu: $(RV6_BIN) $(OPENSBI_BIN)
 	@$(QEMU) "$<"
 
 clean:
