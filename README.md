@@ -6,22 +6,22 @@
 :warning: **The project is still very much a WIP and it will probably remain so** :warning:
 
 Given the scope of the project and my free time, I'd be very surprised to actually get to a working
-userpsace init program anytime soon.
+userspace init program anytime soon.
 
 ## Components
 
 The project is split into many modular crates, in the hopes of confining as much arch-specific
 code as possible into dedicated modules.
 
-The followings are all [no_std] crates belonging to the root workspace, which are used to put
+The followings are all `no_std` crates belonging to the root workspace, which are used to put
 together the final OS:
 
-- [`kernel`](kernel/) contains the core of `rv6` and and produces the final kernel binary
+- [`kernel`](kernel/) contains the core of _rv6_ and and produces the final kernel binary
 - [`kmm`](kmm/), short for _kernel memory management_, is a collection of arch-generic memory
   management facilities (eg. allocators, memory traits, etc.)
 - [`rvalloc`](rvalloc/) aims to be a generic fully-fledged kernel heap allocator
-- [`riscv`](riscv/) contains all RISC-V specific and kernel-independent code, such as registers,
-  special instructions, memory abstractions and MMU support
+- [`riscv`](riscv/) contains all RISC-V specific and kernel-independent code, such as register
+  definitions, wrappers around special instructions, memory abstraction, MMU support etc.
 - [`sbi`](sbi/) is a client-side implementation of the RISC-V
   [Supervisor Binary Interface](https://github.com/riscv/riscv-sbi-doc/blob/master/riscv-sbi.adoc)
   for interacting with platform-specific runtime firmware (_SEE_).
@@ -34,8 +34,8 @@ fanciness.
 
 ## Requirements
 
-Aside from a working Rust installation (rustup.rs is recommended), a bunch of stuff is required
-to run `rv6`:
+Aside from a working Rust installation ([rustup.rs](https://rustup.rs/) recommended), a bunch of stuff is required
+to run _rv6_:
 
 - Nigthly version of the Rust compiler, which as of now is the only way to build the kernel
 
@@ -47,18 +47,19 @@ to run `rv6`:
 
 - GCC toolchain for RISC-V cross-compilation, to build the (few) assembly files in the tree
 
-  Getting this component is very distribution-dependent, but for Debian derivatives a simple
-  `sudo apt install gcc-riscv64-unknown-elf`
+  Getting this component is very distribution-dependent, but on Ubutun a simple
+  `sudo apt install gcc-riscv64-unknown-elf` will suffice.
 
 - GDB with support for the RISC-V architecture (trust me, you will need it :wink:)
 
-  Again, on Debian derivatives `apt` comes through for us: `sudo apt install gdb-multiarch`
+  Again, on Ubuntu `apt` comes through for us: `sudo apt install gdb-multiarch`
 
 - QEMU with support for RISC-V machines, to finally run it
 
-  As above, on Debian-like: `sudo apt install qemu-system-misc`
+  As above, on Ubuntu: `sudo apt install qemu-system-misc`
 
-If something is missing from this list, please let me know by submitting a PR.
+If something is missing from this list and you figure it out, please let me know by submitting a
+PR.
 
 ## Checking out the code
 
@@ -96,5 +97,5 @@ target instead.
 
 - **Q:** _Why?_
 
-  **A:** Because _yes_.
+  **A:** Because.
  
