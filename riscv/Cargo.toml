@@ -10,6 +10,6 @@ bitflags = "1.2.1"
 kmm = {path = "../kmm"}
 
 [features]
-default = ["sv48"]
+default = ["sv39"]
 sv39 = []
 sv48 = []

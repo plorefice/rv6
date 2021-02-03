@@ -60,12 +60,20 @@ bitflags! {
 }
 
 /// A page table for virtual address translation.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(align(4096))]
 pub struct PageTable {
     entries: [Entry; 512],
 }
 
 impl PageTable {
+    /// Creates a new page table with blank entries.
+    pub const fn new() -> Self {
+        Self {
+            entries: [Entry::new(); 512],
+        }
+    }
+
     /// Resets all the entries of this page table to zero.
     pub fn clear(&mut self) {
         for entry in &mut self.entries {
@@ -112,6 +120,15 @@ pub struct Entry {
 }
 
 impl Entry {
+    /// Creates a new empty entry.
+    ///
+    /// The entry is marked as non-valid, and all its flags are set to zero.
+    pub const fn new() -> Self {
+        Self {
+            inner: EntryFlags::empty(),
+        }
+    }
+
     /// Returns whether the mapping contained in this entry is valid for use in translation.
     pub fn is_valid(&self) -> bool {
         self.inner.contains(EntryFlags::VALID)
@@ -224,8 +241,19 @@ pub enum PageSize {
 }
 
 impl PageSize {
+    /// Returns the size in bytes of this page.
+    pub fn size(self) -> usize {
+        match self {
+            PageSize::Kb => 1 << 12,
+            PageSize::Mb => 1 << 21,
+            PageSize::Gb => 1 << 30,
+            #[cfg(feature = "sv48")]
+            PageSize::Tb => 1 << 39,
+        }
+    }
+
     /// Converts this page size to the page table level which this page maps to.
-    fn to_table_level(self) -> usize {
+    pub fn to_table_level(self) -> usize {
         match self {
             PageSize::Kb => 0,
             PageSize::Mb => 1,
