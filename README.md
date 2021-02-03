@@ -98,4 +98,8 @@ target instead.
 - **Q:** _Why?_
 
   **A:** Because.
- 
+
+## License
+
+This project is licensed under either Apache License (Version 2.0) or MIT License.
+See [LICENSE-APACHE](LICENSE-APACHE) or [LICENSE-MIT](LICENSE-MIT) for details on both.
