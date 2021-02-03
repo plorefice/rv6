@@ -13,11 +13,11 @@ fn main() {
         #[cfg(feature = "config-milkv")]
         cc.flag("-DCONFIG_MILKV");
 
-        cc.file("src/arch/riscv/startup.S")
+        cc.file("src/arch/riscv/head.S")
             .file("src/arch/riscv/trap.S")
             .compile("libcpu.a");
 
-        println!("cargo:rerun-if-changed=src/arch/riscv/startup.S");
+        println!("cargo:rerun-if-changed=src/arch/riscv/head.S");
         println!("cargo:rerun-if-changed=src/arch/riscv/trap.S");
         println!("cargo:rerun-if-changed=linkers/riscv.ld");
     }

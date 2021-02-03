@@ -9,7 +9,6 @@ use bitflags::bitflags;
 
 use crate::{
     arch::{
-        memory::GFA,
         riscv::addr::{PAGE_SHIFT, PAGE_SIZE},
         PhysAddr, VirtAddr,
     },
@@ -81,7 +80,7 @@ bitflags! {
 }
 
 /// A page table for virtual address translation.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(align(4096))]
 pub struct PageTable {
     entries: [Entry; 512],
@@ -89,13 +88,18 @@ pub struct PageTable {
 
 impl Default for PageTable {
     fn default() -> Self {
-        Self {
-            entries: [Entry::empty(); 512],
-        }
+        Self::new()
     }
 }
 
 impl PageTable {
+    /// Creates a new page table with cleared entries.
+    pub const fn new() -> Self {
+        Self {
+            entries: [Entry::empty(); 512],
+        }
+    }
+
     /// Resets all the entries of this page table to zero.
     pub fn clear(&mut self) {
         for entry in &mut self.entries {
@@ -286,7 +290,8 @@ impl PageSize {
         }
     }
 
-    fn size(self) -> u64 {
+    /// Returns the number of bytes contained in a page of this size.
+    pub fn size(self) -> u64 {
         match self {
             PageSize::Kb => 0x1000,
             PageSize::Mb => 0x200000,
@@ -350,6 +355,7 @@ impl<'a> OffsetPageMapper<'a> {
         paddr: PhysAddr,
         page_size: PageSize,
         mut flags: EntryFlags,
+        allocator: &mut impl FrameAllocator<PhysAddr, PAGE_SIZE>,
     ) -> Result<(), MapError> {
         #[cfg(feature = "sv39")]
         let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2()];
@@ -363,7 +369,8 @@ impl<'a> OffsetPageMapper<'a> {
             // Traverse page table entry to the next level, or allocate a new level of page table
             let table_paddr = if !pte.is_valid() {
                 // SAFETY: PageTable fits in a single 4k page
-                let new_table_addr = unsafe { GFA.alloc(1) }.ok_or(MapError::AllocationFailed)?;
+                let new_table_addr =
+                    unsafe { allocator.alloc(1).ok_or(MapError::AllocationFailed)? };
 
                 pte.clear();
                 pte.set_flags(EntryFlags::VALID);
@@ -414,6 +421,7 @@ impl<'a> OffsetPageMapper<'a> {
         start: PhysAddr,
         end: PhysAddr,
         flags: EntryFlags,
+        allocator: &mut impl FrameAllocator<PhysAddr, PAGE_SIZE>,
     ) -> Result<(), MapError> {
         let start = start.align_down(PAGE_SIZE);
         let end = end.align_up(PAGE_SIZE);
@@ -430,6 +438,7 @@ impl<'a> OffsetPageMapper<'a> {
                     addr,
                     PageSize::Kb,
                     flags,
+                    allocator,
                 )?;
             }
         }

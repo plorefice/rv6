@@ -33,7 +33,7 @@ ksymsgen: FORCE
 	@cargo build --manifest-path ksymsgen/Cargo.toml
 
 qemu: $(RV6_BIN)
-	@$(QEMU) "$<"
+	@$(QEMU) -kernel "$<"
 
 debug: $(RV6_BIN)
 	@$(QEMU) -kernel "$<" -S -s

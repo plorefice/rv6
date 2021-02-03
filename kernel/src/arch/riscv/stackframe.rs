@@ -48,14 +48,12 @@ fn walk_stack_frame() {
 /// Returns whether an address lies withing the kernel's `.text` section.
 fn is_kernel_text_address(pc: usize) -> bool {
     extern "C" {
-        static __text_start: usize;
-        static __text_end: usize;
+        static _stext: usize;
+        static _etext: usize;
     }
 
-    // SAFETY: __text_start and __text_end are initialized by the linker
-    unsafe {
-        pc >= (&__text_start as *const _ as usize) && pc <= (&__text_end as *const _ as usize)
-    }
+    // SAFETY: _stext and _etext are initialized by the linker
+    unsafe { pc >= (&_stext as *const _ as usize) && pc <= (&_etext as *const _ as usize) }
 }
 
 /// Traces the function to which PC belongs and displays both its name and the offset within.

@@ -1,75 +1,94 @@
 /*
  * Linker script for QEMU virt machine
+ *
+ * Based on Linux kernel's arch/riscv/kernel/vmlinux.lds.S.
  */
+
+/* NOTE: must be kept in sync with head.S */
+LOAD_OFFSET = 0xffffffff80000000;
+PAGE_ALIGN = (1 << 12);
+SECTION_ALIGN = (1 << 21);
 
 OUTPUT_ARCH("riscv")
 ENTRY(_start)
 
 SECTIONS
 {
-  /* OpenSBI's fw_jump.bin firmware will look here for the entry point */
-  . = ABSOLUTE(0x80200000);
+  . = LOAD_OFFSET;
 
-  __start = .;
+  _start = .;
 
-  . = ALIGN(4);
+  .head.text : AT(ADDR(.head.text) - LOAD_OFFSET) {
+    KEEP(*(.head.text))
+  }
+
+  . = ALIGN(PAGE_ALIGN);
+  .init.text : AT(ADDR(.init.text) - LOAD_OFFSET) {
+    *(.init.text .init.text.*)
+  }
+
+  . = ALIGN(SECTION_ALIGN);
   .text : {
-    /* Put reset handler first in .text section so it ends up as the entry point of the program */
-    PROVIDE(__text_start = .);
-    KEEP(*(.init));
-    . = ALIGN(8);
-    *(.trap) *(.trap*)
-    *(.text*)
-    PROVIDE(__text_end = .);
+    _stext = .;
+    *(.text .text.*)
+    _etext = .;
   }
 
-  /* Constant data area */
-  . = ALIGN(4);
-  .rodata : {
-    PROVIDE(__rodata_start = .);
-    *(.rodata*)
-    PROVIDE(__rodata_end = .);
+  . = ALIGN(SECTION_ALIGN);
+  _srodata = .;
+
+  .rodata : AT(ADDR(.rodata) - LOAD_OFFSET) {
+    *(.rodata .rodata.*)
   }
 
-  /* Data section starts here - we page-align it so that we can properly setup the MMU later on */
-  . = ALIGN(4K);
+  . = ALIGN(SECTION_ALIGN);
+  .srodata : {
+    *(.rodata .rodata.*)
+  }
 
-  PROVIDE(__data_start = .);
+  _erodata = .;
 
-  /* Small data area - RISC-V provides optimized access to this area */
-  . = ALIGN(4);
+  . = ALIGN(SECTION_ALIGN);
+  _sdata = .;
+
+  .data : AT(ADDR(.data) - LOAD_OFFSET) {
+    _estack = .;
+    . += 64K;
+    _sstack = .;
+
+    . = ALIGN(PAGE_ALIGN);
+    *(.data..page_aligned)
+
+    . = ALIGN(PAGE_ALIGN);
+    *(.data)
+  }
+
   .sdata : {
-    /* Point the global pointer halfway through this section */
-    PROVIDE(__global_pointer$ = . + (4K / 2));
+    __global_pointer$ = . + 0x800;
     *(.sdata*)
   }
 
-  /* Regular data area */
-  . = ALIGN(4);
-  .data : {
-    *(.data*)
+  _edata = .;
+
+  . = ALIGN(PAGE_ALIGN);
+  _sbss = .;
+
+  .sbss : AT(ADDR(.sbss) - LOAD_OFFSET) {
+    *(.dynsbss) *(.sbss) *(.scommon)
   }
 
-  /* Zero-initialized data */
-  . = ALIGN(4);
-  .bss : {
-    PROVIDE(__bss_start = .);
-    *(.sbss*) *(.bss*)
-    . = ALIGN(8);
-    PROVIDE(__bss_end = .);
+  . = ALIGN(PAGE_ALIGN);
+  .bss : AT(ADDR(.bss) - LOAD_OFFSET) {
+    *(.dynbss) *(.bss) *(COMMON)
   }
 
-  /* Reserved stack space for startup code */
-  . = ALIGN(16);
-  .stack : {
-    PROVIDE(__stack_end = .);
-    . += 64K;
-    PROVIDE(__stack_start = .);
+  _ebss = .;
+
+  .rel.dyn : {
+    *(.rel.dyn*)
   }
 
-  PROVIDE(__data_end = .);
-
-  __end = .;
+  _end = .;
 
   /DISCARD/ : {
     *(.eh_frame*)

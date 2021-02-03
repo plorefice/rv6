@@ -1,7 +1,6 @@
 //! Collection of memory allocators.
 
 use crate::mm::PhysicalAddress;
-use spin::Mutex;
 
 pub use bitmap::BitmapAllocator;
 pub use bump::BumpAllocator;
@@ -37,50 +36,4 @@ where
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
     unsafe fn free(&mut self, address: A);
-}
-
-/// A frame allocator wrapped in a [`Mutex`] for concurrent access.
-#[derive(Debug)]
-pub struct LockedAllocator<T> {
-    inner: Mutex<Option<T>>,
-}
-
-impl<T> LockedAllocator<T> {
-    /// Creates a new empty locked allocator.
-    pub const fn new() -> Self {
-        Self {
-            inner: Mutex::new(None),
-        }
-    }
-
-    /// Configures the underlying allocator to be used.
-    pub fn set_allocator(&self, inner: T) {
-        *self.inner.lock() = Some(inner);
-    }
-}
-
-impl<A, T, const N: u64> FrameAllocator<A, N> for LockedAllocator<T>
-where
-    A: PhysicalAddress<u64>,
-    T: FrameAllocator<A, N>,
-{
-    unsafe fn alloc(&mut self, count: usize) -> Option<A> {
-        let mut inner = self.inner.lock();
-
-        if let Some(allocator) = &mut *inner {
-            // SAFETY: see FrameAllocator::alloc
-            unsafe { allocator.alloc(count) }
-        } else {
-            None
-        }
-    }
-
-    unsafe fn free(&mut self, address: A) {
-        let mut inner = self.inner.lock();
-
-        if let Some(allocator) = &mut *inner {
-            // SAFETY: see FrameAllocator::alloc
-            unsafe { allocator.free(address) };
-        }
-    }
 }
