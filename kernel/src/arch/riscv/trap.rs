@@ -115,7 +115,6 @@ impl TrapFrame {
 }
 
 #[no_mangle]
-#[link_section = ".trap.rust"]
 extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapFrame) -> usize {
     let is_irq = (cause & CAUSE_IRQ_FLAG_MASK) != 0;
     let irq = cause & !CAUSE_IRQ_FLAG_MASK;

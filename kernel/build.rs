@@ -8,11 +8,11 @@ fn main() {
         cc::Build::new()
             .compiler("riscv64-elf-gcc")
             .flag("-mabi=lp64d")
-            .file("src/arch/riscv/startup.S")
+            .file("src/arch/riscv/head.S")
             .file("src/arch/riscv/trap.S")
             .compile("libcpu.a");
 
-        println!("cargo:rerun-if-changed=src/arch/riscv/startup.S");
+        println!("cargo:rerun-if-changed=src/arch/riscv/head.S");
         println!("cargo:rerun-if-changed=src/arch/riscv/trap.S");
         println!("cargo:rerun-if-changed=linkers/riscv.ld");
     }
