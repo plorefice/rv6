@@ -19,6 +19,7 @@
     const_fn_fn_ptr_basics,
     const_raw_ptr_to_usize_cast
 )]
+#![feature(maybe_uninit_ref)]
 // Required to use the alloc crate with no_std
 #![feature(alloc_error_handler)]
 

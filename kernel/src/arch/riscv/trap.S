@@ -8,7 +8,6 @@
     Saves registers, calls _do_handle_strap_rust,
     restores caller saved registers and then returns.
 */
-.section .trap, "ax"
 .global trap_entry
 trap_entry:
     // Make space to save registers

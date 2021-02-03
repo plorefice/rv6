@@ -6,11 +6,11 @@ fn main() {
     if target == "riscv64" {
         // Build startup code and archive it
         cc::Build::new()
-            .file("src/arch/riscv/startup.S")
+            .file("src/arch/riscv/head.S")
             .file("src/arch/riscv/trap.S")
             .compile("libcpu.a");
 
-        println!("cargo:rerun-if-changed=src/arch/riscv/startup.S");
+        println!("cargo:rerun-if-changed=src/arch/riscv/head.S");
         println!("cargo:rerun-if-changed=src/arch/riscv/trap.S");
         println!("cargo:rerun-if-changed=linkers/riscv.ld");
     }
