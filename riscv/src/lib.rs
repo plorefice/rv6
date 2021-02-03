@@ -14,6 +14,9 @@
 #![feature(unsafe_block_in_unsafe_fn)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+#[cfg(all(feature = "sv39", feature = "sv38"))]
+compile_error!("Features \"sv39\" and \"sv48\" are mutually exclusive.");
+
 pub mod addr;
 pub mod instructions;
 pub mod mmu;
