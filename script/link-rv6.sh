@@ -9,7 +9,7 @@
 # Inspired by link-vmlinux.sh.
 
 # Error out on error
-set -eu
+set -e
 
 LD="${CROSS_COMPILE}"ld
 CC="${CROSS_COMPILE}"gcc
