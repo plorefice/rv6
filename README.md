@@ -34,8 +34,8 @@ fanciness.
 
 ## Requirements
 
-Aside from a working Rust installation ([rustup.rs](https://rustup.rs/) recommended), a bunch of stuff is required
-to run _rv6_:
+Aside from a working Rust installation ([rustup.rs](https://rustup.rs/) recommended), a bunch of
+stuff is required to run _rv6_:
 
 - Nigthly version of the Rust compiler, which as of now is the only way to build the kernel
 
@@ -92,6 +92,18 @@ loader for RISC-V, which will in turn boot the kernel.
 
 In order to make QEMU wait for a GDB remote connection before starting up, you can use the `debug`
 target instead.
+
+## Roadmap
+
+- [x] Bootloader hand-off
+- [x] Early relocation and paging setup (v1)
+- [x] Early console (v1)
+- [x] Heap allocator
+- [ ] FDT parsing
+- [ ] Syscall interface
+- [ ] Idle kernel task
+- [ ] Filesystem support
+- [ ] Switch to userspace and init process
 
 ## FAQ
 
