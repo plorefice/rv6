@@ -24,7 +24,7 @@ pub fn unwind_stack_frame() {
 /// Traverses the stack frame and prints the call stack.
 fn walk_stack_frame() {
     let mut fp: usize;
-    unsafe { asm!("add {}, fp, zero", out(reg) fp) };
+    unsafe { core::arch::asm!("add {}, fp, zero", out(reg) fp) };
 
     let mut pc = walk_stack_frame as *const fn() as usize;
 

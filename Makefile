@@ -9,7 +9,7 @@ RV6_DYLIB = rv6
 RV6_BIN = rv6.bin
 
 # Tools and utilities
-CROSS_COMPILE ?= riscv64-unknown-elf-
+CROSS_COMPILE ?= riscv64-elf-
 OBJCOPY = $(CROSS_COMPILE)objcopy
 LD = $(CROSS_COMPILE)ld
 QEMU = qemu-system-riscv64 -M virt -m 256M -nographic -serial mon:stdio \
@@ -25,7 +25,7 @@ $(RV6_BIN): $(RV6_DYLIB)
 	@$(OBJCOPY) -O binary "$<" "$@"
 
 $(OPENSBI_BIN):
-	@make -C opensbi CROSS_COMPILE=riscv64-unknown-elf- PLATFORM=generic
+	@make -C opensbi CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=generic
 
 ksymsgen: FORCE
 	@cargo build --manifest-path ksymsgen/Cargo.toml

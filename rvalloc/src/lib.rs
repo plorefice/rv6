@@ -3,12 +3,7 @@
 #![no_std]
 #![warn(missing_docs)]
 #![deny(missing_debug_implementations)]
-#![feature(asm)]
-// Require explicit unsafe blocks even in unsafe fn
-#![feature(unsafe_block_in_unsafe_fn)]
 #![deny(unsafe_op_in_unsafe_fn)]
-// Allow panicking in const fn
-#![feature(const_panic)]
 
 use core::{
     alloc::{GlobalAlloc, Layout},

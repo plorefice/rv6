@@ -55,7 +55,7 @@ ksyms_step()
 	link ${ksyms_rv6} "${ksymso_prev}"
 	ksyms ${ksyms_rv6} ${ksyms_S}
 
-	${CC} -march=rv64gc -mabi=lp64 -c -o ${ksymso} ${ksyms_S}
+	${CC} -march=rv64gc -mabi=lp64d -c -o ${ksymso} ${ksyms_S}
 }
 
 # Delete output files in case of error

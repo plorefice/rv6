@@ -13,14 +13,14 @@ pub struct Syscon {
     p: &'static mut RegisterBlock,
 }
 
-#[repr(C, packed)]
+#[repr(C)]
 struct RegisterBlock {
     pub reg: RW<u32>,
 }
 
 impl Syscon {
     /// Creates a new system controller mapped at the given address.
-    pub const fn new(addr: usize) -> Self {
+    pub fn new(addr: usize) -> Self {
         Self {
             p: unsafe { &mut *(addr as *mut RegisterBlock) },
         }

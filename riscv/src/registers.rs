@@ -1,5 +1,7 @@
 //! Access to various system registers.
 
+use core::arch::asm;
+
 use bitflags::bitflags;
 
 bitflags! {

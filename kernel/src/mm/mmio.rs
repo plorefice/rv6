@@ -1,6 +1,7 @@
 use core::cell::UnsafeCell;
 
 /// Read-only register.
+#[repr(transparent)]
 pub struct RO<T>
 where
     T: Copy,
@@ -20,6 +21,7 @@ where
 }
 
 /// Read-write register.
+#[repr(transparent)]
 pub struct RW<T>
 where
     T: Copy,
@@ -62,6 +64,7 @@ where
 }
 
 /// Wrapper around an [`UnsafeCell`] that performs volatile operations.
+#[repr(transparent)]
 pub struct VolatileCell<T> {
     inner: UnsafeCell<T>,
 }

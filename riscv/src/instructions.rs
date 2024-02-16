@@ -1,5 +1,7 @@
 //! Special RISC-V instructions.
 
+use core::arch::asm;
+
 /// Halts the hart until the next interrupt arrives.
 #[inline]
 pub fn wfi() {

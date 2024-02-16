@@ -15,7 +15,7 @@ pub struct Ns16550 {
     p: &'static mut RegisterBlock,
 }
 
-#[repr(C, packed)]
+#[repr(C)]
 struct RegisterBlock {
     pub rthr: RW<u8>,
     pub ier: RW<u8>,
@@ -29,7 +29,7 @@ struct RegisterBlock {
 
 impl Ns16550 {
     /// Creates a new 16550 UART mapping to the given address.
-    pub const fn new(addr: usize) -> Self {
+    pub fn new(addr: usize) -> Self {
         Self {
             p: unsafe { &mut *(addr as *mut RegisterBlock) },
         }

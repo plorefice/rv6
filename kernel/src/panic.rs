@@ -1,4 +1,4 @@
-use core::{alloc::Layout, panic::PanicInfo};
+use core::panic::PanicInfo;
 
 /// Implements the kernel's panic behavior.
 #[cfg(not(test))]
@@ -24,11 +24,4 @@ fn panic(info: &PanicInfo) -> ! {
     SYSCON.lock().poweroff(1);
 
     unreachable!();
-}
-
-#[alloc_error_handler]
-fn oom(layout: Layout) -> ! {
-    kprintln!("memory allocation of {} bytes failed", layout.size());
-
-    crate::arch::halt();
 }
