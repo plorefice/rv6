@@ -124,6 +124,15 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
     mapper.identity_map_range(rodata_start, rodata_end, EntryFlags::RX, &mut GFA)?;
     mapper.identity_map_range(data_start, data_end, EntryFlags::RW, &mut GFA)?;
 
+    // Map the GFA descriptor table
+    // TODO: use the correct values here, as taken from the GFA descriptor
+    mapper.identity_map_range(
+        PhysAddr::new(0x8026a000),
+        PhysAddr::new(0x8026a000 + 0x10000),
+        EntryFlags::RW,
+        &mut GFA,
+    )?;
+
     // Identity map UART0 memory
     mapper.identity_map_range(
         PhysAddr::new(0x1000_0000),
