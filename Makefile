@@ -12,7 +12,7 @@ RV6_BIN = rv6.bin
 CROSS_COMPILE ?= riscv64-elf-
 OBJCOPY = $(CROSS_COMPILE)objcopy
 LD = $(CROSS_COMPILE)ld
-QEMU = qemu-system-riscv64 -M virt -m 256M -nographic -serial mon:stdio \
+QEMU = qemu-system-riscv64 -M virt -cpu rv64,sv57=off -m 256M -nographic -serial mon:stdio \
 	-bios $(OPENSBI_BIN) -kernel
 
 $(RV6_STATICLIB): FORCE
