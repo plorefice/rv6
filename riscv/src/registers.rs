@@ -379,3 +379,20 @@ impl Satp {
         unsafe { asm!("csrw satp, {}", in(reg) v, options(nostack)) }
     }
 }
+
+/// The `time` register holds the wall-clock real time that has passed
+/// from an arbitrary start time in the past.
+#[derive(Debug)]
+pub struct Time;
+
+impl Time {
+    /// Reads the content of `stval`.
+    #[inline]
+    pub fn read() -> u64 {
+        let value: u64;
+        unsafe {
+            asm!("csrr {}, time", out(reg) value, options(nomem));
+        }
+        value
+    }
+}
