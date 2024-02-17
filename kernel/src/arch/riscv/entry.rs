@@ -9,7 +9,7 @@ use super::{memory, sbi, time, trap};
 /// Physical and virtual memory setup is performed here among other things, so a lot of stuff
 /// can go wrong.
 #[no_mangle]
-pub unsafe extern "C" fn arch_init() {
+pub unsafe extern "C" fn arch_init(_dtb_addr: usize) {
     kprintln!();
 
     // Initialize core subsystems

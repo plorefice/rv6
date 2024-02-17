@@ -10,6 +10,9 @@ _start:
     // If hart ID is not #0, park it
     bnez a0, park_core
 
+    // Save DTB pointer, will be later passed to arch_init()
+    mv s1, a1
+
 .option push
 .option norelax
     la gp, __global_pointer$
@@ -38,6 +41,7 @@ clear_bss_done:
     csrwi satp, 0
 
     // Jump to Rust code
+    mv a0, s1
     call arch_init
     tail kmain
 
