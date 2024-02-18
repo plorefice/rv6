@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/bin/bash
 
 # This script uses the static libraries produced as part of the kernel's compilation steps and
 # links them into the final ELF binary.
@@ -13,7 +13,7 @@ set -e
 
 LD="${CROSS_COMPILE}"ld
 CC="${CROSS_COMPILE}"gcc
-RV6_LIBS="$@"
+RV6_LIBS=("$@")
 
 # Link of rv6
 # ${1} - output file
@@ -33,15 +33,16 @@ link()
 		strip_debug=-Wl,--strip-debug
 	fi
 
-        objects="--whole-archive ${RV6_LIBS} --no-whole-archive ${@}"
+	objects=("--whole-archive" "${RV6_LIBS[@]}" "--no-whole-archive")
+	for obj in "${@}"; do [[ "$obj" != '' ]] && objects+=("$obj"); done
 
-        ${LD} ${strip_debug#-Wl,} -o ${output} -T ${lds} ${objects}
+	${LD} ${strip_debug#-Wl,} -o "${output}" -T ${lds} "${objects[@]}"
 }
 
 # Create ${2} .S file with all symbols from the ${1} object file
 ksyms()
 {
-	nm ${1} | rg " [Tt] [a-zA-Z_]" | target/debug/ksymsgen > ${2}
+	nm "${1}" | rg " [Tt] [a-zA-Z_]" | target/debug/ksymsgen > "${2}"
 }
 
 # Perform one step in ksyms generation, including temporary linking of rv6.
@@ -52,10 +53,10 @@ ksyms_step()
 	ksymso=${ksyms_rv6}.o
 	ksyms_S=${ksyms_rv6}.S
 
-	link ${ksyms_rv6} "${ksymso_prev}"
-	ksyms ${ksyms_rv6} ${ksyms_S}
+	link "${ksyms_rv6}" "${ksymso_prev}"
+	ksyms "${ksyms_rv6}" "${ksyms_S}"
 
-	${CC} -march=rv64gc -mabi=lp64d -c -o ${ksymso} ${ksyms_S}
+	${CC} -march=rv64gc -mabi=lp64d -c -o "${ksymso}" "${ksyms_S}"
 }
 
 # Delete output files in case of error
