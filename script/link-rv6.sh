@@ -20,7 +20,7 @@ RV6_LIBS=("$@")
 # ${2}, ${3}, ... - optional extra .o files
 link()
 {
-	local lds="linkers/riscv.ld"
+	local lds="linkers/riscv/qemu-virt.ld"
 	local output=${1}
 	local objects
 	local strip_debug
