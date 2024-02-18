@@ -13,11 +13,17 @@ use rvalloc::BumpAllocator;
 
 use crate::config;
 
+/// Base address for the physical address space
+pub const PHYS_MEM_OFFSET: PhysAddr = PhysAddr::new_truncated(0x8000_0000);
+
+/// Size of the physical memory in bytes
+pub const PHYS_MEM_SIZE: u64 = 32 * 1024 * 1024;
+
 /// Virtual memory offset at which the physical address space is mapped.
-pub const PHYS_MEM_OFFSET: VirtAddr = VirtAddr::new_truncated(0x8000_0000_0000);
+pub const PHYS_TO_VIRT_MEM_BASE: VirtAddr = VirtAddr::new_truncated(0x20_0000_0000);
 
 /// Virtual memory address of the beginning of the kernel heap.
-const HEAP_MEM_START: VirtAddr = VirtAddr::new_truncated(0xCAFE_0000_0000);
+const HEAP_MEM_START: VirtAddr = VirtAddr::new_truncated(0x10_0000_0000);
 
 /// Size of the heap in bytes (1 MiB)
 const HEAP_MEM_SIZE: usize = 1024 * 1024;
@@ -58,7 +64,7 @@ static HEAP: BumpAllocator =
 pub unsafe fn init() {
     let kernel_mem_end = PhysAddr::new(&__end as *const usize as u64);
     // TODO: parse DTB to get the memory size
-    let phys_mem_end = PhysAddr::new(0x8000_0000) + 128 * 1024 * 1024;
+    let phys_mem_end = PHYS_MEM_OFFSET + PHYS_MEM_SIZE;
 
     phys_init(kernel_mem_end, (phys_mem_end - kernel_mem_end).into()).unwrap();
 
@@ -159,27 +165,31 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
         &mut GFA,
     )?;
 
-    // Map the whole physical address space to VA 0xffff_8880_0000_0000
-    mapper.map(
-        PHYS_MEM_OFFSET,
-        PhysAddr::new(0),
-        PageSize::Tb,
-        EntryFlags::RWX,
-        &mut GFA,
-    )?;
+    // Map the whole physical address space into virtual space, in order to use an offset mapper.
+    // On Sv48, this could be done with a single TB entry, but on Sv39, we need four GB entries.
+    for i in 0..4 {
+        let offset = i * 0x4000_0000;
+        mapper.map(
+            PHYS_TO_VIRT_MEM_BASE + offset,
+            PhysAddr::new(offset as u64),
+            PageSize::Gb,
+            EntryFlags::RWX,
+            &mut GFA,
+        )?;
+    }
 
     // Enable MMU
     Satp::write_ppn(PhysAddr::new_unchecked(rpt as *const _ as u64).page_index());
-    Satp::write_mode(SatpMode::Sv48);
+    Satp::write_mode(SatpMode::Sv39);
 
     // From now on, the root page table must be accessed using its virtual address
-    let rpt = (PHYS_MEM_OFFSET + rpt as *const _ as usize)
+    let rpt = (PHYS_TO_VIRT_MEM_BASE + rpt as *const _ as usize)
         .as_mut_ptr::<PageTable>()
         .as_mut::<'static>()
         .unwrap();
 
     // Return the actual offset mapper
-    Ok(OffsetPageMapper::new(rpt, PHYS_MEM_OFFSET))
+    Ok(OffsetPageMapper::new(rpt, PHYS_TO_VIRT_MEM_BASE))
 }
 
 /// Maps the heap allocator's virtual pages to physical memory.
