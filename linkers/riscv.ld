@@ -39,7 +39,7 @@ SECTIONS
   /* Small data area - RISC-V provides optimized access to this area */
   . = ALIGN(4);
   .sdata : {
-    /* Point the global pointer halfway through this section */ 
+    /* Point the global pointer halfway through this section */
     PROVIDE(__global_pointer$ = . + (4K / 2));
     *(.sdata*)
   }

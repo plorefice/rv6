@@ -59,6 +59,9 @@ impl Ns16550 {
 impl Write for Ns16550 {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for b in s.bytes() {
+            if b == b'\n' {
+                self.put('\r' as u8);
+            }
             self.put(b);
         }
         Ok(())
