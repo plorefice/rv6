@@ -26,7 +26,7 @@ pub fn resolve_symbol(pc: usize) -> Option<(&'static str, usize)> {
         };
 
         return Some((
-            unsafe { str::from_utf8_unchecked(&*symbol_name_ptr) },
+            unsafe { str::from_utf8_unchecked(symbol_name_ptr) },
             pc - base,
         ));
     }
@@ -55,6 +55,6 @@ fn lookup_symbol(pc: usize) -> Option<(usize, usize)> {
 fn get_symtab_len() -> usize {
     unsafe {
         assert!(!ksyms_num_syms.is_null());
-        ksyms_num_syms.read() as usize
+        ksyms_num_syms.read()
     }
 }

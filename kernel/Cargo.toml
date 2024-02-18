@@ -10,16 +10,19 @@ crate-type = ["lib", "staticlib"]
 
 [dependencies]
 bitflags = "1.2.1"
-kmm = { path = "../kmm" }
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
-riscv = { path = "../riscv", default-features = false }
-rvalloc = { path = "../rvalloc" }
-sbi = { path = "../sbi" }
 spin = "0.7.1"
 
 [build-dependencies]
 cc = "1.0"
 
 [features]
-config-qemu = ["riscv/sv39"]
-config-milkv = ["riscv/sv39"]
+default = ["config-qemu"]
+
+# MMU schemes
+sv39 = []
+sv48 = []
+
+# Platforms
+config-qemu = ["sv39"]
+config-milkv = ["sv39"]

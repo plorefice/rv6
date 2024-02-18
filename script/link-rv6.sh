@@ -20,7 +20,7 @@ RV6_LIBS=("$@")
 # ${2}, ${3}, ... - optional extra .o files
 link()
 {
-	local lds="linkers/riscv/qemu-virt.ld"
+	local lds="kernel/src/arch/riscv/linker/qemu-virt.ld"
 	local output=${1}
 	local objects
 	local strip_debug
@@ -42,7 +42,7 @@ link()
 # Create ${2} .S file with all symbols from the ${1} object file
 ksyms()
 {
-	nm "${1}" | rg " [Tt] [a-zA-Z_]" | target/debug/ksymsgen > "${2}"
+	nm "${1}" | rg " [Tt] [a-zA-Z_]" | ksymsgen/target/debug/ksymsgen > "${2}"
 }
 
 # Perform one step in ksyms generation, including temporary linking of rv6.

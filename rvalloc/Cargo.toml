@@ -1,9 +1,0 @@
-[package]
-authors = ["Pietro Lorefice <pietro.lorefice@gmail.com>"]
-edition = "2018"
-license = "MIT/Apache-2.0"
-name = "rvalloc"
-version = "0.1.0"
-
-[dependencies]
-spin = "0.7.1"

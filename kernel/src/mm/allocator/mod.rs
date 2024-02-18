@@ -1,10 +1,13 @@
 //! Collection of memory allocators.
 
+use crate::mm::PhysicalAddress;
 use spin::Mutex;
 
-use crate::PhysicalAddress;
+pub use bitmap::BitmapAllocator;
+pub use bump::BumpAllocator;
 
-pub mod bitmap;
+mod bitmap;
+mod bump;
 
 /// The error type returned by fallible allocator operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]

@@ -1,15 +1,17 @@
-use kmm::{
-    allocator::{bitmap::BitmapAllocator, AllocatorError, FrameAllocator, LockedAllocator},
-    Align,
-};
-use mmu::OffsetPageMapper;
-use riscv::{
+//! RISC-V specific memory management.
+
+use crate::arch::riscv::{
     addr::PAGE_SIZE,
     mmu::{self, EntryFlags, MapError, PageSize, PageTable},
     registers::{Satp, SatpMode},
     PhysAddr, VirtAddr,
 };
-use rvalloc::BumpAllocator;
+use crate::mm::allocator::BumpAllocator;
+use crate::mm::{
+    allocator::{AllocatorError, BitmapAllocator, FrameAllocator, LockedAllocator},
+    Align,
+};
+use mmu::OffsetPageMapper;
 
 use crate::config;
 
@@ -135,8 +137,8 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
     // Map the GFA descriptor table
     // TODO: use the correct values here, as taken from the GFA descriptor
     mapper.identity_map_range(
-        PhysAddr::new(0x8026a000),
-        PhysAddr::new(0x8026a000 + 0x10000),
+        PhysAddr::new(0x80269000),
+        PhysAddr::new(0x80269000 + 0x10000),
         EntryFlags::RW,
         &mut GFA,
     )?;

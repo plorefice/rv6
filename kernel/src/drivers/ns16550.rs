@@ -47,7 +47,8 @@ impl Ns16550 {
     /// Returns the next received byte, or `None` if the Rx queue is empty.
     pub fn get(&mut self) -> Option<u8> {
         if self.data_ready() {
-            Some((self.p.rthr.read() & 0xff) as u8)
+            #[allow(clippy::unnecessary_cast)]
+            Some(self.p.rthr.read() as u8)
         } else {
             None
         }
@@ -63,7 +64,7 @@ impl Write for Ns16550 {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for b in s.bytes() {
             if b == b'\n' {
-                self.put('\r' as u8);
+                self.put(b'\r');
             }
             self.put(b);
         }

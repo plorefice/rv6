@@ -1,3 +1,5 @@
+//! RISC-V specific entry point.
+
 use super::{memory, sbi, time, trap};
 
 /// Architecture-specific entry point.
@@ -13,7 +15,7 @@ pub unsafe extern "C" fn arch_init(_dtb_addr: usize) {
     kprintln!();
 
     // Initialize core subsystems
-    sbi::init();
+    sbi::show_info();
     trap::init();
     memory::init();
 

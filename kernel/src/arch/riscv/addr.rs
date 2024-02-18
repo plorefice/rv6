@@ -6,7 +6,7 @@ use core::{
     ops::{Add, Sub},
 };
 
-use kmm::{AddressOps, Align, PhysicalAddress};
+use crate::mm::{AddressOps, Align, PhysicalAddress};
 
 /// Number of bits that an address needs to be shifted to the left to obtain its page number.
 pub const PAGE_SHIFT: u64 = 12;
@@ -108,7 +108,7 @@ impl PhysAddr {
     ///
     /// The size of this field varies depending on the MMU specification.
     pub const fn ppn2(self) -> u64 {
-        if cfg!(target = "sv39") {
+        if cfg!(feature = "sv39") {
             (self.data() >> 30) & 0x3ff_ffff
         } else {
             /* feature = "sv48" */

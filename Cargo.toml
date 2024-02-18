@@ -1,9 +1,3 @@
 [workspace]
-members = [
-  "kernel",
-  "riscv",
-  "kmm",
-  "sbi",
-  "rvalloc",
-  "ksymsgen",
-]
+exclude = ["ksymsgen"]
+members = ["kernel"]

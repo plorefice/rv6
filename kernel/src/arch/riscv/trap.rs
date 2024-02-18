@@ -1,5 +1,8 @@
-use riscv::registers::Stvec;
+//! RISC-V exception handling.
+
 use stackframe::unwind_stack_frame;
+
+use crate::arch::riscv::registers::Stvec;
 
 use super::*;
 

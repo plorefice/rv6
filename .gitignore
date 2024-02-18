@@ -1,5 +1,6 @@
 # Build artifacts
 /target
+/ksymsgen/target
 /rv6
 /rv6.bin
 

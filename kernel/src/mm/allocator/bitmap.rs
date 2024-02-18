@@ -16,9 +16,10 @@ use core::{mem::size_of, slice};
 
 use bitflags::bitflags;
 
-use crate::PhysicalAddress;
-
-use super::{AllocatorError, FrameAllocator};
+use crate::mm::{
+    allocator::{AllocatorError, FrameAllocator},
+    PhysicalAddress,
+};
 
 bitflags! {
     /// Allocation status of a page.

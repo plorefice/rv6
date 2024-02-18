@@ -6,11 +6,13 @@ use core::{
 };
 
 use bitflags::bitflags;
-use kmm::{allocator::FrameAllocator, Align};
 
 use crate::{
-    addr::{PAGE_SHIFT, PAGE_SIZE},
-    PhysAddr, VirtAddr,
+    arch::{
+        riscv::addr::{PAGE_SHIFT, PAGE_SIZE},
+        PhysAddr, VirtAddr,
+    },
+    mm::{allocator::FrameAllocator, Align},
 };
 
 #[cfg(feature = "sv39")]

@@ -1,10 +1,3 @@
-//! A collection of heap allocators for rv6.
-
-#![no_std]
-#![warn(missing_docs)]
-#![deny(missing_debug_implementations)]
-#![deny(unsafe_op_in_unsafe_fn)]
-
 use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::null_mut,
