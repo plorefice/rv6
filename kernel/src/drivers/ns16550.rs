@@ -3,11 +3,14 @@ use core::fmt::Write;
 use lazy_static::lazy_static;
 use spin::Mutex;
 
-use crate::mm::mmio::{RO, RW};
+use crate::{
+    config::{self, ns16550::RegSz},
+    mm::mmio::{RO, RW},
+};
 
 lazy_static! {
     /// Instance of the UART0 serial port on this machine.
-    pub static ref UART0: Mutex<Ns16550> = Mutex::new(Ns16550::new(0x1000_0000));
+    pub static ref UART0: Mutex<Ns16550> = Mutex::new(Ns16550::new(config::ns16550::BASE_ADDRESS));
 }
 
 /// Device driver of the 16550 UART IC.
@@ -17,14 +20,14 @@ pub struct Ns16550 {
 
 #[repr(C)]
 struct RegisterBlock {
-    pub rthr: RW<u8>,
-    pub ier: RW<u8>,
-    pub isfcr: RO<u8>,
-    pub lcr: RW<u8>,
-    pub mcr: RW<u8>,
-    pub lsr: RO<u8>,
-    pub msr: RO<u8>,
-    pub spr: RW<u8>,
+    pub rthr: RW<RegSz>,
+    pub ier: RW<RegSz>,
+    pub isfcr: RO<RegSz>,
+    pub lcr: RW<RegSz>,
+    pub mcr: RW<RegSz>,
+    pub lsr: RO<RegSz>,
+    pub msr: RO<RegSz>,
+    pub spr: RW<RegSz>,
 }
 
 impl Ns16550 {
@@ -38,13 +41,13 @@ impl Ns16550 {
     /// Writes a single byte to the serial interface.
     pub fn put(&mut self, val: u8) {
         while self.p.lsr.read() & 0b0010_0000 == 0 {}
-        unsafe { self.p.rthr.write(val) };
+        unsafe { self.p.rthr.write(val as RegSz) };
     }
 
     /// Returns the next received byte, or `None` if the Rx queue is empty.
     pub fn get(&mut self) -> Option<u8> {
         if self.data_ready() {
-            Some(self.p.rthr.read())
+            Some((self.p.rthr.read() & 0xff) as u8)
         } else {
             None
         }

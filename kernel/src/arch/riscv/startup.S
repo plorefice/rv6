@@ -7,8 +7,10 @@ _start:
     csrw sie, zero
     csrw sip, zero
 
+#if CONFIG_QEMU
     // If hart ID is not #0, park it
     bnez a0, park_core
+#endif
 
     // Save DTB pointer, will be later passed to arch_init()
     mv s1, a1

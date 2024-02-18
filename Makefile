@@ -16,7 +16,7 @@ QEMU = qemu-system-riscv64 -M virt -cpu rv64,sv57=off -m 256M -nographic -serial
 	-bios $(OPENSBI_BIN) -kernel
 
 $(RV6_STATICLIB): FORCE
-	@cargo build --target $(TARGET) --manifest-path kernel/Cargo.toml
+	@cargo build --target $(TARGET) --manifest-path kernel/Cargo.toml --features config-qemu
 
 $(RV6_DYLIB): $(RV6_STATICLIB) ksymsgen
 	@CROSS_COMPILE=$(CROSS_COMPILE) script/link-rv6.sh "$<"

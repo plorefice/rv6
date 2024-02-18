@@ -35,6 +35,9 @@ pub mod mm;
 /// Panic support.
 pub mod panic;
 
+/// Per-target configuration.
+pub mod config;
+
 const RV6_ASCII_LOGO: &str = r#"
 ________________________________________/\\\\\_
 ____________________________________/\\\\////__

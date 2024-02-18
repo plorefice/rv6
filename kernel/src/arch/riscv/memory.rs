@@ -11,6 +11,8 @@ use riscv::{
 };
 use rvalloc::BumpAllocator;
 
+use crate::config;
+
 /// Virtual memory offset at which the physical address space is mapped.
 pub const PHYS_MEM_OFFSET: VirtAddr = VirtAddr::new_truncated(0x8000_0000_0000);
 
@@ -135,8 +137,8 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
 
     // Identity map UART0 memory
     mapper.identity_map_range(
-        PhysAddr::new(0x1000_0000),
-        PhysAddr::new(0x1000_0100),
+        PhysAddr::new(config::ns16550::BASE_ADDRESS as u64),
+        PhysAddr::new((config::ns16550::BASE_ADDRESS + 0x100) as u64),
         EntryFlags::RW,
         &mut GFA,
     )?;
