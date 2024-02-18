@@ -29,6 +29,7 @@ const PAGE_LEVELS: usize = 4;
 
 bitflags! {
     /// Bitfields of a page table entry.
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
     pub struct EntryFlags: u64 {
         /// If set, this entry represents a valid mapping.
         const VALID = 1 << 0;
@@ -48,13 +49,13 @@ bitflags! {
         const DIRTY = 1 << 7;
 
         /// If set, this page contains read-write memory.
-        const RW = Self::READ.bits | Self::WRITE.bits;
+        const RW = Self::READ.bits() | Self::WRITE.bits();
         /// If set, this page contains read-exec memory.
-        const RX = Self::READ.bits | Self::EXEC.bits;
+        const RX = Self::READ.bits() | Self::EXEC.bits();
         /// If set, this page contains read-write-exec memory.
-        const RWX = Self::READ.bits | Self::WRITE.bits | Self::EXEC.bits;
+        const RWX = Self::READ.bits() | Self::WRITE.bits() | Self::EXEC.bits();
         /// Mask of user-settable flags on a page table entry.
-        const RWXUG = Self::RWX.bits | Self::USER.bits | Self::GLOBAL.bits;
+        const RWXUG = Self::RWX.bits() | Self::USER.bits() | Self::GLOBAL.bits();
 
         /// Comination of all the above.
         const ALL = 0xf;
@@ -173,7 +174,7 @@ impl Entry {
 
     /// Resets the bits of this entry to zero.
     pub fn clear(&mut self) {
-        self.inner.bits = 0;
+        self.inner = EntryFlags::empty();
     }
 
     /// Sets this entry's flags.
@@ -189,8 +190,10 @@ impl Entry {
 
     /// Sets the PPN portion of this entry to the provided value.
     pub fn set_ppn(&mut self, ppn: u64) {
-        self.inner.bits &= !(PTE_PPN_MASK << PTE_PPN_OFFSET);
-        self.inner.bits |= (ppn & PTE_PPN_MASK) << PTE_PPN_OFFSET;
+        let mut v = self.inner.bits();
+        v &= !(PTE_PPN_MASK << PTE_PPN_OFFSET);
+        v |= (ppn & PTE_PPN_MASK) << PTE_PPN_OFFSET;
+        self.inner = EntryFlags::from_bits_retain(v);
     }
 }
 

@@ -23,6 +23,7 @@ use crate::mm::{
 
 bitflags! {
     /// Allocation status of a page.
+    #[derive(Debug, Clone, PartialEq, Eq)]
     struct PageFlags: u8 {
         const TAKEN = 1 << 0;
         const LAST  = 1 << 1;
