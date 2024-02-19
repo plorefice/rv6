@@ -16,6 +16,9 @@ use crate::{
     mm::{allocator::FrameAllocator, Align},
 };
 
+#[cfg(all(feature = "sv39", feature = "sv38"))]
+compile_error!("Features \"sv39\" and \"sv48\" are mutually exclusive.");
+
 #[cfg(feature = "sv39")]
 const PTE_PPN_MASK: u64 = 0x3ff_ffff;
 #[cfg(feature = "sv48")]
@@ -64,7 +67,8 @@ bitflags! {
 }
 
 /// A page table for virtual address translation.
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+#[repr(align(4096))]
 pub struct PageTable {
     entries: [Entry; 512],
 }
@@ -124,7 +128,7 @@ pub struct Entry {
 }
 
 impl Entry {
-    /// Create a new zeroed entry.
+    /// Create a new empty, non-valid page entry.
     pub const fn empty() -> Entry {
         Self {
             inner: EntryFlags::empty(),
