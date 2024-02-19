@@ -33,7 +33,7 @@ link()
 		strip_debug=-Wl,--strip-debug
 	fi
 
-	objects=("--whole-archive" "${RV6_LIBS[@]}" "--no-whole-archive")
+	objects=("${RV6_LIBS[@]}")
 	for obj in "${@}"; do [[ "$obj" != '' ]] && objects+=("$obj"); done
 
 	${LD} ${strip_debug#-Wl,} -o "${output}" -T ${lds} "${objects[@]}"
