@@ -33,6 +33,9 @@ ksymsgen: FORCE
 qemu: $(RV6_BIN) $(OPENSBI_BIN)
 	@$(QEMU) "$<"
 
+debug: $(RV6_BIN) $(OPENSBI_BIN)
+	@$(QEMU) "$<" -S -s
+
 clean:
 	@cargo clean
 	@rm -f "$(RV6_BIN)" "$(RV6_DYLIB)"
