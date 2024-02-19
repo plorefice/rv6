@@ -9,6 +9,7 @@ use bitflags::bitflags;
 
 use crate::{
     arch::{
+        memory::GFA,
         riscv::addr::{PAGE_SHIFT, PAGE_SIZE},
         PhysAddr, VirtAddr,
     },
@@ -288,17 +289,13 @@ impl<'a> OffsetPageMapper<'a> {
     ///
     /// It is up to the caller to guarantee that no undefined behavior or memory violations can occur
     /// through the new mapping.
-    pub unsafe fn map<A>(
+    pub unsafe fn map(
         &mut self,
         vaddr: VirtAddr,
         paddr: PhysAddr,
         page_size: PageSize,
         mut flags: EntryFlags,
-        frame_allocator: &mut A,
-    ) -> Result<(), MapError>
-    where
-        A: FrameAllocator<PhysAddr, PAGE_SIZE>,
-    {
+    ) -> Result<(), MapError> {
         #[cfg(feature = "sv39")]
         let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2()];
 
@@ -310,8 +307,7 @@ impl<'a> OffsetPageMapper<'a> {
         for i in (page_size.to_table_level()..PAGE_LEVELS - 1).rev() {
             // Traverse page table entry to the next level, or allocate a new level of page table
             let table_paddr = if !pte.is_valid() {
-                let new_table_addr =
-                    unsafe { frame_allocator.alloc(1) }.ok_or(MapError::AllocationFailed)?;
+                let new_table_addr = unsafe { GFA.alloc(1) }.ok_or(MapError::AllocationFailed)?;
                 pte.clear();
                 pte.set_flags(EntryFlags::VALID);
                 pte.set_ppn(new_table_addr.page_index());
@@ -351,16 +347,12 @@ impl<'a> OffsetPageMapper<'a> {
     /// # Safety
     ///
     /// See [`map`] for safety consideration.
-    pub unsafe fn identity_map_range<A>(
+    pub unsafe fn identity_map_range(
         &mut self,
         start: PhysAddr,
         end: PhysAddr,
         flags: EntryFlags,
-        frame_allocator: &mut A,
-    ) -> Result<(), MapError>
-    where
-        A: FrameAllocator<PhysAddr, PAGE_SIZE>,
-    {
+    ) -> Result<(), MapError> {
         let start = start.align_down(PAGE_SIZE);
         let end = end.align_up(PAGE_SIZE);
 
@@ -375,7 +367,6 @@ impl<'a> OffsetPageMapper<'a> {
                     addr,
                     PageSize::Kb,
                     flags,
-                    frame_allocator,
                 )?;
             }
         }

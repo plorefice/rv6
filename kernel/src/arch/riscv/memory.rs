@@ -130,9 +130,9 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
     let mut mapper = OffsetPageMapper::new(rpt, VirtAddr::new(0));
 
     // Identity map all kernel sections
-    mapper.identity_map_range(text_start, text_end, EntryFlags::RX, &mut GFA)?;
-    mapper.identity_map_range(rodata_start, rodata_end, EntryFlags::RX, &mut GFA)?;
-    mapper.identity_map_range(data_start, data_end, EntryFlags::RW, &mut GFA)?;
+    mapper.identity_map_range(text_start, text_end, EntryFlags::RX)?;
+    mapper.identity_map_range(rodata_start, rodata_end, EntryFlags::RX)?;
+    mapper.identity_map_range(data_start, data_end, EntryFlags::RW)?;
 
     // Map the GFA descriptor table
     // TODO: use the correct values here, as taken from the GFA descriptor
@@ -140,7 +140,6 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
         PhysAddr::new(0x80269000),
         PhysAddr::new(0x80269000 + 0x10000),
         EntryFlags::RW,
-        &mut GFA,
     )?;
 
     // Identity map UART0 memory
@@ -148,7 +147,6 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
         PhysAddr::new(config::ns16550::BASE_ADDRESS as u64),
         PhysAddr::new((config::ns16550::BASE_ADDRESS + 0x100) as u64),
         EntryFlags::RW,
-        &mut GFA,
     )?;
 
     // Identity map CLINT memory
@@ -156,7 +154,6 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
         PhysAddr::new(0x0200_0000),
         PhysAddr::new(0x0201_0000),
         EntryFlags::RW,
-        &mut GFA,
     )?;
 
     // Identity map SYSCON memory
@@ -164,7 +161,6 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
         PhysAddr::new(0x0010_0000),
         PhysAddr::new(0x0010_1000),
         EntryFlags::RW,
-        &mut GFA,
     )?;
 
     // Map the whole physical address space into virtual space, in order to use an offset mapper.
@@ -176,7 +172,6 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
             PhysAddr::new(offset as u64),
             PageSize::Gb,
             EntryFlags::RWX,
-            &mut GFA,
         )?;
     }
 
@@ -214,7 +209,7 @@ unsafe fn setup_heap(
         let vaddr = start + i * page_size;
         let paddr = phys_base + (i * page_size) as u64;
 
-        mapper.map(vaddr, paddr, PageSize::Kb, EntryFlags::RWX, &mut GFA)?;
+        mapper.map(vaddr, paddr, PageSize::Kb, EntryFlags::RWX)?;
     }
 
     Ok(())
