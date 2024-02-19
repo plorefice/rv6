@@ -22,6 +22,7 @@ pub mod trap;
 /// Halts execution on the current hart forever.
 pub fn halt() -> ! {
     // Disable all interrupts.
+    // SAFETY: we are halting, if something goes wrong, we don't care
     unsafe { Sstatus::clear(SstatusFlags::SIE) };
     Sie::clear(SiFlags::SSIE | SiFlags::STIE | SiFlags::SEIE);
     Sip::write_raw(0);

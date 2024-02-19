@@ -162,5 +162,6 @@ pub fn init() {
 
     // Enable interrupts
     Sie::set(SiFlags::SSIE | SiFlags::STIE | SiFlags::SEIE);
+    // SAFETY: stvec has been initialized to point to `trap_entry`
     unsafe { Sstatus::set(SstatusFlags::SIE) };
 }

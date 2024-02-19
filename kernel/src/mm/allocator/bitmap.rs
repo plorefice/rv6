@@ -77,6 +77,7 @@ where
         let avail_mem_size = end - avail_mem_start;
         let avail_pages: u64 = avail_mem_size.into() / N;
 
+        // SAFETY: `start` is aligned and must point to a valid memory region.
         let descriptors = unsafe {
             slice::from_raw_parts_mut(
                 <A as Into<u64>>::into(start) as *mut PageDescriptor,

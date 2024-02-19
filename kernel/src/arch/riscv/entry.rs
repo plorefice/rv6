@@ -17,7 +17,8 @@ pub unsafe extern "C" fn arch_init(_dtb_addr: usize) {
     // Initialize core subsystems
     sbi::show_info();
     trap::init();
-    memory::init();
+    // SAFETY: no memory safety expectations here
+    unsafe { memory::init() };
 
     // Start ticking
     time::schedule_next_tick(time::CLINT_TIMEBASE);

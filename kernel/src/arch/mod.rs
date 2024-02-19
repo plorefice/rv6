@@ -10,4 +10,4 @@ pub use self::riscv::*;
 ///
 /// Always safe to call.
 #[cfg(not(target_arch = "riscv64"))]
-pub unsafe fn halt() {}
+pub fn halt() {}

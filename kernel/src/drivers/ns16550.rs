@@ -10,7 +10,8 @@ use crate::{
 
 lazy_static! {
     /// Instance of the UART0 serial port on this machine.
-    pub static ref UART0: Mutex<Ns16550> = Mutex::new(Ns16550::new(config::ns16550::BASE_ADDRESS));
+    /// SAFETY: assuming the configuration is correct and BASE_ADDRESS is valid
+    pub static ref UART0: Mutex<Ns16550> = Mutex::new(unsafe { Ns16550::new(config::ns16550::BASE_ADDRESS) });
 }
 
 /// Device driver of the 16550 UART IC.
@@ -32,8 +33,13 @@ struct RegisterBlock {
 
 impl Ns16550 {
     /// Creates a new 16550 UART mapping to the given address.
-    pub fn new(addr: usize) -> Self {
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the address points to a valid instance of the peripheral.
+    pub unsafe fn new(addr: usize) -> Self {
         Self {
+            // SAFETY: assuming the caller upheld the safety contract
             p: unsafe { &mut *(addr as *mut RegisterBlock) },
         }
     }
@@ -41,6 +47,7 @@ impl Ns16550 {
     /// Writes a single byte to the serial interface.
     pub fn put(&mut self, val: u8) {
         while self.p.lsr.read() & 0b0010_0000 == 0 {}
+        // SAFETY: write with no side effects
         unsafe { self.p.rthr.write(val as RegSz) };
     }
 

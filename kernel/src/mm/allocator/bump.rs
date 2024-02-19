@@ -46,6 +46,7 @@ impl BumpAllocator {
     }
 }
 
+// SAFETY: BumpAllocator is a global allocator
 unsafe impl GlobalAlloc for BumpAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let mut bump = self.inner.lock();

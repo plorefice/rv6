@@ -509,6 +509,7 @@ fn ecall(
     a4: usize,
     a5: usize,
 ) -> Result<usize> {
+    // SAFETY: safe because `ecall` does not have any safety-related side effects
     unsafe {
         asm!("ecall",
                 inout("a0") a0,

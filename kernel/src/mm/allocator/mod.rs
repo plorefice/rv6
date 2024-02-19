@@ -68,6 +68,7 @@ where
         let mut inner = self.inner.lock();
 
         if let Some(allocator) = &mut *inner {
+            // SAFETY: see FrameAllocator::alloc
             unsafe { allocator.alloc(count) }
         } else {
             None
@@ -78,6 +79,7 @@ where
         let mut inner = self.inner.lock();
 
         if let Some(allocator) = &mut *inner {
+            // SAFETY: see FrameAllocator::alloc
             unsafe { allocator.free(address) };
         }
     }

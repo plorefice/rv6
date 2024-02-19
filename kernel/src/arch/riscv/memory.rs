@@ -64,23 +64,28 @@ static HEAP: BumpAllocator =
 ///
 /// Memory safety basically does not exist before this point :)
 pub unsafe fn init() {
-    let kernel_mem_end = PhysAddr::new(&__end as *const usize as u64);
+    // SAFETY: __end is populated by the linker script
+    let kernel_mem_end = unsafe { PhysAddr::new(&__end as *const usize as u64) };
     // TODO: parse DTB to get the memory size
     let phys_mem_end = PHYS_MEM_OFFSET + PHYS_MEM_SIZE;
 
-    phys_init(kernel_mem_end, (phys_mem_end - kernel_mem_end).into()).unwrap();
+    // SAFETY: no memory has yet been mapped, so these operations are inherently safe,
+    //         assuming they are formally correct
+    unsafe {
+        phys_init(kernel_mem_end, (phys_mem_end - kernel_mem_end).into()).unwrap();
 
-    // Setup virtual memory, and switch to virtual addressing from now on.
-    let mut mapper = setup_vm().expect("failed to set up virtual memory");
+        // Setup virtual memory, and switch to virtual addressing from now on.
+        let mut mapper = setup_vm().expect("failed to set up virtual memory");
 
-    // Allocate memory for the heap
-    setup_heap(
-        &mut mapper,
-        HEAP_MEM_START,
-        HEAP_MEM_START + HEAP_MEM_SIZE,
-        phys_mem_end - HEAP_MEM_SIZE as u64,
-    )
-    .expect("failed to setup heap");
+        // Allocate memory for the heap
+        setup_heap(
+            &mut mapper,
+            HEAP_MEM_START,
+            HEAP_MEM_START + HEAP_MEM_SIZE,
+            phys_mem_end - HEAP_MEM_SIZE as u64,
+        )
+        .expect("failed to setup heap");
+    }
 }
 
 /// Initializes a physical memory allocator on the specified memory range.
@@ -92,9 +97,12 @@ unsafe fn phys_init(mem_start: PhysAddr, mem_size: u64) -> Result<(), AllocatorE
     let mem_start = mem_start.align_up(PAGE_SIZE);
     let mem_end = (mem_start + mem_size).align_down(PAGE_SIZE);
 
-    GFA.set_allocator(BitmapAllocator::<PhysAddr, PAGE_SIZE>::init(
-        mem_start, mem_end,
-    )?);
+    // SAFETY: first initialization of a frame allocator in the system
+    unsafe {
+        GFA.set_allocator(BitmapAllocator::<PhysAddr, PAGE_SIZE>::init(
+            mem_start, mem_end,
+        )?);
+    }
 
     Ok(())
 }
@@ -106,12 +114,17 @@ unsafe fn phys_init(mem_start: PhysAddr, mem_size: u64) -> Result<(), AllocatorE
 /// The caller must guarantee that the physical memory being mapped isn't already in use by the
 /// system.
 unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
-    let text_start = PhysAddr::new(&__text_start as *const usize as u64);
-    let text_end = PhysAddr::new(&__text_end as *const usize as u64);
-    let rodata_start = PhysAddr::new(&__rodata_start as *const usize as u64);
-    let rodata_end = PhysAddr::new(&__rodata_end as *const usize as u64);
-    let data_start = PhysAddr::new(&__data_start as *const usize as u64);
-    let data_end = PhysAddr::new(&__data_end as *const usize as u64);
+    // SAFETY: all these symbols are populated by the linker script
+    let (text_start, text_end, rodata_start, rodata_end, data_start, data_end) = unsafe {
+        (
+            PhysAddr::new(&__text_start as *const usize as u64),
+            PhysAddr::new(&__text_end as *const usize as u64),
+            PhysAddr::new(&__rodata_start as *const usize as u64),
+            PhysAddr::new(&__rodata_end as *const usize as u64),
+            PhysAddr::new(&__data_start as *const usize as u64),
+            PhysAddr::new(&__data_end as *const usize as u64),
+        )
+    };
 
     kprintln!("Kernel memory map:");
     kprintln!("  [{} - {}] .text", text_start, text_end);
@@ -120,73 +133,87 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
 
     // Allocate a frame for the root page table to be used for virtual address translation.
     // Since translation is not enabled here yet, we can use the frame's physical address directly.
-    let rpt = (GFA.alloc(1).unwrap().data() as *mut PageTable)
-        .as_mut::<'static>()
-        .unwrap();
+    // SAFETY: the allocated frame is checked for size and properly initialized before use
+    let rpt = unsafe {
+        assert_eq!(PAGE_SIZE as usize, core::mem::size_of::<PageTable>());
+        let rpt = GFA.alloc(1).unwrap().data() as *mut PageTable;
+        rpt.write(PageTable::default());
+        &mut *rpt
+    };
 
     rpt.clear();
 
     // Again, since translation is off, we use an offset mapper with zero offset.
-    let mut mapper = OffsetPageMapper::new(rpt, VirtAddr::new(0));
+    // SAFETY: rpt has been freshly allocated and phys_offset is 0, making the mapping valid.
+    let mut mapper = unsafe { OffsetPageMapper::new(rpt, VirtAddr::new(0)) };
 
-    // Identity map all kernel sections
-    mapper.identity_map_range(text_start, text_end, EntryFlags::RX)?;
-    mapper.identity_map_range(rodata_start, rodata_end, EntryFlags::RX)?;
-    mapper.identity_map_range(data_start, data_end, EntryFlags::RW)?;
+    // SAFETY: these mappings are unique since they are the only one existing at this point
+    unsafe {
+        // Identity map all kernel sections
+        mapper.identity_map_range(text_start, text_end, EntryFlags::RX)?;
+        mapper.identity_map_range(rodata_start, rodata_end, EntryFlags::RX)?;
+        mapper.identity_map_range(data_start, data_end, EntryFlags::RW)?;
 
-    // Map the GFA descriptor table
-    // TODO: use the correct values here, as taken from the GFA descriptor
-    mapper.identity_map_range(
-        PhysAddr::new(0x80269000),
-        PhysAddr::new(0x80269000 + 0x10000),
-        EntryFlags::RW,
-    )?;
-
-    // Identity map UART0 memory
-    mapper.identity_map_range(
-        PhysAddr::new(config::ns16550::BASE_ADDRESS as u64),
-        PhysAddr::new((config::ns16550::BASE_ADDRESS + 0x100) as u64),
-        EntryFlags::RW,
-    )?;
-
-    // Identity map CLINT memory
-    mapper.identity_map_range(
-        PhysAddr::new(0x0200_0000),
-        PhysAddr::new(0x0201_0000),
-        EntryFlags::RW,
-    )?;
-
-    // Identity map SYSCON memory
-    mapper.identity_map_range(
-        PhysAddr::new(0x0010_0000),
-        PhysAddr::new(0x0010_1000),
-        EntryFlags::RW,
-    )?;
-
-    // Map the whole physical address space into virtual space, in order to use an offset mapper.
-    // On Sv48, this could be done with a single TB entry, but on Sv39, we need four GB entries.
-    for i in 0..4 {
-        let offset = i * 0x4000_0000;
-        mapper.map(
-            PHYS_TO_VIRT_MEM_BASE + offset,
-            PhysAddr::new(offset as u64),
-            PageSize::Gb,
-            EntryFlags::RWX,
+        // Map the GFA descriptor table
+        // TODO: use the correct values here, as taken from the GFA descriptor
+        mapper.identity_map_range(
+            PhysAddr::new(0x80269000),
+            PhysAddr::new(0x80269000 + 0x10000),
+            EntryFlags::RW,
         )?;
+
+        // Identity map UART0 memory
+        mapper.identity_map_range(
+            PhysAddr::new(config::ns16550::BASE_ADDRESS as u64),
+            PhysAddr::new((config::ns16550::BASE_ADDRESS + 0x100) as u64),
+            EntryFlags::RW,
+        )?;
+
+        // Identity map CLINT memory
+        mapper.identity_map_range(
+            PhysAddr::new(0x0200_0000),
+            PhysAddr::new(0x0201_0000),
+            EntryFlags::RW,
+        )?;
+
+        // Identity map SYSCON memory
+        mapper.identity_map_range(
+            PhysAddr::new(0x0010_0000),
+            PhysAddr::new(0x0010_1000),
+            EntryFlags::RW,
+        )?;
+
+        // Map the whole physical address space into virtual space, in order to use an offset mapper.
+        // On Sv48, this could be done with a single TB entry, but on Sv39, we need four GB entries.
+        for i in 0..4 {
+            let offset = i * 0x4000_0000;
+            mapper.map(
+                PHYS_TO_VIRT_MEM_BASE + offset,
+                PhysAddr::new(offset as u64),
+                PageSize::Gb,
+                EntryFlags::RWX,
+            )?;
+        }
     }
 
     // Enable MMU
-    Satp::write_ppn(PhysAddr::new_unchecked(rpt as *const _ as u64).page_index());
-    Satp::write_mode(SatpMode::Sv39);
+    // SAFETY: `rpt` was correctly virtual-memory-mapped above
+    unsafe {
+        Satp::write_ppn(PhysAddr::new_unchecked(rpt as *const _ as u64).page_index());
+        Satp::write_mode(SatpMode::Sv39);
+    }
 
     // From now on, the root page table must be accessed using its virtual address
-    let rpt = (PHYS_TO_VIRT_MEM_BASE + rpt as *const _ as usize)
-        .as_mut_ptr::<PageTable>()
-        .as_mut::<'static>()
-        .unwrap();
+    // SAFETY: this conversion is valid because we have mapped the whole physical memory and
+    //         the address of `rpt` was referred to physical memory
+    let rpt = unsafe {
+        let rpt = rpt as *const _ as usize;
+        &mut *(PHYS_TO_VIRT_MEM_BASE + rpt).as_mut_ptr::<PageTable>()
+    };
 
     // Return the actual offset mapper
-    Ok(OffsetPageMapper::new(rpt, PHYS_TO_VIRT_MEM_BASE))
+    // SAFETY: the mapping reflects the requirements of OffsetPageMapper
+    Ok(unsafe { OffsetPageMapper::new(rpt, PHYS_TO_VIRT_MEM_BASE) })
 }
 
 /// Maps the heap allocator's virtual pages to physical memory.
@@ -209,7 +236,8 @@ unsafe fn setup_heap(
         let vaddr = start + i * page_size;
         let paddr = phys_base + (i * page_size) as u64;
 
-        mapper.map(vaddr, paddr, PageSize::Kb, EntryFlags::RWX)?;
+        // SAFETY: assuming the caller has upheld his part of the contract
+        unsafe { mapper.map(vaddr, paddr, PageSize::Kb, EntryFlags::RWX)? };
     }
 
     Ok(())

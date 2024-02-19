@@ -69,6 +69,14 @@ pub struct PageTable {
     entries: [Entry; 512],
 }
 
+impl Default for PageTable {
+    fn default() -> Self {
+        Self {
+            entries: [Entry::empty(); 512],
+        }
+    }
+}
+
 impl PageTable {
     /// Resets all the entries of this page table to zero.
     pub fn clear(&mut self) {
@@ -116,6 +124,13 @@ pub struct Entry {
 }
 
 impl Entry {
+    /// Create a new zeroed entry.
+    pub const fn empty() -> Entry {
+        Self {
+            inner: EntryFlags::empty(),
+        }
+    }
+
     /// Returns whether the mapping contained in this entry is valid for use in translation.
     pub fn is_valid(&self) -> bool {
         self.inner.contains(EntryFlags::VALID)
@@ -307,21 +322,28 @@ impl<'a> OffsetPageMapper<'a> {
         for i in (page_size.to_table_level()..PAGE_LEVELS - 1).rev() {
             // Traverse page table entry to the next level, or allocate a new level of page table
             let table_paddr = if !pte.is_valid() {
+                // SAFETY: PageTable fits in a single 4k page
                 let new_table_addr = unsafe { GFA.alloc(1) }.ok_or(MapError::AllocationFailed)?;
+
                 pte.clear();
                 pte.set_flags(EntryFlags::VALID);
                 pte.set_ppn(new_table_addr.page_index());
+
+                // Initialize the newly allocated page table
+                // SAFETY: new_table_addr points to valid writable memory
+                unsafe {
+                    self.phys_to_virt(new_table_addr)
+                        .as_mut_ptr::<PageTable>()
+                        .write(PageTable::default());
+                }
+
                 new_table_addr
             } else {
                 PhysAddr::new(pte.get_ppn() << PAGE_SHIFT)
             };
 
-            let table = unsafe {
-                self.phys_to_virt(table_paddr)
-                    .as_mut_ptr::<PageTable>()
-                    .as_mut()
-                    .unwrap()
-            };
+            // SAFETY: the resulting pointer points to properly initialized memory
+            let table = unsafe { &mut *self.phys_to_virt(table_paddr).as_mut_ptr::<PageTable>() };
 
             pte = table.get_entry_mut(vpn[i]).unwrap();
         }
@@ -361,6 +383,7 @@ impl<'a> OffsetPageMapper<'a> {
         for i in 0..num_pages {
             let addr = start + (i << PAGE_SHIFT);
 
+            // SAFETY: assuming caller has upheld the safety contract
             unsafe {
                 self.map(
                     VirtAddr::new(u64::from(addr) as usize),
@@ -420,11 +443,11 @@ impl<'a> OffsetPageMapper<'a> {
                 return Some(PhysAddr::new(ppn << PAGE_SHIFT) + vaddr.page_offset() as u64);
             }
 
+            // SAFETY: if this PTE is valid then the PPN points to valid memory
             table = unsafe {
-                self.phys_to_virt(PhysAddr::from_ppn(pte.get_ppn()))
+                &*self
+                    .phys_to_virt(PhysAddr::from_ppn(pte.get_ppn()))
                     .as_ptr::<PageTable>()
-                    .as_ref()
-                    .unwrap()
             };
         }
 

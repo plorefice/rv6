@@ -24,6 +24,8 @@ pub fn unwind_stack_frame() {
 /// Traverses the stack frame and prints the call stack.
 fn walk_stack_frame() {
     let mut fp: usize;
+
+    // SAFETY: no side effects
     unsafe { core::arch::asm!("add {}, fp, zero", out(reg) fp) };
 
     let mut pc = walk_stack_frame as *const fn() as usize;
@@ -36,6 +38,7 @@ fn walk_stack_frame() {
         print_trace_address(pc);
 
         // Unwind stack frame
+        // SAFETY: fp points to a valid stack frame
         let frame = unsafe { (fp as *const StackFrame).sub(1).as_ref() }.unwrap();
         fp = frame.fp;
         pc = frame.ra;
@@ -49,6 +52,7 @@ fn is_kernel_text_address(pc: usize) -> bool {
         static __text_end: usize;
     }
 
+    // SAFETY: __text_start and __text_end are initialized by the linker
     unsafe {
         pc >= (&__text_start as *const _ as usize) && pc <= (&__text_end as *const _ as usize)
     }

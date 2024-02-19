@@ -30,7 +30,7 @@ bitflags! {
     }
 }
 
-/// The `sstatus` register keeps track of the processor’s current operating state.
+/// The `sstatus` register keeps track of the processor's current operating state.
 #[derive(Debug)]
 pub struct Sstatus;
 
@@ -45,6 +45,7 @@ impl Sstatus {
     #[inline]
     pub fn read_raw() -> u64 {
         let value: u64;
+        // SAFETY: read with no memory side effects
         unsafe {
             asm!("csrr {}, sstatus", out(reg) value, options(nomem));
         }
@@ -58,6 +59,7 @@ impl Sstatus {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn write(flags: SstatusFlags) {
+        // SAFETY: unsafe op in unsafe fn
         unsafe { Self::write_raw(flags.bits()) }
     }
 
@@ -68,6 +70,7 @@ impl Sstatus {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn write_raw(flags: u64) {
+        // SAFETY: unsafe op in unsafe fn
         unsafe { asm!("csrw sstatus, {}", in(reg) flags, options(nostack)) };
     }
 
@@ -83,6 +86,7 @@ impl Sstatus {
     {
         let mut v = Self::read();
         f(&mut v);
+        // SAFETY: unsafe op in unsafe fn
         unsafe { Self::write(v) };
     }
 
@@ -93,6 +97,7 @@ impl Sstatus {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn set(flags: SstatusFlags) {
+        // SAFETY: unsafe op in unsafe fn
         unsafe { asm!("csrs sstatus, {}", in(reg) flags.bits(), options(nostack)) };
     }
 
@@ -103,6 +108,7 @@ impl Sstatus {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn clear(flags: SstatusFlags) {
+        // SAFETY: unsafe op in unsafe fn
         unsafe { asm!("csrc sstatus, {}", in(reg) flags.bits(), options(nostack)) };
     }
 }
@@ -134,6 +140,7 @@ impl Sie {
     #[inline]
     pub fn read_raw() -> u64 {
         let value: u64;
+        // SAFETY: read with no memory side effects
         unsafe {
             asm!("csrr {}, sie", out(reg) value, options(nomem));
         }
@@ -149,6 +156,7 @@ impl Sie {
     /// Writes raw bits to `sie`.
     #[inline]
     pub fn write_raw(flags: u64) {
+        // SAFETY: write with no memory side effects
         unsafe { asm!("csrw sie, {}", in(reg) flags, options(nostack)) };
     }
 
@@ -166,12 +174,14 @@ impl Sie {
     /// Sets the specified flags to `sie`.
     #[inline]
     pub fn set(flags: SiFlags) {
+        // SAFETY: write with no memory side effects
         unsafe { asm!("csrs sie, {}", in(reg) flags.bits(), options(nostack)) };
     }
 
     /// Clears the specified flags from `sie`.
     #[inline]
     pub fn clear(flags: SiFlags) {
+        // SAFETY: write with no memory side effects
         unsafe { asm!("csrc sie, {}", in(reg) flags.bits(), options(nostack)) };
     }
 }
@@ -191,6 +201,7 @@ impl Sip {
     #[inline]
     pub fn read_raw() -> u64 {
         let value: u64;
+        // SAFETY: write with no memory side effects
         unsafe {
             asm!("csrr {}, sip", out(reg) value, options(nomem));
         }
@@ -206,6 +217,7 @@ impl Sip {
     /// Writes raw bits to `sip`.
     #[inline]
     pub fn write_raw(flags: u64) {
+        // SAFETY: write with no memory side effects
         unsafe { asm!("csrw sip, {}", in(reg) flags, options(nostack)) };
     }
 
@@ -223,12 +235,14 @@ impl Sip {
     /// Sets the specified flags to `sip`.
     #[inline]
     pub fn set(flags: SiFlags) {
+        // SAFETY: write with no memory side effects
         unsafe { asm!("csrs sip, {}", in(reg) flags.bits(), options(nostack)) };
     }
 
     /// Clears the specified flags from `sip`.
     #[inline]
     pub fn clear(flags: SiFlags) {
+        // SAFETY: write with no memory side effects
         unsafe { asm!("csrc sip, {}", in(reg) flags.bits(), options(nostack)) };
     }
 }
@@ -242,6 +256,7 @@ impl Stvec {
     #[inline]
     pub fn read() -> u64 {
         let value: u64;
+        // SAFETY: read with no memory side effects
         unsafe {
             asm!("csrr {}, stvec", out(reg) value, options(nomem));
         }
@@ -251,6 +266,7 @@ impl Stvec {
     /// Writes to `stvec`.
     #[inline]
     pub fn write(v: u64) {
+        // SAFETY: write with no memory side effects
         unsafe { asm!("csrw stvec, {}", in(reg) v, options(nostack)) };
     }
 }
@@ -264,6 +280,7 @@ impl Stval {
     #[inline]
     pub fn read() -> u64 {
         let value: u64;
+        // SAFETY: read with no memory side effects
         unsafe {
             asm!("csrr {}, stval", out(reg) value, options(nomem));
         }
@@ -273,6 +290,7 @@ impl Stval {
     /// Writes to `stval`.
     #[inline]
     pub fn write(v: u64) {
+        // SAFETY: write with no memory side effects
         unsafe { asm!("csrw stval, {}", in(reg) v, options(nostack)) };
     }
 }
@@ -331,6 +349,7 @@ impl Satp {
     #[inline]
     pub fn read_raw() -> u64 {
         let value: u64;
+        // SAFETY: read with no memory side effects
         unsafe {
             asm!("csrr {}, satp", out(reg) value, options(nomem));
         }
@@ -344,6 +363,7 @@ impl Satp {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn write_ppn(ppn: u64) {
+        // SAFETY: unsafe op in unsafe fn
         unsafe { Self::write_raw((Self::read_raw() & !0xfff_ffff_ffff_u64) | ppn) }
     }
 
@@ -355,6 +375,7 @@ impl Satp {
     #[inline]
     pub unsafe fn write_asid(asid: u64) {
         let mask = 0xffff << 44;
+        // SAFETY: unsafe op in unsafe fn
         unsafe { Self::write_raw((Self::read_raw() & !mask) | (asid << 44)) }
     }
 
@@ -366,6 +387,7 @@ impl Satp {
     #[inline]
     pub unsafe fn write_mode(mode: SatpMode) {
         let mask = 0xf << 60;
+        // SAFETY: unsafe op in unsafe fn
         unsafe { Self::write_raw((Self::read_raw() & !mask) | ((mode as u64) << 60)) }
     }
 
@@ -376,6 +398,7 @@ impl Satp {
     /// This function is unsafe because it's possible to violate memory safety through it.
     #[inline]
     pub unsafe fn write_raw(v: u64) {
+        // SAFETY: unsafe op in unsafe fn
         unsafe { asm!("csrw satp, {}", in(reg) v, options(nostack)) }
     }
 }
@@ -390,6 +413,7 @@ impl Time {
     #[inline]
     pub fn read() -> u64 {
         let value: u64;
+        // SAFETY: read with no memory side effects
         unsafe {
             asm!("csrr {}, time", out(reg) value, options(nomem));
         }
