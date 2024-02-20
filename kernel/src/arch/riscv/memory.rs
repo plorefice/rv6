@@ -166,37 +166,37 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
     // SAFETY: these mappings are unique since they are the only one existing at this point
     unsafe {
         // Identity map all kernel sections
-        mapper.identity_map_range(text_start, text_end, EntryFlags::RX)?;
-        mapper.identity_map_range(rodata_start, rodata_end, EntryFlags::RX)?;
-        mapper.identity_map_range(data_start, data_end, EntryFlags::RW)?;
+        mapper.identity_map_range(text_start, text_end, EntryFlags::KERNEL)?;
+        mapper.identity_map_range(rodata_start, rodata_end, EntryFlags::KERNEL)?;
+        mapper.identity_map_range(data_start, data_end, EntryFlags::KERNEL)?;
 
         // Map the GFA descriptor table
         // TODO: use the correct values here, as taken from the GFA descriptor
         mapper.identity_map_range(
             PhysAddr::new(0x80269000),
             PhysAddr::new(0x80269000 + 0x10000),
-            EntryFlags::RW,
+            EntryFlags::KERNEL,
         )?;
 
         // Identity map UART0 memory
         mapper.identity_map_range(
             PhysAddr::new(config::ns16550::BASE_ADDRESS as u64),
             PhysAddr::new((config::ns16550::BASE_ADDRESS + 0x100) as u64),
-            EntryFlags::RW,
+            EntryFlags::KERNEL,
         )?;
 
         // Identity map CLINT memory
         mapper.identity_map_range(
             PhysAddr::new(0x0200_0000),
             PhysAddr::new(0x0201_0000),
-            EntryFlags::RW,
+            EntryFlags::KERNEL,
         )?;
 
         // Identity map SYSCON memory
         mapper.identity_map_range(
             PhysAddr::new(0x0010_0000),
             PhysAddr::new(0x0010_1000),
-            EntryFlags::RW,
+            EntryFlags::KERNEL,
         )?;
 
         // Map the whole physical address space into virtual space, in order to use an offset mapper.
@@ -209,7 +209,7 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
                     PHYS_TO_VIRT_MEM_BASE + offset,
                     PhysAddr::new(offset as u64),
                     PageSize::Gb,
-                    EntryFlags::RWX,
+                    EntryFlags::KERNEL,
                 )?;
             }
         }
@@ -219,7 +219,7 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
                 PHYS_TO_VIRT_MEM_BASE,
                 PhysAddr::new(0),
                 PageSize::Tb,
-                EntryFlags::RWX,
+                EntryFlags::KERNEL,
             )?;
         }
     }
@@ -275,7 +275,7 @@ unsafe fn setup_heap(
         let paddr = phys_base + (i * page_size) as u64;
 
         // SAFETY: assuming the caller has upheld his part of the contract
-        unsafe { mapper.map(vaddr, paddr, PageSize::Kb, EntryFlags::RWX)? };
+        unsafe { mapper.map(vaddr, paddr, PageSize::Kb, EntryFlags::KERNEL)? };
     }
 
     Ok(())

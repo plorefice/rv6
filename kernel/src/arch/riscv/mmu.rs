@@ -34,6 +34,7 @@ const PAGE_LEVELS: usize = 4;
 bitflags! {
     /// Bitfields of a page table entry.
     #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    #[repr(transparent)]
     pub struct EntryFlags: u64 {
         /// If set, this entry represents a valid mapping.
         const VALID = 1 << 0;
@@ -51,6 +52,19 @@ bitflags! {
         const ACCESS = 1 << 6;
         /// If set, this page has been written by the CPU.
         const DIRTY = 1 << 7;
+        /// Reserved for use by supervisor software
+        const RSW = 3 << 8;
+        /// Page-based memory types
+        const PBMT = 3 << 61;
+        /// Naturally aligned power-of-2 table entry
+        const NAPOT = 1 << 63;
+
+        /// If set, the pages is shareable (C9xx specific)
+        const SHARE = 1 << 60;
+        /// If set, the pages is bufferable (C9xx specific)
+        const BUF = 1 << 61;
+        /// If set, the pages is cacheable (C9xx specific)
+        const CACHE = 1 << 62;
 
         /// If set, this page contains read-write memory.
         const RW = Self::READ.bits() | Self::WRITE.bits();
@@ -61,8 +75,8 @@ bitflags! {
         /// Mask of user-settable flags on a page table entry.
         const RWXUG = Self::RWX.bits() | Self::USER.bits() | Self::GLOBAL.bits();
 
-        /// Comination of all the above.
-        const ALL = 0xf;
+        /// PTE flags for kernel mappings
+        const KERNEL = Self::RWX.bits() | Self::ACCESS.bits() | Self::DIRTY.bits() | Self::GLOBAL.bits();
     }
 }
 
@@ -123,6 +137,7 @@ impl fmt::Display for PageTable {
 
 /// An entry in a `PageTable`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[repr(transparent)]
 pub struct Entry {
     inner: EntryFlags,
 }
@@ -189,7 +204,8 @@ impl Entry {
 
     /// Returns the flags currently set on this entry.
     pub fn flags(&self) -> EntryFlags {
-        self.inner & EntryFlags::ALL
+        // Mask away the PPN bits
+        self.inner & EntryFlags::all()
     }
 
     /// Resets the bits of this entry to zero.
@@ -199,7 +215,6 @@ impl Entry {
 
     /// Sets this entry's flags.
     pub fn set_flags(&mut self, flags: EntryFlags) {
-        self.inner &= !EntryFlags::ALL;
         self.inner |= flags;
     }
 
@@ -352,16 +367,16 @@ impl<'a> OffsetPageMapper<'a> {
             pte = table.get_entry_mut(vpn[i]).unwrap();
         }
 
-        // Normalize flags
-        flags &= EntryFlags::RWXUG;
+        // Activate mapping
+        flags |= EntryFlags::VALID;
 
-        // Check if a mapping already exists with different flags.
-        if pte.is_valid() && pte.flags() & EntryFlags::RWXUG != flags {
+        // Check if a mapping already exists with different flags
+        if pte.is_valid() && pte.flags() != flags {
             return Err(MapError::AlreadyMapped);
         }
 
         // Fill in leaf PTE
-        pte.set_flags(flags | EntryFlags::VALID | EntryFlags::ACCESS | EntryFlags::DIRTY);
+        pte.set_flags(flags);
         pte.set_ppn(paddr.page_index());
 
         Ok(())
