@@ -15,11 +15,18 @@ LD = $(CROSS_COMPILE)ld
 QEMU = qemu-system-riscv64 -M virt -cpu rv64,sv39=on,sv48=off,sv57=off -m 256M -nographic -serial mon:stdio \
 	-bios $(OPENSBI_BIN) -kernel
 
+# Default to QEMU when no platform is selected
+ifeq ($(PLATFORM),)
+PLATFORM = qemu
+endif
+
+all: $(RV6_BIN) $(OPENSBI_BIN)
+
 $(RV6_STATICLIB): FORCE
-	@cargo build --target $(TARGET) --manifest-path kernel/Cargo.toml --features config-qemu
+	@cargo build --target $(TARGET) --manifest-path kernel/Cargo.toml --features config-${PLATFORM}
 
 $(RV6_DYLIB): $(RV6_STATICLIB) ksymsgen
-	@CROSS_COMPILE=$(CROSS_COMPILE) script/link-rv6.sh "$<"
+	@CROSS_COMPILE=$(CROSS_COMPILE) script/link-rv6.sh kernel/src/arch/riscv/linker/${PLATFORM}.ld "$<"
 
 $(RV6_BIN): $(RV6_DYLIB)
 	@$(OBJCOPY) -O binary "$<" "$@"
@@ -42,4 +49,4 @@ clean:
 
 FORCE:
 
-.PHONY = ksymsgen qemu test clean FORCE
+.PHONY = all ksymsgen qemu debug test clean FORCE

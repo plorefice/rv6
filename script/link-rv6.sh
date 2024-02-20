@@ -13,6 +13,12 @@ set -e
 
 LD="${CROSS_COMPILE}"ld
 CC="${CROSS_COMPILE}"gcc
+
+# Linker script comes first...
+LDSCRIPT=$1
+shift
+
+# ... followed by any archive files
 RV6_LIBS=("$@")
 
 # Link of rv6
@@ -20,7 +26,6 @@ RV6_LIBS=("$@")
 # ${2}, ${3}, ... - optional extra .o files
 link()
 {
-	local lds="kernel/src/arch/riscv/linker/qemu-virt.ld"
 	local output=${1}
 	local objects
 	local strip_debug
@@ -36,7 +41,7 @@ link()
 	objects=("${RV6_LIBS[@]}")
 	for obj in "${@}"; do [[ "$obj" != '' ]] && objects+=("$obj"); done
 
-	${LD} ${strip_debug#-Wl,} -o "${output}" -T ${lds} "${objects[@]}"
+	${LD} ${strip_debug#-Wl,} -o "${output}" -T "${LDSCRIPT}" "${objects[@]}"
 }
 
 # Create ${2} .S file with all symbols from the ${1} object file
