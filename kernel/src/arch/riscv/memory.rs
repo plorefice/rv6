@@ -1,10 +1,14 @@
 //! RISC-V specific memory management.
 
-use crate::arch::riscv::{
-    addr::PAGE_SIZE,
-    mmu::{self, EntryFlags, MapError, PageSize, PageTable},
-    registers::{Satp, SatpMode},
-    PhysAddr, VirtAddr,
+use crate::arch::{
+    instructions::sfence_vma,
+    registers::{Sstatus, SstatusFlags},
+    riscv::{
+        addr::PAGE_SIZE,
+        mmu::{self, EntryFlags, MapError, PageSize, PageTable},
+        registers::{Satp, SatpMode},
+        PhysAddr, VirtAddr,
+    },
 };
 use crate::mm::allocator::BumpAllocator;
 use crate::mm::{
@@ -22,10 +26,22 @@ pub const PHYS_MEM_OFFSET: PhysAddr = PhysAddr::new_truncated(0x8000_0000);
 pub const PHYS_MEM_SIZE: u64 = 32 * 1024 * 1024;
 
 /// Virtual memory offset at which the physical address space is mapped.
-pub const PHYS_TO_VIRT_MEM_BASE: VirtAddr = VirtAddr::new_truncated(0x20_0000_0000);
+pub const PHYS_TO_VIRT_MEM_BASE: VirtAddr = VirtAddr::new_truncated({
+    if cfg!(feature = "sv39") {
+        0x20_0000_0000
+    } else {
+        0x2000_0000_0000
+    }
+});
 
 /// Virtual memory address of the beginning of the kernel heap.
-const HEAP_MEM_START: VirtAddr = VirtAddr::new_truncated(0x10_0000_0000);
+const HEAP_MEM_START: VirtAddr = VirtAddr::new_truncated({
+    if cfg!(feature = "sv39") {
+        0x10_0000_0000
+    } else {
+        0x1000_0000_0000
+    }
+});
 
 /// Size of the heap in bytes (1 MiB)
 const HEAP_MEM_SIZE: usize = 1024 * 1024;
@@ -185,12 +201,24 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
 
         // Map the whole physical address space into virtual space, in order to use an offset mapper.
         // On Sv48, this could be done with a single TB entry, but on Sv39, we need four GB entries.
-        for i in 0..4 {
-            let offset = i * 0x4000_0000;
+        #[cfg(feature = "sv39")]
+        {
+            for i in 0..4 {
+                let offset = i * 0x4000_0000;
+                mapper.map(
+                    PHYS_TO_VIRT_MEM_BASE + offset,
+                    PhysAddr::new(offset as u64),
+                    PageSize::Gb,
+                    EntryFlags::RWX,
+                )?;
+            }
+        }
+        #[cfg(feature = "sv48")]
+        {
             mapper.map(
-                PHYS_TO_VIRT_MEM_BASE + offset,
-                PhysAddr::new(offset as u64),
-                PageSize::Gb,
+                PHYS_TO_VIRT_MEM_BASE,
+                PhysAddr::new(0),
+                PageSize::Tb,
                 EntryFlags::RWX,
             )?;
         }
@@ -199,8 +227,18 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
     // Enable MMU
     // SAFETY: `rpt` was correctly virtual-memory-mapped above
     unsafe {
+        // Allow supervisor mode to access executable and user pages
+        Sstatus::set(SstatusFlags::MXR | SstatusFlags::SUM);
+
         Satp::write_ppn(PhysAddr::new_unchecked(rpt as *const _ as u64).page_index());
+
+        // Flush TLB
+        sfence_vma();
+
+        #[cfg(feature = "sv39")]
         Satp::write_mode(SatpMode::Sv39);
+        #[cfg(feature = "sv48")]
+        Satp::write_mode(SatpMode::Sv48);
     }
 
     // From now on, the root page table must be accessed using its virtual address

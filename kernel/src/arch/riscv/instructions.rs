@@ -19,3 +19,12 @@ pub fn nop() {
         asm!("nop", options(nostack, nomem, preserves_flags));
     }
 }
+
+/// Executes a supervisor fence, flushing all TLBs.
+#[inline]
+pub fn sfence_vma() {
+    // SAFETY: no memory side effects
+    unsafe {
+        asm!("sfence.vma", options(nomem, nostack, preserves_flags));
+    }
+}

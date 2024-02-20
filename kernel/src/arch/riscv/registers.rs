@@ -6,6 +6,7 @@ use bitflags::bitflags;
 
 bitflags! {
     /// Flags for the `sstatus` register.
+    #[derive(Debug)]
     pub struct SstatusFlags: u64 {
         /// S-Mode interrupt enable.
         const SIE = 1 << 1;
@@ -15,6 +16,8 @@ bitflags! {
         const UBE = 1 << 6;
         /// S-Mode previous privilege level.
         const SPP = 1 << 8;
+        /// Vector extension unit state.
+        const VS = 3 << 9;
         /// Floating point unit state.
         const FS = 3 << 13;
         /// U-Mode extension state.

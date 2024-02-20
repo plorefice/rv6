@@ -361,7 +361,7 @@ impl<'a> OffsetPageMapper<'a> {
         }
 
         // Fill in leaf PTE
-        pte.set_flags(flags | EntryFlags::VALID);
+        pte.set_flags(flags | EntryFlags::VALID | EntryFlags::ACCESS | EntryFlags::DIRTY);
         pte.set_ppn(paddr.page_index());
 
         Ok(())
