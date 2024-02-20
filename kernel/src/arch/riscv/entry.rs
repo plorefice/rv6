@@ -12,8 +12,6 @@ use super::{memory, sbi, time, trap};
 /// can go wrong.
 #[no_mangle]
 pub unsafe extern "C" fn arch_init(_dtb_addr: usize) {
-    kprintln!();
-
     // Initialize core subsystems
     sbi::show_info();
     trap::init();

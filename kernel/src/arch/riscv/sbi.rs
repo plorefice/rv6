@@ -23,21 +23,21 @@ pub fn show_info() {
         );
         kprint!("SBI v0.2 detected extensions:");
         if base::probe_extension(Extension::Timer).is_ok() {
-            kprint!(" TIMER");
+            kprintc!(" TIMER");
         }
         if base::probe_extension(Extension::Ipi).is_ok() {
-            kprint!(" IPI");
+            kprintc!(" IPI");
         }
         if base::probe_extension(Extension::Rfence).is_ok() {
-            kprint!(" RFENCE");
+            kprintc!(" RFENCE");
         }
         if base::probe_extension(Extension::Hsm).is_ok() {
-            kprint!(" HSM");
+            kprintc!(" HSM");
         }
         if base::probe_extension(Extension::SystemReset).is_ok() {
-            kprint!(" SYSRST");
+            kprintc!(" SYSRST");
         }
-        kprintln!();
+        kprinte!();
     } else {
         panic!("Unsupported SBI specification");
     }
