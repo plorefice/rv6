@@ -62,8 +62,9 @@ fn is_kernel_text_address(pc: usize) -> bool {
 fn print_trace_address(pc: usize) {
     kprint!(" [<{:016x}>] ", pc);
     if let Some((sym, off)) = ksyms::resolve_symbol(pc) {
-        kprintln!("<{}>+0x{:x}", sym, off);
+        kprintc!("<{}>+0x{:x}", sym, off);
     } else {
-        kprintln!("?");
+        kprintc!("?");
     }
+    kprinte!();
 }

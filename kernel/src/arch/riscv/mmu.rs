@@ -234,7 +234,7 @@ impl Entry {
 
 impl fmt::Display for Entry {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "phy: 0x{:016x} ", self.get_ppn() << PTE_PPN_OFFSET)?;
+        write!(f, "phy: 0x{:016x} ", self.get_ppn() << PAGE_SHIFT)?;
         write!(
             f,
             "{} {} {} {} {} {} {}",
@@ -272,6 +272,27 @@ impl PageSize {
             PageSize::Gb => 2,
             #[cfg(feature = "sv48")]
             PageSize::Tb => 3,
+        }
+    }
+
+    fn from_table_level(lvl: usize) -> Option<Self> {
+        match lvl {
+            0 => Some(PageSize::Kb),
+            1 => Some(PageSize::Mb),
+            2 => Some(PageSize::Gb),
+            #[cfg(feature = "sv48")]
+            3 => Some(PageSize::Tb),
+            _ => None,
+        }
+    }
+
+    fn size(self) -> u64 {
+        match self {
+            PageSize::Kb => 0x1000,
+            PageSize::Mb => 0x200000,
+            PageSize::Gb => 0x4000_0000,
+            #[cfg(feature = "sv48")]
+            PageSize::Tb => 0x80_0000_0000,
         }
     }
 }
@@ -471,5 +492,110 @@ impl<'a> OffsetPageMapper<'a> {
         }
 
         None
+    }
+
+    /// Returns a reference to the root page table used by this mapper.
+    pub fn page_table(&self) -> &PageTable {
+        self.rpt
+    }
+}
+
+/// Dumps the current page mappings to the kernel console.
+///
+/// Useful to debug the state of virtual memory.
+///
+/// # Safety
+///
+/// It is assumed that `pt` points to the root page table. If not, this function might perform
+/// invalid memory accesses.
+pub unsafe fn dump_root_page_table(pt: &PageTable) {
+    kprintln!("Active memory mappings:");
+    kprintln!("  vaddr            paddr            size             attr   ");
+    kprintln!("  ---------------- ---------------- ---------------- -------");
+    if let Some(mapping) = _dump_page_table(pt, VirtAddr::new_truncated(0), PAGE_LEVELS - 1, None) {
+        kprintln!("{mapping}");
+    }
+}
+
+/// Recursively gathers active mappings and dump a coalesced view of the mapped memory.
+///
+/// Returns the last mapped chunk, if any. It's up to the caller to print it as well.
+fn _dump_page_table(
+    pt: &PageTable,
+    base: VirtAddr,
+    level: usize,
+    mut mapping: Option<MemoryMappingInfo>,
+) -> Option<MemoryMappingInfo> {
+    // SAFETY: we are traversing a valid page table, VAs are correct by design
+    let base = unsafe { VirtAddr::new_unchecked(base.data() << 9) };
+
+    for (i, entry) in pt.entries.iter().enumerate().filter(|(_, e)| e.is_valid()) {
+        let vaddr = base + i;
+
+        if entry.is_leaf() {
+            // SAFETY: we are traversing a valid page table, VAs are correct by design
+            let virt =
+                unsafe { VirtAddr::new_unchecked(vaddr.data() << (9 * level) << PAGE_SHIFT) };
+            let phys = PhysAddr::from_ppn(entry.get_ppn());
+            let size = PageSize::from_table_level(level).unwrap().size();
+            let flags = entry.flags();
+
+            // Check if this mapping can be merged with the current chunk...
+            if let Some(ref mut mapping) = mapping {
+                if virt == mapping.virt + mapping.size as usize && mapping.flags == flags {
+                    mapping.size += size;
+                    continue; // ... if so, accrue its size and keep iterating over this table ...
+                }
+                // ... if not, print the previous chunk and restart a new chunk from here
+                kprintln!("{mapping}");
+            }
+
+            // First mapping or disjoined chunk found: start building a new one
+            mapping = Some(MemoryMappingInfo {
+                phys,
+                virt,
+                size,
+                flags,
+            });
+        } else {
+            // SAFETY: PTE is valid, so the PPN must contain a valid pointer
+            let inner =
+                unsafe { &*(PhysAddr::from_ppn(entry.get_ppn()).data() as *const PageTable) };
+
+            assert!(level > 0);
+            mapping = _dump_page_table(inner, vaddr, level - 1, mapping);
+        }
+    }
+
+    mapping
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MemoryMappingInfo {
+    virt: VirtAddr,
+    phys: PhysAddr,
+    size: u64,
+    flags: EntryFlags,
+}
+
+impl fmt::Display for MemoryMappingInfo {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        #[rustfmt::skip]
+        let r = write!(
+            f,
+            "  {:016} {:016} {:016x} {}{}{}{}{}{}{}",
+            self.virt,
+            self.phys,
+            self.size,
+            if self.flags.contains(EntryFlags::READ)   { 'r' } else { '-' },
+            if self.flags.contains(EntryFlags::WRITE)  { 'w' } else { '-' },
+            if self.flags.contains(EntryFlags::EXEC)   { 'x' } else { '-' },
+            if self.flags.contains(EntryFlags::USER)   { 'u' } else { '-' },
+            if self.flags.contains(EntryFlags::GLOBAL) { 'g' } else { '-' },
+            if self.flags.contains(EntryFlags::ACCESS) { 'a' } else { '-' },
+            if self.flags.contains(EntryFlags::DIRTY)  { 'd' } else { '-' },
+        );
+
+        r
     }
 }

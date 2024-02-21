@@ -87,7 +87,7 @@ pub unsafe fn init() {
 
     // SAFETY: no memory has yet been mapped, so these operations are inherently safe,
     //         assuming they are formally correct
-    unsafe {
+    let mapper = unsafe {
         phys_init(kernel_mem_end, (phys_mem_end - kernel_mem_end).into()).unwrap();
 
         // Setup virtual memory, and switch to virtual addressing from now on.
@@ -101,7 +101,12 @@ pub unsafe fn init() {
             phys_mem_end - HEAP_MEM_SIZE as u64,
         )
         .expect("failed to setup heap");
-    }
+
+        mapper
+    };
+
+    // SAFETY: `mapper.page_table()` is the root page directory
+    unsafe { mmu::dump_root_page_table(mapper.page_table()) };
 }
 
 /// Initializes a physical memory allocator on the specified memory range.
@@ -174,7 +179,7 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
         // TODO: use the correct values here, as taken from the GFA descriptor
         mapper.identity_map_range(
             PhysAddr::new(0x80269000),
-            PhysAddr::new(0x80269000 + 0x10000),
+            PhysAddr::new(0x80269000 + 0x40000),
             EntryFlags::KERNEL,
         )?;
 

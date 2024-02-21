@@ -6,6 +6,7 @@ use core::fmt;
 /// at the end of the message.
 #[macro_export]
 macro_rules! kprint {
+    () => ($crate::macros::_print_timestamp());
     ($($arg:tt)*) => ({
         $crate::macros::_print_timestamp();
         $crate::macros::_print(format_args!($($arg)*));
@@ -72,7 +73,7 @@ pub(crate) fn _print_timestamp() {
 
     let cy = time::get_cycles();
     let sec = cy / time::CLINT_TIMEBASE;
-    let subsec = cy % time::CLINT_TIMEBASE;
+    let subsec = (cy % time::CLINT_TIMEBASE) / 10;
 
     _print(format_args!("[{sec:5}.{subsec:06}] "));
 }
