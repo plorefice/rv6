@@ -241,13 +241,16 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
 
         Satp::write_ppn(PhysAddr::new_unchecked(rpt as *const _ as u64).page_index());
 
-        // Flush TLB
+        // Memory fence: make sure the previous instruction is completed
         sfence_vma();
 
         #[cfg(feature = "sv39")]
         Satp::write_mode(SatpMode::Sv39);
         #[cfg(feature = "sv48")]
         Satp::write_mode(SatpMode::Sv48);
+
+        // Flush TLB again
+        sfence_vma();
     }
 
     // From now on, the root page table must be accessed using its virtual address
