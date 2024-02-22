@@ -88,10 +88,22 @@ pub unsafe fn init() {
     // SAFETY: no memory has yet been mapped, so these operations are inherently safe,
     //         assuming they are formally correct
     let mapper = unsafe {
-        phys_init(kernel_mem_end, (phys_mem_end - kernel_mem_end).into()).unwrap();
+        // Setup a frame allocator for physical memory outside the kernel range
+        let phys_mem_start = kernel_mem_end;
+        let phys_mem_size = u64::from(phys_mem_end - kernel_mem_end) - HEAP_MEM_SIZE as u64;
+        setup_frame_allocator(phys_mem_start, phys_mem_size).unwrap();
 
         // Setup virtual memory, and switch to virtual addressing from now on.
         let mut mapper = setup_vm().expect("failed to set up virtual memory");
+
+        // Map the frame allocator's memory (ie. the physical memory outside the kernel range)
+        mapper
+            .identity_map_range(
+                phys_mem_start,
+                phys_mem_start + phys_mem_size,
+                EntryFlags::KERNEL,
+            )
+            .expect("failed to mmap frame allocator");
 
         // Allocate memory for the heap
         setup_heap(
@@ -114,7 +126,7 @@ pub unsafe fn init() {
 /// # Safety
 ///
 /// The caller must guarantee that the memory being initialized isn't already in use by the system.
-unsafe fn phys_init(mem_start: PhysAddr, mem_size: u64) -> Result<(), AllocatorError> {
+unsafe fn setup_frame_allocator(mem_start: PhysAddr, mem_size: u64) -> Result<(), AllocatorError> {
     let mem_start = mem_start.align_up(PAGE_SIZE);
     let mem_end = (mem_start + mem_size).align_down(PAGE_SIZE);
 
@@ -174,14 +186,6 @@ unsafe fn setup_vm() -> Result<OffsetPageMapper<'static>, MapError> {
         mapper.identity_map_range(text_start, text_end, EntryFlags::KERNEL)?;
         mapper.identity_map_range(rodata_start, rodata_end, EntryFlags::KERNEL)?;
         mapper.identity_map_range(data_start, data_end, EntryFlags::KERNEL)?;
-
-        // Map the GFA descriptor table
-        // TODO: use the correct values here, as taken from the GFA descriptor
-        mapper.identity_map_range(
-            PhysAddr::new(0x80269000),
-            PhysAddr::new(0x80269000 + 0x40000),
-            EntryFlags::KERNEL,
-        )?;
 
         // Identity map UART0 memory
         mapper.identity_map_range(
