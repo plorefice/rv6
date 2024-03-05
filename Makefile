@@ -3,7 +3,6 @@ TARGET = riscv64gc-unknown-none-elf
 
 # Build artifacts
 OUTDIR = target/$(TARGET)/debug
-OPENSBI_BIN = opensbi/build/platform/generic/firmware/fw_jump.bin
 RV6_STATICLIB = $(OUTDIR)/librv6.a
 RV6_DYLIB = rv6
 RV6_BIN = rv6.bin
@@ -12,15 +11,14 @@ RV6_BIN = rv6.bin
 CROSS_COMPILE ?= riscv64-elf-
 OBJCOPY = $(CROSS_COMPILE)objcopy
 LD = $(CROSS_COMPILE)ld
-QEMU = qemu-system-riscv64 -M virt -cpu rv64,sv39=on,sv48=off,sv57=off -m 256M -nographic -serial mon:stdio \
-	-bios $(OPENSBI_BIN) -kernel
+QEMU = qemu-system-riscv64 -M virt -cpu rv64,sv39=on -m 256M -nographic -serial mon:stdio
 
 # Default to QEMU when no platform is selected
 ifeq ($(PLATFORM),)
 PLATFORM = qemu
 endif
 
-all: $(RV6_BIN) $(OPENSBI_BIN)
+all: $(RV6_BIN)
 
 $(RV6_STATICLIB): FORCE
 	@cargo build --target $(TARGET) --manifest-path kernel/Cargo.toml --features config-${PLATFORM}
@@ -31,17 +29,14 @@ $(RV6_DYLIB): $(RV6_STATICLIB) ksymsgen
 $(RV6_BIN): $(RV6_DYLIB)
 	@$(OBJCOPY) -O binary "$<" "$@"
 
-$(OPENSBI_BIN):
-	@make -C opensbi CROSS_COMPILE=$(CROSS_COMPILE) PLATFORM=generic
-
 ksymsgen: FORCE
 	@cargo build --manifest-path ksymsgen/Cargo.toml
 
-qemu: $(RV6_BIN) $(OPENSBI_BIN)
+qemu: $(RV6_BIN)
 	@$(QEMU) "$<"
 
-debug: $(RV6_BIN) $(OPENSBI_BIN)
-	@$(QEMU) "$<" -S -s
+debug: $(RV6_BIN)
+	@$(QEMU) -kernel "$<" -S -s
 
 clean:
 	@cargo clean
