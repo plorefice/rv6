@@ -286,6 +286,22 @@ pub mod base {
     }
 }
 
+/// Namespace for the legacy console extension.
+pub mod console {
+    use super::*;
+
+    /// Writes a character to the SBI debug console.
+    ///
+    /// # Spec excerpt
+    ///
+    /// This SBI call will block if there remain any pending characters to be transmitted or if the
+    /// receiving terminal is not yet ready to receive the byte. However, if the console doesn’t
+    /// exist at all, then the character is thrown away.
+    pub fn put(c: u8) {
+        ecall!(Extension::LegacyPutChar, 0, c as usize).ok();
+    }
+}
+
 /// Namespace for the Timer Extension.
 pub mod timer {
     use super::*;

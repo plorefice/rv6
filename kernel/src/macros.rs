@@ -61,10 +61,20 @@ macro_rules! kdbg {
 
 #[doc(hidden)]
 pub(crate) fn _print(args: fmt::Arguments) {
-    use crate::drivers::ns16550::UART0;
     use fmt::Write;
 
-    UART0.lock().write_fmt(args).unwrap();
+    struct EarlyCon;
+
+    impl Write for EarlyCon {
+        fn write_str(&mut self, s: &str) -> fmt::Result {
+            for c in s.bytes() {
+                crate::arch::sbi::console::put(c);
+            }
+            Ok(())
+        }
+    }
+
+    EarlyCon.write_fmt(args).ok();
 }
 
 #[doc(hidden)]
