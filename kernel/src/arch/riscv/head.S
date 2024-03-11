@@ -3,7 +3,7 @@
  */
 
 /* NOTE: must be kept in sync with linker script */
-#define LOAD_OFFSET 0xffffffff80000000
+#define LOAD_OFFSET 0xffffffc000200000
 #define PAGE_SHIFT 12
 
 #define SATP_MODE (0x8000000000000000) /* Sv39 */
@@ -43,7 +43,6 @@ _start:
 relocate:
     /*
      * $a0 = kernel root page table
-     * $a1 = trampoline root page table
      */
 
     /* Relocate return address */
@@ -57,25 +56,21 @@ relocate:
     add a3, a3, a2
     csrw stvec, a3
 
-    /* Compute satp for kernel page tables, but don't load it yet */
-    srl a3, a0, PAGE_SHIFT
-    li a2, SATP_MODE
-    or a3, a3, a2
-
     /*
-     * Load trampoline page directory, which will cause us to trap to stvec if VA != PA,
-     * or simply fall through if VA == PA.  We need a full fence here because early_setup_vm()
+     * Load kernel page directory, which will cause us to trap to stvec if VA != PA,
+     * or simply fall through if VA == PA.  We need a full fence here because setup_early_vm()
      * just wrote these PTEs and we need to ensure the new translations are in use.
      */
-    srl a1, a1, PAGE_SHIFT
-    or a1, a1, a2
+    srl a3, a0, PAGE_SHIFT
+    li a1, SATP_MODE
+    or a3, a3, a1
     sfence.vma
-    csrw satp, a1
+    csrw satp, a3
 .align 2
 1:
     /* Set trap vector to spin forever to help debug */
-    la a0, .Lsecondary_park
-    csrw stvec, a0
+    la a1, .Lsecondary_park
+    csrw stvec, a1
 
     /* Reload the global pointer */
 .option push
@@ -83,13 +78,8 @@ relocate:
     la gp, __global_pointer$
 .option pop
 
-    /*
-     * Switch to kernel page tables.  A full fence is necessary in order to avoid using the
-     * trampoline translations, which are only correct for the first superpage. Fetching the fence
-     * is guaranteed to work because that first superpage is translated the same way.
-     */
-    csrw satp, a3
-    sfence.vma
+    /* Relocate the kernel root page table address and return it */
+    add a0, a0, a2
 
     ret
 
@@ -139,9 +129,10 @@ clear_bss_done:
     sd zero, 0(sp)
     addi s0, sp, 16
 
-    /* Relocate to virtual address */
-    call early_setup_vm
+    /* Relocate to virtual address and save VA of root page table */
+    call setup_early_vm
     call relocate
+    mv s2, a0
 
     call setup_trap_vector
 
@@ -151,5 +142,6 @@ clear_bss_done:
 
     /* Jump to Rust code */
     mv a0, s1
+    mv a1, s2
     call arch_init
     tail kmain

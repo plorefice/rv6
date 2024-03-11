@@ -9,6 +9,7 @@
     restores caller saved registers and then returns.
 */
 .global trap_entry
+.align 4
 trap_entry:
     // Make space to save registers
     addi sp, sp, -256

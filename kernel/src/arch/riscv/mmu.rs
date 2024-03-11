@@ -535,16 +535,13 @@ fn _dump_page_table(
     level: usize,
     mut mapping: Option<MemoryMappingInfo>,
 ) -> Option<MemoryMappingInfo> {
-    // SAFETY: we are traversing a valid page table, VAs are correct by design
-    let base = unsafe { VirtAddr::new_unchecked(base.data() << 9) };
+    let base = VirtAddr::new(base.data() << 9);
 
     for (i, entry) in pt.entries.iter().enumerate().filter(|(_, e)| e.is_valid()) {
         let vaddr = base + i;
 
         if entry.is_leaf() {
-            // SAFETY: we are traversing a valid page table, VAs are correct by design
-            let virt =
-                unsafe { VirtAddr::new_unchecked(vaddr.data() << (9 * level) << PAGE_SHIFT) };
+            let virt = VirtAddr::new(vaddr.data() << (9 * level) << PAGE_SHIFT);
             let phys = PhysAddr::from_ppn(entry.get_ppn());
             let size = PageSize::from_table_level(level).unwrap().size();
             let flags = entry.flags();

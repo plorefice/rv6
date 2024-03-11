@@ -41,7 +41,8 @@ link()
 	objects=()
 	for obj in "${@}"; do [[ "$obj" != '' ]] && objects+=("$obj"); done
 
-	${LD} ${strip_debug#-Wl,} -o "${output}" -T "${LDSCRIPT}" --whole-archive "${RV6_LIBS[@]}" --no-whole-archive "${objects[@]}"
+	${LD} ${strip_debug#-Wl,} -o "${output}" -Map="${output}".map -T "${LDSCRIPT}" \
+		--whole-archive "${RV6_LIBS[@]}" --no-whole-archive "${objects[@]}"
 }
 
 # Create ${2} .S file with all symbols from the ${1} object file
