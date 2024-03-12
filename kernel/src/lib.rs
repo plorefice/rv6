@@ -16,6 +16,8 @@
 
 use alloc::{boxed::Box, string::String};
 
+use crate::arch::instructions::wfi;
+
 #[macro_use]
 extern crate alloc;
 
@@ -65,6 +67,8 @@ pub extern "C" fn kmain() -> ! {
     kprintln!("     Box: {:?}", Box::new(Some(42)));
     kprintln!();
 
-    #[allow(clippy::empty_loop)]
-    loop {}
+    loop {
+        wfi();
+        kprintln!("Main task awoke!");
+    }
 }
