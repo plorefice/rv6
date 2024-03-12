@@ -7,7 +7,6 @@
 /* NOTE: must be kept in sync with head.S */
 LOAD_OFFSET = 0xffffffc000200000;
 PAGE_ALIGN = (1 << 12);
-SECTION_ALIGN = (1 << 21);
 
 OUTPUT_ARCH("riscv")
 ENTRY(_start)
@@ -27,28 +26,28 @@ SECTIONS
     *(.init.text .init.text.*)
   }
 
-  . = ALIGN(SECTION_ALIGN);
+  . = ALIGN(PAGE_ALIGN);
   .text : {
     _stext = .;
     *(.text .text.*)
     _etext = .;
   }
 
-  . = ALIGN(SECTION_ALIGN);
+  . = ALIGN(PAGE_ALIGN);
   _srodata = .;
 
   .rodata : AT(ADDR(.rodata) - LOAD_OFFSET) {
     *(.rodata .rodata.*)
   }
 
-  . = ALIGN(SECTION_ALIGN);
+  . = ALIGN(PAGE_ALIGN);
   .srodata : {
     *(.rodata .rodata.*)
   }
 
   _erodata = .;
 
-  . = ALIGN(SECTION_ALIGN);
+  . = ALIGN(PAGE_ALIGN);
   _sdata = .;
 
   .data : AT(ADDR(.data) - LOAD_OFFSET) {
