@@ -12,12 +12,12 @@
 //! Freeing a page in a bitmap allocator has `O(1)` complexity, but allocation is more expensive
 //! (`O(n)`) since we need to find a large-enough chunk of free pages.
 
-use core::{mem::size_of, slice};
+use core::{mem::size_of, ptr, slice};
 
 use bitflags::bitflags;
 
 use crate::mm::{
-    allocator::{AllocatorError, FrameAllocator},
+    allocator::{AllocatorError, Frame, FrameAllocator},
     PhysicalAddress,
 };
 
@@ -104,7 +104,7 @@ impl<A, const N: u64> FrameAllocator<A, N> for BitmapAllocator<A, N>
 where
     A: PhysicalAddress<u64>,
 {
-    unsafe fn alloc(&mut self, count: usize) -> Option<A> {
+    unsafe fn alloc(&mut self, count: usize) -> Option<Frame<A>> {
         let mut i: usize = 0;
 
         'outer: while i < self.num_pages as usize {
@@ -142,7 +142,10 @@ where
                 };
             }
 
-            return Some(self.base_addr + i as u64 * N);
+            return Some(Frame {
+                paddr: self.base_addr + i as u64 * N,
+                ptr: ptr::null_mut(),
+            });
         }
 
         None

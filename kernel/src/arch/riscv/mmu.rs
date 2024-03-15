@@ -2,6 +2,7 @@
 
 use core::{
     fmt,
+    ops::Range,
     slice::{Iter, IterMut},
 };
 
@@ -9,6 +10,7 @@ use bitflags::bitflags;
 
 use crate::{
     arch::{
+        mm::pa_to_va,
         riscv::addr::{PAGE_SHIFT, PAGE_SIZE},
         PhysAddr, VirtAddr,
     },
@@ -291,7 +293,7 @@ impl PageSize {
     }
 
     /// Returns the number of bytes contained in a page of this size.
-    pub fn size(self) -> u64 {
+    pub const fn size(self) -> u64 {
         match self {
             PageSize::Kb => 0x1000,
             PageSize::Mb => 0x200000,
@@ -311,27 +313,24 @@ pub enum MapError {
     AllocationFailed,
 }
 
-/// A memory mapper that requires that the whole physical address space is mapped at some offset
-/// in the virtual address space.
+/// A simple memory mapper.
 #[derive(Debug)]
-pub struct OffsetPageMapper<'a> {
+pub struct PageTableWalker<'a> {
     rpt: &'a mut PageTable,
-    phys_offset: VirtAddr,
 }
 
-impl<'a> OffsetPageMapper<'a> {
-    /// Creates a new mapper that uses the given offset to translate physical to virtual addresses.
-    ///
-    /// The complete physical memory must be mapped in the virtual address space starting at
-    /// `phys_offset`. This is required because the mapper must access page tables, which are not
-    /// mapped to virtual memory by default.
+impl<'a> PageTableWalker<'a> {
+    /// Creates a new page mapper.
     ///
     /// # Safety
     ///
-    /// The caller must guarantee that `rpt` points to a valid root page table, and all physical
-    /// memory has been mapped at `phys_offset`.
-    pub unsafe fn new(rpt: &'a mut PageTable, phys_offset: VirtAddr) -> Self {
-        Self { rpt, phys_offset }
+    /// It is assumed that a physical-to-virtual address translation is possible for all physical
+    /// memory addresses using the [`pa_to_va`] function. This is required because the mapper must
+    /// access page tables, which are not mapped to virtual memory by default.
+    ///
+    /// The caller must also guarantee that `rpt` points to a valid root page table.
+    pub unsafe fn new(rpt: &'a mut PageTable) -> Self {
+        Self { rpt }
     }
 
     /// Maps a memory page of size `page_size` using the provided root page table.
@@ -369,8 +368,8 @@ impl<'a> OffsetPageMapper<'a> {
             // Traverse page table entry to the next level, or allocate a new level of page table
             let table_paddr = if !pte.is_valid() {
                 // SAFETY: PageTable fits in a single 4k page
-                let new_table_addr =
-                    unsafe { allocator.alloc(1).ok_or(MapError::AllocationFailed)? };
+                let frame = unsafe { allocator.alloc(1).ok_or(MapError::AllocationFailed)? };
+                let new_table_addr = frame.paddr;
 
                 pte.clear();
                 pte.set_flags(EntryFlags::VALID);
@@ -379,9 +378,7 @@ impl<'a> OffsetPageMapper<'a> {
                 // Initialize the newly allocated page table
                 // SAFETY: new_table_addr points to valid writable memory
                 unsafe {
-                    self.phys_to_virt(new_table_addr)
-                        .as_mut_ptr::<PageTable>()
-                        .write(PageTable::default());
+                    (frame.ptr as *mut PageTable).write(PageTable::default());
                 }
 
                 new_table_addr
@@ -390,7 +387,7 @@ impl<'a> OffsetPageMapper<'a> {
             };
 
             // SAFETY: the resulting pointer points to properly initialized memory
-            let table = unsafe { &mut *self.phys_to_virt(table_paddr).as_mut_ptr::<PageTable>() };
+            let table = unsafe { &mut *pa_to_va(table_paddr).as_mut_ptr::<PageTable>() };
 
             pte = table.get_entry_mut(vpn[i]).unwrap();
         }
@@ -406,6 +403,44 @@ impl<'a> OffsetPageMapper<'a> {
         // Fill in leaf PTE
         pte.set_flags(flags);
         pte.set_ppn(paddr.page_index());
+
+        Ok(())
+    }
+
+    /// Maps a range of addresses to pages of size `page_size` starting at `vaddr`.
+    /// See also [`Self::map`].
+    ///
+    /// # Safety
+    ///
+    /// See [`Self::map`] for safety consideration.
+    pub unsafe fn map_range(
+        &mut self,
+        vaddr: VirtAddr,
+        phys: Range<PhysAddr>,
+        page_size: PageSize,
+        flags: EntryFlags,
+        allocator: &mut impl FrameAllocator<PhysAddr, PAGE_SIZE>,
+    ) -> Result<(), MapError> {
+        let start = phys.start;
+        let end = phys.end;
+
+        let sz = (end - start).data();
+        let n_pages = sz.div_ceil(page_size.size());
+
+        for i in 0..n_pages {
+            let offset = i * page_size.size();
+
+            // SAFETY: assuming caller has upheld the safety contract
+            unsafe {
+                self.map(
+                    vaddr + offset as usize,
+                    start + offset,
+                    page_size,
+                    flags,
+                    allocator,
+                )?;
+            }
+        }
 
         Ok(())
     }
@@ -444,14 +479,6 @@ impl<'a> OffsetPageMapper<'a> {
         }
 
         Ok(())
-    }
-
-    /// Translates a physical address into the corresponding virtual address.
-    ///
-    /// Since this mapper assumes that all physical memory is mapped to the virtual address space,
-    /// this operation is trivial and will always succeed.
-    pub fn phys_to_virt(&self, paddr: PhysAddr) -> VirtAddr {
-        VirtAddr::new(paddr.data() as usize) + self.phys_offset
     }
 
     /// Returns the physical address mapped to the specified virtual address, or `None` if the
@@ -493,11 +520,7 @@ impl<'a> OffsetPageMapper<'a> {
             }
 
             // SAFETY: if this PTE is valid then the PPN points to valid memory
-            table = unsafe {
-                &*self
-                    .phys_to_virt(PhysAddr::from_ppn(pte.get_ppn()))
-                    .as_ptr::<PageTable>()
-            };
+            table = unsafe { &*pa_to_va(PhysAddr::from_ppn(pte.get_ppn())).as_ptr::<PageTable>() };
         }
 
         None
@@ -548,7 +571,10 @@ fn _dump_page_table(
 
             // Check if this mapping can be merged with the current chunk...
             if let Some(ref mut mapping) = mapping {
-                if virt == mapping.virt + mapping.size as usize && mapping.flags == flags {
+                if virt == mapping.virt + mapping.size as usize
+                    && phys == mapping.phys + mapping.size
+                    && mapping.flags == flags
+                {
                     mapping.size += size;
                     continue; // ... if so, accrue its size and keep iterating over this table ...
                 }
@@ -564,9 +590,12 @@ fn _dump_page_table(
                 flags,
             });
         } else {
-            // SAFETY: PTE is valid, so the PPN must contain a valid pointer
-            let inner =
-                unsafe { &*(PhysAddr::from_ppn(entry.get_ppn()).data() as *const PageTable) };
+            // SAFETY: we are traversing a page table, so we assume that the corresponding virtual
+            //         memory has been properly mapped
+            let inner = unsafe { pa_to_va(PhysAddr::from_ppn(entry.get_ppn())) };
+
+            // SAFETY: non-leaf PTEs point to other page tables
+            let inner = unsafe { &*inner.as_mut_ptr::<PageTable>() };
 
             assert!(level > 0);
             mapping = _dump_page_table(inner, vaddr, level - 1, mapping);

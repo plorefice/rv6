@@ -5,7 +5,7 @@
  */
 
 /* NOTE: must be kept in sync with head.S */
-LOAD_OFFSET = 0xffffffc000200000;
+LOAD_OFFSET = 0xffffffff80000000;
 PAGE_ALIGN = (1 << 12);
 
 OUTPUT_ARCH("riscv")

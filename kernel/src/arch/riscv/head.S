@@ -3,7 +3,7 @@
  */
 
 /* NOTE: must be kept in sync with linker script */
-#define LOAD_OFFSET 0xffffffc000200000
+#define LOAD_OFFSET 0xffffffff80000000
 #define PAGE_SHIFT 12
 
 #define SATP_MODE (0x8000000000000000) /* Sv39 */

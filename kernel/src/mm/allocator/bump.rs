@@ -5,6 +5,11 @@ use core::{
 
 use spin::Mutex;
 
+use crate::{
+    arch::{mm::pa_to_va, PhysAddr},
+    mm::allocator::{Frame, FrameAllocator},
+};
+
 /// A simple bump allocator.
 ///
 /// A bump allocator behaves as a stack that can only grow. At each allocation, a new chunk
@@ -74,4 +79,58 @@ unsafe impl GlobalAlloc for BumpAllocator {
             bump.ptr = bump.end;
         }
     }
+}
+
+/// A bump allocator for physical memory. Deallocation is not supported.
+pub struct BumpFrameAllocator<const N: u64> {
+    inner: BumpImpl,
+}
+
+impl<const N: u64> BumpFrameAllocator<N> {
+    /// Creates a new bump allocator.
+    ///
+    /// # Safety
+    ///
+    /// `start` and `end` must be contained in a valid allocatable memory region. In particular,
+    /// the region within must be covered by `pa_to_va`.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `start > end`.
+    pub unsafe fn new(start: PhysAddr, end: PhysAddr) -> Self {
+        assert!(start <= end);
+        Self {
+            inner: BumpImpl {
+                start: start.data() as usize,
+                end: end.data() as usize,
+                ptr: start.data() as usize,
+                allocated: 0,
+            },
+        }
+    }
+}
+
+impl<const N: u64> FrameAllocator<PhysAddr, N> for BumpFrameAllocator<N> {
+    unsafe fn alloc(&mut self, count: usize) -> Option<Frame<PhysAddr>> {
+        let bump = &mut self.inner;
+
+        let next = bump.ptr.checked_add(count * N as usize)?;
+        if next > bump.end {
+            return None;
+        }
+
+        let paddr = PhysAddr::new(bump.ptr as u64);
+        let frame = Frame {
+            // SAFETY: safe as long as Self::new was called with physical addresses
+            ptr: unsafe { pa_to_va(paddr).as_mut_ptr() },
+            paddr,
+        };
+
+        bump.ptr = next;
+        bump.allocated += count;
+
+        Some(frame)
+    }
+
+    unsafe fn free(&mut self, _address: PhysAddr) {}
 }

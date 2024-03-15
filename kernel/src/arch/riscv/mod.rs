@@ -11,7 +11,7 @@ pub use addr::{PhysAddr, VirtAddr};
 pub mod addr;
 pub mod entry;
 pub mod instructions;
-pub mod memory;
+pub mod mm;
 pub mod mmu;
 pub mod registers;
 pub mod sbi;

@@ -18,6 +18,7 @@ pub trait AddressOps<U>:
     + Sub<Output = Self>
     + Add<U, Output = Self>
     + Sub<U, Output = Self>
+    + PartialOrd
     + Sized
 {
 }
@@ -36,4 +37,25 @@ pub trait Align<U> {
 
     /// Checks whether the address has the specified alignment.
     fn is_aligned(&self, align: U) -> bool;
+}
+
+impl PhysicalAddress<u64> for u64 {}
+
+impl AddressOps<u64> for u64 {}
+
+impl Align<u64> for u64 {
+    fn align_up(&self, align: u64) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        (*self + align - 1) & !(align - 1)
+    }
+
+    fn align_down(&self, align: u64) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        *self & !(align - 1)
+    }
+
+    fn is_aligned(&self, align: u64) -> bool {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        (*self & (align - 1)) == 0
+    }
 }

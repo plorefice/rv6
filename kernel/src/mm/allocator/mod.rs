@@ -3,7 +3,7 @@
 use crate::mm::PhysicalAddress;
 
 pub use bitmap::BitmapAllocator;
-pub use bump::BumpAllocator;
+pub use bump::{BumpAllocator, BumpFrameAllocator};
 
 mod bitmap;
 mod bump;
@@ -17,6 +17,15 @@ pub enum AllocatorError {
     InvalidPageSize,
 }
 
+/// A physical memory frame allocated using a [`FrameAllocator`].
+#[derive(Debug)]
+pub struct Frame<A> {
+    /// The physical address of the frame.
+    pub paddr: A,
+    /// The virtual address of the frame.
+    pub ptr: *mut (),
+}
+
 /// A trait for page-grained memory allocators.
 pub trait FrameAllocator<A, const N: u64>
 where
@@ -28,7 +37,7 @@ where
     /// # Safety
     ///
     /// Low-level memory twiddling doesn't provide safety guarantees.
-    unsafe fn alloc(&mut self, count: usize) -> Option<A>;
+    unsafe fn alloc(&mut self, count: usize) -> Option<Frame<A>>;
 
     /// Releases the allocated memory starting at the specified address back to the kernel.
     ///
