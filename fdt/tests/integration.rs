@@ -106,3 +106,16 @@ fn stringlist_prop() {
     assert_eq!(test_compatible_prop.next(), Some("syscon"));
     assert_eq!(test_compatible_prop.next(), None);
 }
+
+#[test]
+fn find_compatible() {
+    let fdt = Fdt::from_bytes(include_bytes!("data/qemu-riscv.dtb")).unwrap();
+
+    assert_eq!(
+        fdt.find_compatible("sifive,test0")
+            .unwrap()
+            .unwrap()
+            .identifier(),
+        "test@100000"
+    );
+}

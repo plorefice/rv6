@@ -73,6 +73,19 @@ impl<'d> Fdt<'d> {
         Ok(Some(node))
     }
 
+    pub fn find_compatible<'fdt>(
+        &'fdt self,
+        compatbile: &str,
+    ) -> Result<Option<Node<'d, 'fdt>>, FdtParseError> {
+        self.find(|n| {
+            matches!(
+                n.property::<StringList>("compatible")
+                    .map(|mut c| c.any(|c| c == compatbile)),
+                Some(true)
+            )
+        })
+    }
+
     pub fn find<'fdt, F>(&'fdt self, f: F) -> Result<Option<Node<'d, 'fdt>>, FdtParseError>
     where
         F: Fn(&Node<'d, 'fdt>) -> bool + Copy,
