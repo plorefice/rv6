@@ -26,6 +26,21 @@ impl<'d> Fdt<'d> {
         Ok(Self { hdr, data: fdt })
     }
 
+    /// # Safety
+    ///
+    /// `fdt` must point to valid FDT data, in particular this function will use the `totalsize`
+    /// field of the FDT header to retrieve the blob length. Moreover, the data must remain valid
+    /// and not mutated for the duration of lifetime `'d`.
+    pub unsafe fn from_raw_ptr(fdt: *const u8) -> Result<Self, FdtParseError<'d>> {
+        let size = (fdt as *const u32).offset(1).read().to_be() as usize;
+        let data = core::slice::from_raw_parts(fdt, size);
+        Self::from_bytes(data)
+    }
+
+    pub fn size(&self) -> u32 {
+        self.hdr.totalsize
+    }
+
     pub fn boot_cpuid(&self) -> u32 {
         self.hdr.boot_cpuid_phys
     }

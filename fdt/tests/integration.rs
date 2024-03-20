@@ -119,3 +119,11 @@ fn find_compatible() {
         "test@100000"
     );
 }
+
+#[test]
+fn from_raw_bytes() {
+    let data = include_bytes!("data/qemu-riscv.dtb");
+
+    let fdt = unsafe { Fdt::from_raw_ptr(data.as_ptr()) }.unwrap();
+    assert_eq!(fdt.size() as usize, data.len());
+}
