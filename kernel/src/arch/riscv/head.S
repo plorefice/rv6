@@ -130,6 +130,7 @@ clear_bss_done:
     addi s0, sp, 16
 
     /* Relocate to virtual address and save VA of root page table */
+    mv a0, s1
     call setup_early_vm
     call relocate
     mv s2, a0

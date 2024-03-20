@@ -2,14 +2,27 @@
 
 use core::ptr::addr_of_mut;
 
+use fdt::{Fdt, PropEncodedArray};
+
 use crate::{
     arch::{
-        mm::{LOAD_OFFSET, PHYS_MEM_OFFSET, PHYS_MEM_SIZE, PHYS_TO_VIRT_OFFSET},
+        mm::{LOAD_OFFSET, PHYS_TO_VIRT_OFFSET},
         mmu::{EntryFlags, PageSize, PageTable},
         PhysAddr, VirtAddr,
     },
     mm::Align,
 };
+
+// Apparently if I perform this conversion to raw pointer and back into a string, it uses
+// relative addressing for the string literal :dunno:
+macro_rules! early_str {
+    ($s:literal) => {{
+        // SAFETY: we are just converting a string literal back into a &str
+        unsafe {
+            core::str::from_utf8_unchecked(core::slice::from_raw_parts($s.as_ptr(), $s.len()))
+        }
+    }};
+}
 
 /// Sets up early virtual memory mappings in order to relocate in startup code.
 ///
@@ -28,7 +41,7 @@ use crate::{
 /// Moreover, at this point no frame allocator has been setup yet, so we use a few statically
 /// allocated frames to perform the mappings.
 #[no_mangle]
-unsafe extern "C" fn setup_early_vm() -> u64 {
+unsafe extern "C" fn setup_early_vm(fdt_ptr: *const u8) -> u64 {
     extern "C" {
         fn _start();
         fn _end();
@@ -37,12 +50,25 @@ unsafe extern "C" fn setup_early_vm() -> u64 {
     // Use 2 MiB pages, since huge pages do not typically meet alignment requirements
     const MAPPING_SIZE: PageSize = PageSize::Mb;
 
+    // Parse FDT for memory region information
+    // SAFETY: assuming the pointer is valid since it is passed from the previous stage
+    let fdt = unsafe { Fdt::from_raw_ptr(fdt_ptr) }.unwrap();
+
+    let mem_node = fdt
+        .find(|n| n.name() == early_str!("memory"))
+        .unwrap()
+        .unwrap();
+
+    let (phys_mem_offset, phys_mem_size) = mem_node
+        .property::<PropEncodedArray<(u64, u64)>>(early_str!("reg"))
+        .unwrap()
+        .next()
+        .unwrap();
+
     // Build a page table allocator using the bottom of the physical memory.
     // SAFETY: the bottom of the physical memory is unused
     let mut l1_page_allocator = unsafe {
-        EarlyPageTableAllocator::<128>::new(
-            (PHYS_MEM_OFFSET + PHYS_MEM_SIZE).data() as *mut PageTable
-        )
+        EarlyPageTableAllocator::<128>::new((phys_mem_offset + phys_mem_size) as *mut PageTable)
     };
 
     // Statically allocate a root PTE.
@@ -83,7 +109,11 @@ unsafe extern "C" fn setup_early_vm() -> u64 {
 
     // Temporarily map the physical memory as well, so that we can finish setup a frame allocator
     // later on and replace these early mappings
-    early_map_range(PHYS_MEM_OFFSET, PHYS_TO_VIRT_OFFSET, PHYS_MEM_SIZE);
+    early_map_range(
+        PhysAddr::new(phys_mem_offset),
+        PHYS_TO_VIRT_OFFSET,
+        phys_mem_size,
+    );
 
     kernel_rpt as *const _ as u64
 }
