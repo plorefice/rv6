@@ -10,14 +10,13 @@ use nom::{
     IResult,
 };
 
-#[derive(Clone)]
-pub struct Fdt<'a> {
+pub struct Fdt<'d> {
     hdr: Header,
-    data: &'a [u8],
+    data: &'d [u8],
 }
 
-impl<'a> Fdt<'a> {
-    pub fn from_bytes(fdt: &'a [u8]) -> Result<Self, FdtParseError> {
+impl<'d> Fdt<'d> {
+    pub fn from_bytes(fdt: &'d [u8]) -> Result<Self, FdtParseError> {
         let hdr = Header::from_bytes(fdt)?;
 
         if hdr.totalsize as usize != fdt.len() {
@@ -41,15 +40,20 @@ impl<'a> Fdt<'a> {
             })
     }
 
-    pub fn root_node(&'a self) -> Result<Node<'a>, FdtParseError> {
+    pub fn root_node<'fdt>(&'fdt self) -> Result<Node<'d, 'fdt>, FdtParseError> {
         Node::from_bytes(
             self,
+            0,
+            None,
             &self.data[self.hdr.off_dt_struct as usize
                 ..(self.hdr.off_dt_struct + self.hdr.size_dt_struct) as usize],
         )
     }
 
-    pub fn find_by_path(&'a self, path: &str) -> Result<Option<Node<'a>>, FdtParseError> {
+    pub fn find_by_path<'fdt>(
+        &'fdt self,
+        path: &str,
+    ) -> Result<Option<Node<'d, 'fdt>>, FdtParseError> {
         let root = self.root_node()?;
 
         if path.is_empty() || path == "/" {
@@ -69,7 +73,14 @@ impl<'a> Fdt<'a> {
         Ok(Some(node))
     }
 
-    fn get_string(&self, off: u32) -> Option<&'a str> {
+    pub fn find<'fdt, F>(&'fdt self, f: F) -> Result<Option<Node<'d, 'fdt>>, FdtParseError>
+    where
+        F: Fn(&Node<'d, 'fdt>) -> bool + Copy,
+    {
+        self.root_node()?.find(f)
+    }
+
+    fn get_string(&self, off: u32) -> Option<&'d str> {
         let start = self.hdr.off_dt_strings + off;
         let len = self.data[start as usize..].iter().position(|&b| b == 0)?;
 
@@ -161,16 +172,26 @@ impl ReserveEntry {
 }
 
 #[derive(Clone)]
-pub struct Node<'a> {
+pub struct Node<'d, 'fdt> {
+    fdt: &'fdt Fdt<'d>,
+    off: usize,
     span: usize,
-    name: &'a str,
-    props: PropertyIter<'a>,
-    children: NodeIter<'a>,
+    name: &'d str,
+    props: PropertyIter<'d, 'fdt>,
+    children: NodeIter<'d, 'fdt>,
+    parent_off: Option<usize>,
 }
 
-impl<'a> Node<'a> {
-    fn from_bytes(fdt: &'a Fdt<'a>, s: &'a [u8]) -> Result<Self, FdtParseError<'a>> {
-        Ok(Node::parse(fdt, s).map_err(FdtParseError::ParseError)?.1)
+impl<'d, 'fdt> Node<'d, 'fdt> {
+    fn from_bytes(
+        fdt: &'fdt Fdt<'d>,
+        off: usize,
+        parent_off: Option<usize>,
+        s: &'d [u8],
+    ) -> Result<Self, FdtParseError<'d>> {
+        Ok(Node::parse(fdt, off, parent_off, s)
+            .map_err(FdtParseError::ParseError)?
+            .1)
     }
 
     pub fn identifier(&self) -> &str {
@@ -188,28 +209,55 @@ impl<'a> Node<'a> {
         self.name.split_once('@').map(|(_, addr)| addr)
     }
 
-    pub fn properties(&self) -> impl Iterator<Item = Property<'a>> {
+    pub fn properties(&self) -> impl Iterator<Item = Property<'d>> + 'fdt {
         self.props.clone()
     }
 
-    pub fn property<T: 'a>(&self, name: &str) -> Option<T>
+    pub fn property<T: 'd>(&self, name: &str) -> Option<T>
     where
-        T: PropValue<'a>,
+        T: PropValue<'d>,
     {
         self.properties()
             .find(|p| p.name() == Some(name))
             .and_then(|p| p.value())
     }
 
-    pub fn children(&self) -> impl Iterator<Item = Node<'a>> {
+    pub fn children(&self) -> impl Iterator<Item = Node<'d, 'fdt>> {
         self.children.clone()
+    }
+
+    pub fn parent(&self) -> Option<Node<'d, 'fdt>> {
+        let parent_off = self.parent_off?;
+        self.fdt.find(|n| n.off == parent_off).ok().flatten()
+    }
+
+    fn find<F>(&self, f: F) -> Result<Option<Node<'d, 'fdt>>, FdtParseError<'d>>
+    where
+        F: Fn(&Node<'d, 'fdt>) -> bool + Copy,
+    {
+        if f(self) {
+            return Ok(Some(self.clone()));
+        }
+
+        for child in self.children() {
+            if let Some(n) = child.find(f)? {
+                return Ok(Some(n));
+            }
+        }
+
+        Ok(None)
     }
 
     fn span(&self) -> usize {
         self.span
     }
 
-    fn parse(fdt: &'a Fdt<'a>, input: &'a [u8]) -> IResult<&'a [u8], Self> {
+    fn parse(
+        fdt: &'fdt Fdt<'d>,
+        off: usize,
+        parent_off: Option<usize>,
+        input: &'d [u8],
+    ) -> IResult<&'d [u8], Self> {
         let start = input;
 
         // Skip FDT_NOP tokens
@@ -232,7 +280,7 @@ impl<'a> Node<'a> {
         let (input, _) = take(props.clone().span())(input)?;
 
         // Children
-        let children = NodeIter::new(fdt, input);
+        let children = NodeIter::new(fdt, off + start.len() - input.len(), off, input);
         let (input, _) = take(children.clone().span())(input)?;
 
         // Skip FDT_NOP tokens
@@ -246,32 +294,38 @@ impl<'a> Node<'a> {
         Ok((
             input,
             Self {
+                fdt,
+                off,
                 span,
                 name,
                 props,
                 children,
+                parent_off,
             },
         ))
     }
 }
 
-impl<'a> fmt::Debug for Node<'a> {
+impl<'d> fmt::Debug for Node<'d, '_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Node")
+            .field("id", &self.off)
+            .field("offset", &self.off)
             .field("span", &self.span)
             .field("name", &self.name)
+            .field("parent", &self.parent_off)
             .finish()
     }
 }
 
 #[derive(Clone)]
-pub struct PropertyIter<'a> {
-    fdt: &'a Fdt<'a>,
-    data: &'a [u8],
+pub struct PropertyIter<'d, 'fdt> {
+    fdt: &'fdt Fdt<'d>,
+    data: &'d [u8],
 }
 
-impl<'a> PropertyIter<'a> {
-    fn new(fdt: &'a Fdt<'a>, data: &'a [u8]) -> Self {
+impl<'d, 'fdt> PropertyIter<'d, 'fdt> {
+    fn new(fdt: &'fdt Fdt<'d>, data: &'d [u8]) -> Self {
         Self { fdt, data }
     }
 
@@ -280,8 +334,8 @@ impl<'a> PropertyIter<'a> {
     }
 }
 
-impl<'a> Iterator for PropertyIter<'a> {
-    type Item = Property<'a>;
+impl<'d> Iterator for PropertyIter<'d, '_> {
+    type Item = Property<'d>;
 
     fn next(&mut self) -> Option<Self::Item> {
         let (data, prop) = Property::parse(self.fdt, self.data).ok()?;
@@ -291,24 +345,24 @@ impl<'a> Iterator for PropertyIter<'a> {
 }
 
 #[derive(Debug, Clone)]
-pub struct Property<'a> {
+pub struct Property<'d> {
     span: usize,
-    name: Option<&'a str>,
-    data: &'a [u8],
+    name: Option<&'d str>,
+    data: &'d [u8],
 }
 
-impl<'a> Property<'a> {
-    pub fn name(&self) -> Option<&'a str> {
+impl<'d> Property<'d> {
+    pub fn name(&self) -> Option<&'d str> {
         self.name
     }
 
-    pub fn raw_value(&self) -> &'a [u8] {
+    pub fn raw_value(&self) -> &'d [u8] {
         self.data
     }
 
     pub fn value<T>(&self) -> Option<T>
     where
-        T: PropValue<'a> + 'a,
+        T: PropValue<'d> + 'd,
     {
         T::parse(self.data).map(|(_, t)| t)
     }
@@ -317,7 +371,7 @@ impl<'a> Property<'a> {
         self.span
     }
 
-    fn parse(fdt: &'a Fdt<'a>, input: &'a [u8]) -> IResult<&'a [u8], Self> {
+    fn parse<'fdt>(fdt: &'fdt Fdt<'d>, input: &'d [u8]) -> IResult<&'d [u8], Self> {
         let start = input;
 
         // Skip FDT_NOP tokens
@@ -350,14 +404,21 @@ impl<'a> Property<'a> {
 }
 
 #[derive(Clone)]
-struct NodeIter<'a> {
-    fdt: &'a Fdt<'a>,
-    data: &'a [u8],
+struct NodeIter<'d, 'fdt> {
+    fdt: &'fdt Fdt<'d>,
+    data: &'d [u8],
+    offset: usize,
+    parent_off: usize,
 }
 
-impl<'a> NodeIter<'a> {
-    fn new(fdt: &'a Fdt<'a>, data: &'a [u8]) -> Self {
-        Self { fdt, data }
+impl<'d, 'fdt> NodeIter<'d, 'fdt> {
+    fn new(fdt: &'fdt Fdt<'d>, offset: usize, parent_off: usize, data: &'d [u8]) -> Self {
+        Self {
+            fdt,
+            data,
+            offset,
+            parent_off,
+        }
     }
 
     fn span(self) -> usize {
@@ -365,27 +426,29 @@ impl<'a> NodeIter<'a> {
     }
 }
 
-impl<'a> Iterator for NodeIter<'a> {
-    type Item = Node<'a>;
+impl<'d, 'fdt> Iterator for NodeIter<'d, 'fdt> {
+    type Item = Node<'d, 'fdt>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let (data, node) = Node::parse(self.fdt, self.data).ok()?;
-        self.data = data;
+        let (rest, node) =
+            Node::parse(self.fdt, self.offset, Some(self.parent_off), self.data).ok()?;
+        self.offset += self.data.len() - rest.len();
+        self.data = rest;
         Some(node)
     }
 }
 
-pub struct PropEncodedArray<'v, T>
+pub struct PropEncodedArray<'d, T>
 where
-    T: PropValue<'v>,
+    T: PropValue<'d>,
 {
-    data: &'v [u8],
+    data: &'d [u8],
     _marker: core::marker::PhantomData<T>,
 }
 
-impl<'v, T: 'v> Iterator for PropEncodedArray<'v, T>
+impl<'d, T: 'd> Iterator for PropEncodedArray<'d, T>
 where
-    T: PropValue<'v>,
+    T: PropValue<'d>,
 {
     type Item = T;
 
@@ -396,12 +459,12 @@ where
     }
 }
 
-pub struct StringList<'v> {
-    data: &'v [u8],
+pub struct StringList<'d> {
+    data: &'d [u8],
 }
 
-impl<'v> Iterator for StringList<'v> {
-    type Item = &'v str;
+impl<'d> Iterator for StringList<'d> {
+    type Item = &'d str;
 
     fn next(&mut self) -> Option<Self::Item> {
         let (data, s) = Self::Item::parse(self.data)?;
@@ -410,10 +473,10 @@ impl<'v> Iterator for StringList<'v> {
     }
 }
 
-pub trait PropValue<'v>: Sized {
-    fn parse(data: &'v [u8]) -> Option<(&'v [u8], Self)>
+pub trait PropValue<'d>: Sized {
+    fn parse(data: &'d [u8]) -> Option<(&'d [u8], Self)>
     where
-        Self: 'v;
+        Self: 'd;
 }
 
 impl PropValue<'_> for u32 {
@@ -435,31 +498,31 @@ impl PropValue<'_> for u64 {
     }
 }
 
-impl<'v> PropValue<'v> for &'v str {
-    fn parse(data: &'v [u8]) -> Option<(&'v [u8], Self)> {
+impl<'d> PropValue<'d> for &'d str {
+    fn parse(data: &'d [u8]) -> Option<(&'d [u8], Self)> {
         let n = data.iter().position(|&b| b == 0)?;
         let (data, rest) = data.split_at(n);
         (&rest[1..], core::str::from_utf8(data).ok()?).into()
     }
 }
 
-impl<'v, T: 'v, U: 'v> PropValue<'v> for (T, U)
+impl<'d, T: 'd, U: 'd> PropValue<'d> for (T, U)
 where
-    T: PropValue<'v>,
-    U: PropValue<'v>,
+    T: PropValue<'d>,
+    U: PropValue<'d>,
 {
-    fn parse(data: &'v [u8]) -> Option<(&'v [u8], Self)> {
+    fn parse(data: &'d [u8]) -> Option<(&'d [u8], Self)> {
         let (data, t) = T::parse(data)?;
         let (data, u) = U::parse(data)?;
         (data, (t, u)).into()
     }
 }
 
-impl<'v, T: 'v> PropValue<'v> for PropEncodedArray<'v, T>
+impl<'d, T: 'd> PropValue<'d> for PropEncodedArray<'d, T>
 where
-    T: PropValue<'v>,
+    T: PropValue<'d>,
 {
-    fn parse(data: &'v [u8]) -> Option<(&'v [u8], Self)> {
+    fn parse(data: &'d [u8]) -> Option<(&'d [u8], Self)> {
         Some((
             &[], // prop-encoded-arrays consume all data
             PropEncodedArray {
@@ -470,8 +533,8 @@ where
     }
 }
 
-impl<'v> PropValue<'v> for StringList<'v> {
-    fn parse(data: &'v [u8]) -> Option<(&'v [u8], Self)> {
+impl<'d> PropValue<'d> for StringList<'d> {
+    fn parse(data: &'d [u8]) -> Option<(&'d [u8], Self)> {
         Some((
             &[], // string-lists consume all data
             StringList { data },

@@ -54,6 +54,25 @@ fn find_by_path() {
 }
 
 #[test]
+fn node_parent() {
+    let fdt = Fdt::from_bytes(include_bytes!("data/qemu-riscv.dtb")).unwrap();
+    assert!(fdt.root_node().unwrap().parent().is_none());
+
+    let n = fdt.find_by_path("/poweroff").unwrap().unwrap();
+    assert_eq!(n.parent().unwrap().name(), ""); // parent is root
+
+    let n = fdt
+        .find_by_path("/cpus/cpu@0/interrupt-controller")
+        .unwrap()
+        .unwrap();
+    assert_eq!(n.parent().unwrap().identifier(), "cpu@0");
+    assert_eq!(
+        n.parent().and_then(|p| p.parent()).unwrap().identifier(),
+        "cpus"
+    );
+}
+
+#[test]
 fn memory_nodes() {
     let fdt = Fdt::from_bytes(include_bytes!("data/qemu-riscv.dtb")).unwrap();
 
