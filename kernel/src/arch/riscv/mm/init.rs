@@ -24,6 +24,12 @@ macro_rules! early_str {
     }};
 }
 
+#[repr(C)]
+struct FfiPair {
+    a: u64,
+    b: *const u8,
+}
+
 /// Sets up early virtual memory mappings in order to relocate in startup code.
 ///
 /// This function will map the kernel text and data in the virtual address space at [`LOAD_OFFSET`],
@@ -41,7 +47,7 @@ macro_rules! early_str {
 /// Moreover, at this point no frame allocator has been setup yet, so we use a few statically
 /// allocated frames to perform the mappings.
 #[no_mangle]
-unsafe extern "C" fn setup_early_vm(fdt_ptr: *const u8) -> u64 {
+unsafe extern "C" fn setup_early_vm(fdt_ptr: *const u8) -> FfiPair {
     extern "C" {
         fn _start();
         fn _end();
@@ -115,7 +121,11 @@ unsafe extern "C" fn setup_early_vm(fdt_ptr: *const u8) -> u64 {
         phys_mem_size,
     );
 
-    kernel_rpt as *const _ as u64
+    FfiPair {
+        a: kernel_rpt as *const _ as u64,
+        // SAFETY: the above mapping makes this pointer valid
+        b: unsafe { fdt_ptr.add(PHYS_TO_VIRT_OFFSET.data() - phys_mem_offset as usize) },
+    }
 }
 
 unsafe fn create_l1_page_mapping<const N: usize>(

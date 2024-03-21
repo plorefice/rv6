@@ -1,5 +1,7 @@
 //! RISC-V specific memory management.
 
+use core::sync::atomic::{AtomicU64, Ordering};
+
 use crate::{
     arch::{
         instructions::sfence_vma,
@@ -15,18 +17,14 @@ use crate::{
         Align,
     },
 };
+use fdt::{Fdt, PropEncodedArray};
 use mmu::PageTableWalker;
 use spin::Mutex;
 
 mod init;
 
 /// Base address for the physical address space.
-/// TODO: this should be extracted from the device tree.
-pub const PHYS_MEM_OFFSET: PhysAddr = PhysAddr::new_truncated(0x8000_0000);
-
-/// Size of the physical memory in bytes
-/// TODO: this should be extracted from the device tree.
-const PHYS_MEM_SIZE: u64 = 32 * 1024 * 1024;
+pub static PHYS_MEM_OFFSET: AtomicU64 = AtomicU64::new(0);
 
 /// Virtual offset at which physical memory is mapped.
 pub const PHYS_TO_VIRT_OFFSET: VirtAddr = VirtAddr::new_truncated(0x20_0000_0000);
@@ -69,7 +67,7 @@ static HEAP: BumpAllocator = BumpAllocator::new(HEAP_MEM_OFFSET.data(), LOAD_OFF
 /// This function is called with MMU enabled after [`setup_early_vm`], so no physical addresses
 /// can be dereferenced or accessed here. `rpt_va` is the virtual address of the root page table
 /// set up during [`setup_early_vm`], and can be used to prepare an offset page mapper.
-pub fn setup_late(early_rpt: VirtAddr) {
+pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     // SAFETY: all these symbols are populated by the linker script
     let (
         kernel_start,
@@ -106,8 +104,20 @@ pub fn setup_late(early_rpt: VirtAddr) {
     let early_kernel_mapper =
         unsafe { PageTableWalker::new(&mut *(early_rpt.as_mut_ptr::<PageTable>())) };
 
+    // Extract memory map from the FDT
+    let mem_region = fdt.find(|n| n.name() == "memory").unwrap().unwrap();
+    let (mem_base, mem_size) = mem_region
+        .property::<PropEncodedArray<(u64, u64)>>("reg")
+        .unwrap()
+        .next()
+        .unwrap();
+
+    // Save the base address of the physical memory for quicker translations
+    PHYS_MEM_OFFSET.store(mem_base, Ordering::Relaxed);
+    let mem_base = PhysAddr::new(mem_base);
+
     // Set up a frame allocator for the unused physical memory
-    setup_frame_allocator(&early_kernel_mapper);
+    setup_frame_allocator(&early_kernel_mapper, mem_base, mem_size);
 
     // Now that we have a proper frame allocator, we can replace the early mappings with page
     // mappings that use properly tracked frames
@@ -145,7 +155,7 @@ pub fn setup_late(early_rpt: VirtAddr) {
         mapper
             .map_range(
                 PHYS_TO_VIRT_OFFSET,
-                PHYS_MEM_OFFSET..(PHYS_MEM_OFFSET + PHYS_MEM_SIZE),
+                mem_base..(mem_base + mem_size),
                 PageSize::Mb,
                 EntryFlags::KERNEL,
                 gfa,
@@ -190,13 +200,13 @@ pub fn setup_late(early_rpt: VirtAddr) {
     unsafe { mmu::dump_root_page_table(mapper.page_table()) };
 }
 
-fn setup_frame_allocator(ptw: &PageTableWalker) {
+fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: u64) {
     // SAFETY: populated by the linker script
     let kernel_end = unsafe { VirtAddr::new(&_end as *const _ as usize) };
 
     let virt_base = kernel_end.align_up(PAGE_SIZE as usize);
     let phys_base = ptw.virt_to_phys(virt_base).unwrap();
-    let phys_end = PHYS_MEM_OFFSET + PHYS_MEM_SIZE;
+    let phys_end = base + len;
 
     kprintln!("Available physical memory:");
     kprintln!("  [{phys_base:016x} - {phys_end:016x}]");
@@ -214,5 +224,5 @@ fn setup_frame_allocator(ptw: &PageTableWalker) {
 /// For performance reasons, no checks are performed on `pa`. It is assumed that the caller
 /// upholds the condition `phys_mem_start <= pa < phys_mem_end`.
 pub unsafe fn pa_to_va(pa: PhysAddr) -> VirtAddr {
-    PHYS_TO_VIRT_OFFSET + (pa - PHYS_MEM_OFFSET).data() as usize
+    PHYS_TO_VIRT_OFFSET + (pa - PHYS_MEM_OFFSET.load(Ordering::Relaxed)).data() as usize
 }

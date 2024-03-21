@@ -129,9 +129,12 @@ clear_bss_done:
     sd zero, 0(sp)
     addi s0, sp, 16
 
-    /* Relocate to virtual address and save VA of root page table */
+    /* Setup early mappings and save relocated FDT pointer */
     mv a0, s1
     call setup_early_vm
+    mv s1, a1
+
+    /* Relocate to virtual address and save VA of root page table */
     call relocate
     mv s2, a0
 

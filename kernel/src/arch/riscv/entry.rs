@@ -1,5 +1,7 @@
 //! RISC-V specific entry point.
 
+use fdt::Fdt;
+
 use crate::arch::VirtAddr;
 
 use super::{mm, sbi, time, trap};
@@ -13,11 +15,15 @@ use super::{mm, sbi, time, trap};
 /// Physical and virtual memory setup is performed here among other things, so a lot of stuff
 /// can go wrong.
 #[no_mangle]
-pub unsafe extern "C" fn arch_init(_dtb_pa: usize, kernel_rpt_va: usize) {
+pub unsafe extern "C" fn arch_init(fdt_data: *const u8, kernel_rpt_va: usize) {
+    // Parse the FDT
+    // SAFETY: `fdt_data` is a valid pointer to a valid FDT
+    let fdt = unsafe { Fdt::from_raw_ptr(fdt_data) }.unwrap();
+
     // Initialize core subsystems
     sbi::show_info();
     trap::init();
-    mm::setup_late(VirtAddr::new(kernel_rpt_va));
+    mm::setup_late(&fdt, VirtAddr::new(kernel_rpt_va));
 
     // Start ticking
     time::schedule_next_tick(time::CLINT_TIMEBASE);
