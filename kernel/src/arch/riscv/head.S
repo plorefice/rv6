@@ -148,4 +148,6 @@ clear_bss_done:
     mv a0, s1
     mv a1, s2
     call arch_init
+
+    mv a0, s1
     tail kmain

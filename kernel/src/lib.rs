@@ -15,6 +15,7 @@
 #![feature(linkage)]
 
 use alloc::{boxed::Box, string::String};
+use fdt::Fdt;
 
 use crate::arch::instructions::wfi;
 
@@ -56,8 +57,13 @@ ____________________________________/\\\\////__
 "#;
 
 /// Kernel entry point after arch-specific initialization.
+///
+/// # Safety
+///
+/// This function uses the raw pointer to the FDT passed from the entry code, and as such is
+/// unsafe.
 #[no_mangle]
-pub extern "C" fn kmain() -> ! {
+pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     kprintln!("{}", RV6_ASCII_LOGO);
 
     kprintln!();
@@ -66,6 +72,9 @@ pub extern "C" fn kmain() -> ! {
     kprintln!("     Vec: {:?}", vec![1, 2, 45, 12312]);
     kprintln!("     Box: {:?}", Box::new(Some(42)));
     kprintln!();
+
+    // SAFETY: assuming the caller has provided us with a valid FDT data pointer
+    let _fdt = unsafe { Fdt::from_raw_ptr(fdt_data) }.expect("invalid fdt data");
 
     loop {
         wfi();
