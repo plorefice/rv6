@@ -14,7 +14,7 @@ use crate::{
     },
     mm::{
         allocator::{BumpAllocator, BumpFrameAllocator, FrameAllocator},
-        Align,
+        Align, PhysicalAddress,
     },
 };
 use fdt::{Fdt, PropEncodedArray};
@@ -55,7 +55,7 @@ extern "C" {
     static _edata: usize;
 }
 
-static GFA: Mutex<Option<BumpFrameAllocator<PAGE_SIZE>>> = Mutex::new(None);
+static GFA: Mutex<Option<BumpFrameAllocator<PAGE_SIZE, PhysAddr>>> = Mutex::new(None);
 
 /// Global heap allocator.
 /// TODO: remove hard-coded constants.
@@ -223,6 +223,6 @@ fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: u64) {
 ///
 /// For performance reasons, no checks are performed on `pa`. It is assumed that the caller
 /// upholds the condition `phys_mem_start <= pa < phys_mem_end`.
-pub unsafe fn pa_to_va(pa: PhysAddr) -> VirtAddr {
-    PHYS_TO_VIRT_OFFSET + (pa - PHYS_MEM_OFFSET.load(Ordering::Relaxed)).data() as usize
+pub unsafe fn pa_to_va(pa: impl PhysicalAddress<u64>) -> VirtAddr {
+    PHYS_TO_VIRT_OFFSET + (pa.into() - PHYS_MEM_OFFSET.load(Ordering::Relaxed)) as usize
 }

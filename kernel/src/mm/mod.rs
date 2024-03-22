@@ -1,6 +1,9 @@
 //! Kernel memory management.
 
-use core::ops::{Add, Sub};
+use core::{
+    convert::TryFrom,
+    ops::{Add, Sub},
+};
 
 // Memory allocators for the kernel.
 pub mod allocator;
@@ -9,7 +12,7 @@ pub mod allocator;
 pub mod mmio;
 
 /// A physical memory address representable as an integer of type `U`.
-pub trait PhysicalAddress<U>: Copy + Clone + Into<U> + AddressOps<U> {}
+pub trait PhysicalAddress<U>: Copy + Clone + TryFrom<U> + Into<U> + AddressOps<U> {}
 
 /// Operations common to physical address implementations.
 pub trait AddressOps<U>:
