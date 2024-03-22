@@ -1,3 +1,5 @@
+//! Architecture-specific functions.
+
 /// RISC-V architecture.
 #[cfg(target_arch = "riscv64")]
 pub mod riscv;

@@ -22,27 +22,15 @@ use crate::arch::instructions::wfi;
 #[macro_use]
 extern crate alloc;
 
-/// Utility macros.
 #[macro_use]
-mod macros;
+pub mod macros;
 
-/// Architecture-specific functions.
 pub mod arch;
-
-/// Device and peripheral drivers.
-pub mod drivers;
-
-/// Access to kernel symbols for debugging.
-pub mod ksyms;
-
-/// Memory management facilities.
-pub mod mm;
-
-/// Panic support.
-pub mod panic;
-
-/// Per-target configuration.
 pub mod config;
+pub mod drivers;
+pub mod ksyms;
+pub mod mm;
+pub mod panic;
 
 const RV6_ASCII_LOGO: &str = r#"
 ________________________________________/\\\\\_

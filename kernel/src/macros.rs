@@ -1,3 +1,5 @@
+//! Utility macros.
+
 use core::fmt;
 
 /// Prints to the kernel console (UART0).

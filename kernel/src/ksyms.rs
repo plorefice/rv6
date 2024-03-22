@@ -1,3 +1,5 @@
+//! Access to kernel symbols for debugging.
+
 use core::{ptr, str};
 
 extern "C" {

@@ -1,3 +1,5 @@
+//! Per-target configuration.
+
 #![allow(unused)]
 #![allow(missing_docs)]
 

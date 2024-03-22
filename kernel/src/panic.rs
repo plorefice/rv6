@@ -1,3 +1,5 @@
+//! Panic support.
+
 use core::panic::PanicInfo;
 
 /// Implements the kernel's panic behavior.
