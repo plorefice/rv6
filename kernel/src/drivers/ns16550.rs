@@ -1,3 +1,5 @@
+//! Support for 16550 UART IC.
+
 use core::fmt::Write;
 
 use lazy_static::lazy_static;

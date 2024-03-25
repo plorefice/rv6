@@ -1,4 +1,6 @@
-use core::cell::UnsafeCell;
+use core::{cell::UnsafeCell, mem};
+
+use crate::{arch, mm::PhysicalAddress};
 
 /// Read-only register.
 #[repr(transparent)]
@@ -95,5 +97,40 @@ impl<T> VolatileCell<T> {
     {
         // SAFETY: same considerations as [`ptr::write_volatile`].
         unsafe { self.inner.get().write_volatile(val) }
+    }
+}
+
+/// A MMIO region mapped into virtual memory.
+pub struct Regmap {
+    base: *mut u8,
+    len: usize,
+}
+
+impl Regmap {
+    /// Maps a range of physical addresses into virtual memory.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that `base` is a valid MMIO address.
+    pub unsafe fn new<A: PhysicalAddress<u64>>(base: A, len: u64) -> Self {
+        // SAFETY: assuming caller has upheld the safety contract
+        let ptr = unsafe { arch::mm::iomap(base, len) };
+
+        Self {
+            base: ptr,
+            len: len as usize,
+        }
+    }
+
+    /// Writes a value of type `T` at `offset` bytes from the start of this regmap.
+    pub fn write<T>(&self, offset: usize, v: T) {
+        assert!(self.len >= offset + mem::size_of::<T>());
+
+        // SAFETY: proper checks are in place to make sure that `ptr` is a valid address for T
+        unsafe {
+            let ptr = self.base.byte_add(offset) as *mut T;
+            assert!(ptr.is_aligned());
+            ptr.write_volatile(v)
+        }
     }
 }

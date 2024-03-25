@@ -1,46 +1,47 @@
-use lazy_static::lazy_static;
-use spin::Mutex;
+//! System controller registers for poweroff and reboot.
 
-use crate::mm::mmio::RW;
+use fdt::{Node, PropEncodedArray};
 
-lazy_static! {
-    /// Instance of the system controller on this machine.
-    /// SAFETY: assuming the configuration is correct and BASE_ADDRESS is valid
-    pub static ref SYSCON: Mutex<Syscon> = Mutex::new(unsafe { Syscon::new(0x0010_0000) });
+use crate::{arch::PhysAddr, drivers::DriverError, mm::mmio::Regmap};
+
+pub(crate) struct SysconDriverInfo;
+
+impl super::DriverInfo for SysconDriverInfo {
+    type Driver = Syscon;
+
+    fn of_match() -> &'static [&'static str] {
+        &["syscon"]
+    }
 }
 
-/// Device driver of the system controller peripheral.
+/// System controller.
 pub struct Syscon {
-    p: &'static mut RegisterBlock,
+    regmap: Regmap,
 }
 
-#[repr(C)]
-struct RegisterBlock {
-    pub reg: RW<u32>,
+impl super::Driver for Syscon {
+    fn init<'d>(fdt: Node<'d, '_>) -> Result<Self, DriverError<'d>> {
+        let mut regs = fdt
+            .property::<PropEncodedArray<(u64, u64)>>("reg")
+            .ok_or(DriverError::MissingRequiredProperty("reg"))?;
+
+        let (base, len) = regs.next().expect("empty reg property");
+
+        Ok(Self {
+            // SAFETY: assuming the node contains a valid regmap
+            regmap: unsafe { Regmap::new(PhysAddr::new(base), len) },
+        })
+    }
 }
 
 impl Syscon {
-    /// Creates a new system controller mapped at the given address.
-    ///
-    /// # Safety
-    ///
-    /// The caller must ensure that the address points to a valid instance of the peripheral.
-    pub unsafe fn new(addr: usize) -> Self {
-        Self {
-            // SAFETY: assuming the caller upheld the safety contract
-            p: unsafe { &mut *(addr as *mut RegisterBlock) },
-        }
-    }
-
     /// Sends a shutdown signal to the system controller with the given exit code.
-    pub fn poweroff(&mut self, code: u32) {
-        // SAFETY: write with no memory side effects
-        unsafe { self.p.reg.write((code << 16) | 0x3333) };
+    pub fn poweroff(&self, code: u32) {
+        self.regmap.write::<u32>(0, (code << 16) | 0x3333);
     }
 
     /// Sends a reboot signal to the system controller.
-    pub fn reboot(&mut self) {
-        // SAFETY: write with no memory side effects
-        unsafe { self.p.reg.write(0x7777) };
+    pub fn reboot(&self) {
+        self.regmap.write::<u32>(0, 0x7777);
     }
 }

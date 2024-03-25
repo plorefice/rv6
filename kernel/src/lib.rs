@@ -13,6 +13,7 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![feature(linkage)]
+#![feature(pointer_is_aligned)]
 
 use alloc::{boxed::Box, string::String};
 use fdt::Fdt;
@@ -62,7 +63,10 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     kprintln!();
 
     // SAFETY: assuming the caller has provided us with a valid FDT data pointer
-    let _fdt = unsafe { Fdt::from_raw_ptr(fdt_data) }.expect("invalid fdt data");
+    let fdt = unsafe { Fdt::from_raw_ptr(fdt_data) }.expect("invalid fdt data");
+
+    // Subsystem initialization
+    drivers::init(&fdt).expect("driver initialization failed");
 
     loop {
         wfi();

@@ -1,6 +1,10 @@
 //! RISC-V specific memory management.
 
-use core::sync::atomic::{AtomicU64, Ordering};
+use core::{
+    alloc::{GlobalAlloc, Layout},
+    mem,
+    sync::atomic::{AtomicU64, Ordering},
+};
 
 use crate::{
     arch::{
@@ -32,6 +36,9 @@ pub const PHYS_TO_VIRT_OFFSET: VirtAddr = VirtAddr::new_truncated(0x20_0000_0000
 /// Base address for the kernel heap.
 const HEAP_MEM_OFFSET: VirtAddr = VirtAddr::new_truncated(0xffff_ffc0_0000_0000);
 
+/// Base address for the memory-mapper I/O region.
+const IOMAP_MEM_OFFSET: VirtAddr = VirtAddr::new_truncated(0xffff_ffe0_0000_0000);
+
 /// Virtual address at which the kernel is loaded.
 const LOAD_OFFSET: VirtAddr = VirtAddr::new_truncated(0xffff_ffff_8000_0000);
 
@@ -60,7 +67,13 @@ static GFA: Mutex<Option<BumpFrameAllocator<PAGE_SIZE, PhysAddr>>> = Mutex::new(
 /// Global heap allocator.
 /// TODO: remove hard-coded constants.
 #[global_allocator]
-static HEAP: BumpAllocator = BumpAllocator::new(HEAP_MEM_OFFSET.data(), LOAD_OFFSET.data());
+static HEAP: BumpAllocator = BumpAllocator::new(HEAP_MEM_OFFSET.data(), IOMAP_MEM_OFFSET.data());
+
+/// I/O virtual memory allocator.
+static IOMAP: BumpAllocator = BumpAllocator::new(IOMAP_MEM_OFFSET.data(), LOAD_OFFSET.data());
+
+/// Kernel global page mapper.
+static MAPPER: Mutex<Option<PageTableWalker<'static>>> = Mutex::new(None);
 
 /// Finishes up memory initialization, by setting up frame and heap allocators.
 ///
@@ -170,7 +183,7 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     let map_size = PageSize::Kb;
     assert_eq!(HEAP_PREALLOC_SIZE % map_size.size() as usize, 0);
 
-    let heap_prealloc_base = LOAD_OFFSET - HEAP_PREALLOC_SIZE;
+    let heap_prealloc_base = IOMAP_MEM_OFFSET - HEAP_PREALLOC_SIZE;
     let n_pages = HEAP_PREALLOC_SIZE / map_size.size() as usize;
 
     // SAFETY: n_pages is enough to cover the requested heap size
@@ -198,6 +211,9 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
 
     // SAFETY: `mapper.page_table()` is the root page directory
     unsafe { mmu::dump_root_page_table(mapper.page_table()) };
+
+    // Everything went well, configure this mapper as global
+    *MAPPER.lock() = Some(mapper);
 }
 
 fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: u64) {
@@ -225,4 +241,39 @@ fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: u64) {
 /// upholds the condition `phys_mem_start <= pa < phys_mem_end`.
 pub unsafe fn pa_to_va(pa: impl PhysicalAddress<u64>) -> VirtAddr {
     PHYS_TO_VIRT_OFFSET + (pa.into() - PHYS_MEM_OFFSET.load(Ordering::Relaxed)) as usize
+}
+
+/// Maps the physical IO region `base..base+len` to virtual memory and returns its address.
+///
+/// # Safety
+///
+/// See various `map` functions.
+pub unsafe fn iomap(base: impl PhysicalAddress<u64>, len: u64) -> *mut u8 {
+    // TODO: should we take an alignment requirement from the caller?
+    let layout = Layout::from_size_align(len as usize, mem::align_of::<u64>())
+        .expect("invalid memory layout");
+
+    // SAFETY: the layout is valid
+    let ptr = unsafe { IOMAP.alloc(layout) };
+
+    let start = PhysAddr::new(base.into());
+    let end = start + len;
+
+    // SAFETY: all checks are in place
+    unsafe {
+        MAPPER
+            .lock()
+            .as_mut()
+            .expect("no mapper?")
+            .map_range(
+                VirtAddr::new(ptr as usize),
+                start..end,
+                PageSize::Kb,
+                EntryFlags::MMIO,
+                GFA.lock().as_mut().unwrap(),
+            )
+            .unwrap();
+    }
+
+    ptr
 }

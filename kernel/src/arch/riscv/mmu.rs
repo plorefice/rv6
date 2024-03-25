@@ -78,6 +78,8 @@ bitflags! {
 
         /// PTE flags for kernel mappings
         const KERNEL = Self::RWX.bits() | Self::ACCESS.bits() | Self::DIRTY.bits() | Self::GLOBAL.bits();
+        /// PTE flags for MMIO mappings
+        const MMIO = Self::RW.bits() | Self::ACCESS.bits() | Self::DIRTY.bits() | Self::GLOBAL.bits();
     }
 }
 

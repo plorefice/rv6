@@ -487,6 +487,7 @@ where
     }
 }
 
+#[derive(Clone)]
 pub struct StringList<'d> {
     data: &'d [u8],
 }
