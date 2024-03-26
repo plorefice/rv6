@@ -69,8 +69,8 @@ pub(crate) fn _print(args: fmt::Arguments) {
 
     impl Write for EarlyCon {
         fn write_str(&mut self, s: &str) -> fmt::Result {
-            for c in s.bytes() {
-                crate::arch::sbi::console::put(c);
+            for c in s.chars() {
+                crate::arch::earlycon::put(c);
             }
             Ok(())
         }

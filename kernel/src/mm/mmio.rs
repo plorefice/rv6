@@ -114,7 +114,7 @@ impl Regmap {
     /// The caller must ensure that `base` is a valid MMIO address.
     pub unsafe fn new<A: PhysicalAddress<u64>>(base: A, len: u64) -> Self {
         // SAFETY: assuming caller has upheld the safety contract
-        let ptr = unsafe { arch::mm::iomap(base, len) };
+        let ptr = unsafe { arch::iomap(base, len) };
 
         Self {
             base: ptr,

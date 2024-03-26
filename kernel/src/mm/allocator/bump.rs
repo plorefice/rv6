@@ -7,7 +7,7 @@ use core::{
 use spin::Mutex;
 
 use crate::{
-    arch::mm::pa_to_va,
+    arch::pa_to_va,
     mm::{
         allocator::{Frame, FrameAllocator},
         PhysicalAddress,

@@ -10,9 +10,8 @@ use bitflags::bitflags;
 
 use crate::{
     arch::{
-        mm::pa_to_va,
-        riscv::addr::{PAGE_SHIFT, PAGE_SIZE},
-        PhysAddr, VirtAddr,
+        pa_to_va,
+        riscv::addr::{PhysAddr, VirtAddr, PAGE_SHIFT, PAGE_SIZE},
     },
     mm::{allocator::FrameAllocator, Align},
 };

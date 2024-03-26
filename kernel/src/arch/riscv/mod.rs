@@ -1,23 +1,25 @@
 //! This module provides RISC-V specific functions and data structures,
 //! and access to various system registers.
 
-use crate::arch::riscv::{
-    instructions::wfi,
-    registers::{SiFlags, Sie, Sip, Sstatus, SstatusFlags},
-};
+#![allow(unused)]
 
-pub use addr::{PhysAddr, VirtAddr};
+use crate::arch::riscv::registers::{SiFlags, Sie, Sip, Sstatus, SstatusFlags};
 
-pub mod addr;
-pub mod entry;
-pub mod instructions;
-pub mod mm;
-pub mod mmu;
-pub mod registers;
-pub mod sbi;
-pub mod stackframe;
-pub mod time;
-pub mod trap;
+pub use instructions::wfi;
+pub use mm::{iomap, pa_to_va};
+
+mod addr;
+mod entry;
+mod instructions;
+mod mm;
+mod mmu;
+mod registers;
+mod sbi;
+mod stackframe;
+mod trap;
+
+pub mod earlycon;
+pub mod time; // TODO: should really be private, or at least properly abstracted
 
 /// Halts execution on the current hart forever.
 pub fn halt() -> ! {

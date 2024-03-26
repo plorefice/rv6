@@ -5,10 +5,10 @@ use core::ptr::addr_of_mut;
 use fdt::{Fdt, PropEncodedArray};
 
 use crate::{
-    arch::{
+    arch::riscv::{
+        addr::{PhysAddr, VirtAddr},
         mm::{LOAD_OFFSET, PHYS_TO_VIRT_OFFSET},
         mmu::{EntryFlags, PageSize, PageTable},
-        PhysAddr, VirtAddr,
     },
     mm::Align,
 };

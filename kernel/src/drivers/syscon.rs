@@ -2,7 +2,7 @@
 
 use fdt::{Node, PropEncodedArray};
 
-use crate::{arch::PhysAddr, drivers::DriverError, mm::mmio::Regmap};
+use crate::{drivers::DriverError, mm::mmio::Regmap};
 
 pub(crate) struct SysconDriverInfo;
 
@@ -29,7 +29,7 @@ impl super::Driver for Syscon {
 
         Ok(Self {
             // SAFETY: assuming the node contains a valid regmap
-            regmap: unsafe { Regmap::new(PhysAddr::new(base), len) },
+            regmap: unsafe { Regmap::new(base, len) },
         })
     }
 }

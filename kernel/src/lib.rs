@@ -18,7 +18,7 @@
 use alloc::{boxed::Box, string::String};
 use fdt::Fdt;
 
-use crate::arch::instructions::wfi;
+use crate::arch::wfi;
 
 #[macro_use]
 extern crate alloc;

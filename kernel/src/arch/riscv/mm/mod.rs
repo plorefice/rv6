@@ -7,14 +7,11 @@ use core::{
 };
 
 use crate::{
-    arch::{
+    arch::riscv::{
+        addr::{PhysAddr, VirtAddr, PAGE_SIZE},
         instructions::sfence_vma,
+        mmu::{self, EntryFlags, PageSize, PageTable},
         registers::Satp,
-        riscv::{
-            addr::PAGE_SIZE,
-            mmu::{self, EntryFlags, PageSize, PageTable},
-            PhysAddr, VirtAddr,
-        },
     },
     mm::{
         allocator::{BumpAllocator, BumpFrameAllocator, FrameAllocator},
@@ -62,6 +59,7 @@ extern "C" {
     static _edata: usize;
 }
 
+/// Global frame allocator.
 static GFA: Mutex<Option<BumpFrameAllocator<PAGE_SIZE, PhysAddr>>> = Mutex::new(None);
 
 /// Global heap allocator.
