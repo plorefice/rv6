@@ -11,7 +11,7 @@ pub mod syscon;
 /// A device driver with FDT bindings.
 pub trait Driver {
     /// Initializes this driver according to the provided FDT node.
-    fn init<'d>(fdt: Node<'d, '_>) -> Result<Self, DriverError<'d>>
+    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<Self, DriverError<'d>>
     where
         Self: Sized;
 }
@@ -27,15 +27,15 @@ pub trait DriverInfo {
     /// Calls the `Self::Driver::init` function passing on the FDT node.
     ///
     /// Implementation is provided, so no need to override it.
-    fn _init<'d>(fdt: Node<'d, '_>) -> Result<Self::Driver, DriverError<'d>> {
-        Self::Driver::init(fdt)
+    fn _init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<Self::Driver, DriverError<'d>> {
+        Self::Driver::init(node)
     }
 }
 
 /// Type-erased version of the `DriverInfo` trait for dynamic dispatch.
 trait DynDriverInfo {
     fn of_match(&self) -> &'static [&'static str];
-    fn init<'d>(&self, fdt: Node<'d, '_>) -> Result<Box<dyn Driver>, DriverError<'d>>;
+    fn init<'d, 'fdt: 'd>(&self, node: Node<'d, 'fdt>) -> Result<Box<dyn Driver>, DriverError<'d>>;
 }
 
 impl<T> DynDriverInfo for T
@@ -47,15 +47,15 @@ where
         <T as DriverInfo>::of_match()
     }
 
-    fn init<'d>(&self, fdt: Node<'d, '_>) -> Result<Box<dyn Driver>, DriverError<'d>> {
-        Ok(Box::new(T::Driver::init(fdt)?) as Box<dyn Driver>)
+    fn init<'d, 'fdt: 'd>(&self, node: Node<'d, 'fdt>) -> Result<Box<dyn Driver>, DriverError<'d>> {
+        Ok(Box::new(T::Driver::init(node)?) as Box<dyn Driver>)
     }
 }
 
 /// Entry point of the initialization of kernel drivers.
 pub fn init<'d>(fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
     // TODO: global vector with dynamic registration maybe?
-    let infos: &[&dyn DynDriverInfo] = &[&syscon::SysconDriverInfo];
+    let infos: &[&dyn DynDriverInfo] = &[&syscon::GenericSysconDriverInfo];
 
     let mut nodes = VecDeque::from_iter(iter::once(fdt.root_node()?));
 

@@ -259,7 +259,15 @@ impl<'d, 'fdt> Node<'d, 'fdt> {
         self.fdt.find(|n| n.off == parent_off).ok().flatten()
     }
 
-    fn find<F>(&self, f: F) -> Result<Option<Node<'d, 'fdt>>, FdtParseError<'d>>
+    pub fn root(&self) -> Node<'d, 'fdt> {
+        self.fdt.root_node().expect("valid node with invalid root")
+    }
+
+    pub fn fdt(&self) -> &'fdt Fdt<'d> {
+        self.fdt
+    }
+
+    pub fn find<F>(&self, f: F) -> Result<Option<Node<'d, 'fdt>>, FdtParseError<'d>>
     where
         F: Fn(&Node<'d, 'fdt>) -> bool + Copy,
     {
