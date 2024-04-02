@@ -2,7 +2,7 @@
 
 use core::iter::{self, FromIterator};
 
-use alloc::{boxed::Box, collections::VecDeque};
+use alloc::{collections::VecDeque, sync::Arc};
 use fdt::{Fdt, FdtParseError, Node, StringList};
 
 pub mod ns16550;
@@ -11,7 +11,7 @@ pub mod syscon;
 /// A device driver with FDT bindings.
 pub trait Driver {
     /// Initializes this driver according to the provided FDT node.
-    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<Self, DriverError<'d>>
+    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<Arc<Self>, DriverError<'d>>
     where
         Self: Sized;
 }
@@ -27,7 +27,7 @@ pub trait DriverInfo {
     /// Calls the `Self::Driver::init` function passing on the FDT node.
     ///
     /// Implementation is provided, so no need to override it.
-    fn _init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<Self::Driver, DriverError<'d>> {
+    fn _init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<Arc<Self::Driver>, DriverError<'d>> {
         Self::Driver::init(node)
     }
 }
@@ -35,7 +35,7 @@ pub trait DriverInfo {
 /// Type-erased version of the `DriverInfo` trait for dynamic dispatch.
 trait DynDriverInfo {
     fn of_match(&self) -> &'static [&'static str];
-    fn init<'d, 'fdt: 'd>(&self, node: Node<'d, 'fdt>) -> Result<Box<dyn Driver>, DriverError<'d>>;
+    fn init<'d, 'fdt: 'd>(&self, node: Node<'d, 'fdt>) -> Result<Arc<dyn Driver>, DriverError<'d>>;
 }
 
 impl<T> DynDriverInfo for T
@@ -47,8 +47,8 @@ where
         <T as DriverInfo>::of_match()
     }
 
-    fn init<'d, 'fdt: 'd>(&self, node: Node<'d, 'fdt>) -> Result<Box<dyn Driver>, DriverError<'d>> {
-        Ok(Box::new(T::Driver::init(node)?) as Box<dyn Driver>)
+    fn init<'d, 'fdt: 'd>(&self, node: Node<'d, 'fdt>) -> Result<Arc<dyn Driver>, DriverError<'d>> {
+        Ok(T::Driver::init(node)? as Arc<dyn Driver>)
     }
 }
 

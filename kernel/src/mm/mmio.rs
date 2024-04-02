@@ -102,7 +102,7 @@ impl<T> VolatileCell<T> {
 
 /// A MMIO region mapped into virtual memory.
 pub struct Regmap {
-    base: *mut u8,
+    base: usize,
     len: usize,
 }
 
@@ -117,7 +117,7 @@ impl Regmap {
         let ptr = unsafe { arch::iomap(base, len) };
 
         Self {
-            base: ptr,
+            base: ptr as usize,
             len: len as usize,
         }
     }
@@ -128,7 +128,7 @@ impl Regmap {
 
         // SAFETY: proper checks are in place to make sure that `ptr` is a valid address for T
         unsafe {
-            let ptr = self.base.byte_add(offset) as *mut T;
+            let ptr = (self.base + offset) as *mut T;
             assert!(ptr.is_aligned());
             ptr.write_volatile(v)
         }

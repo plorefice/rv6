@@ -1,12 +1,16 @@
-//! System controller registers for poweroff and reboot.
+//! Generic system controller.
 
-use fdt::{Fdt, Node, PropEncodedArray, StringList};
+use alloc::sync::Arc;
+use fdt::{Fdt, Node, PropEncodedArray};
 
-use crate::{drivers::DriverError, mm::mmio::Regmap};
+use crate::{
+    drivers::{syscon, Driver, DriverError, DriverInfo},
+    mm::mmio::Regmap,
+};
 
 pub(crate) struct GenericSysconDriverInfo;
 
-impl super::DriverInfo for GenericSysconDriverInfo {
+impl DriverInfo for GenericSysconDriverInfo {
     type Driver = GenericSyscon;
 
     fn of_match() -> &'static [&'static str] {
@@ -27,8 +31,8 @@ struct SysconRegister {
     _mask: u32,
 }
 
-impl super::Driver for GenericSyscon {
-    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<Self, DriverError<'d>> {
+impl Driver for GenericSyscon {
+    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<Arc<Self>, DriverError<'d>> {
         let mut regs = node
             .property::<PropEncodedArray<(u64, u64)>>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
@@ -50,6 +54,10 @@ impl super::Driver for GenericSyscon {
             slf.reboot = find_syscon_driver(node.fdt(), phandle, "syscon-reboot")?;
         }
 
+        let slf = Arc::new(slf);
+
+        syscon::register_provider(slf.clone());
+
         Ok(slf)
     }
 }
@@ -60,12 +68,8 @@ fn find_syscon_driver<'d>(
     compatible: &str,
 ) -> Result<Option<SysconRegister>, DriverError<'d>> {
     Ok(fdt
-        .find(|n| {
-            n.property::<StringList>("compatible")
-                .and_then(|mut s| s.next())
-                == Some(compatible)
-                && n.property::<u32>("regmap") == Some(phandle)
-        })?
+        .find_compatible(compatible)?
+        .filter(|n| n.property::<u32>("regmap") == Some(phandle))
         .and_then(parse_syscon_driver_node))
 }
 
@@ -81,16 +85,7 @@ fn parse_syscon_driver_node(node: Node) -> Option<SysconRegister> {
     })
 }
 
-/// Common operations for system controllers.
-pub trait Syscon {
-    /// Sends a shutdown signal to the system controller.
-    fn poweroff(&self);
-
-    /// Sends a reboot signal to the system controller.
-    fn reboot(&self);
-}
-
-impl Syscon for GenericSyscon {
+impl super::Syscon for GenericSyscon {
     fn poweroff(&self) {
         if let Some(ref reg) = self.poweroff {
             self.regmap.write::<u32>(reg.offset, reg.value);
