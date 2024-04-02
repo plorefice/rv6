@@ -52,6 +52,27 @@ where
     }
 }
 
+/// Macro helper to generate `DriverInfo` implementations.
+#[macro_export]
+macro_rules! driver_info {
+    {
+        type: $type:ty,
+        of_match: $of_match:expr,
+    } => {
+        paste::paste! {
+            pub(crate) struct [<$type DriverInfo>];
+
+            impl $crate::drivers::DriverInfo for [<$type DriverInfo>] {
+                type Driver = $type;
+
+                fn of_match() -> &'static [&'static str] {
+                    &$of_match
+                }
+            }
+        }
+    };
+}
+
 /// Entry point of the initialization of kernel drivers.
 pub fn init<'d>(fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
     // TODO: global vector with dynamic registration maybe?

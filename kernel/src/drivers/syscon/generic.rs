@@ -4,18 +4,14 @@ use alloc::sync::Arc;
 use fdt::{Fdt, Node, PropEncodedArray};
 
 use crate::{
-    drivers::{syscon, Driver, DriverError, DriverInfo},
+    driver_info,
+    drivers::{syscon, Driver, DriverError},
     mm::mmio::Regmap,
 };
 
-pub(crate) struct GenericSysconDriverInfo;
-
-impl DriverInfo for GenericSysconDriverInfo {
-    type Driver = GenericSyscon;
-
-    fn of_match() -> &'static [&'static str] {
-        &["syscon"]
-    }
+driver_info! {
+    type: GenericSyscon,
+    of_match: ["syscon"],
 }
 
 /// Generic system controller.
@@ -62,6 +58,20 @@ impl Driver for GenericSyscon {
     }
 }
 
+impl super::Syscon for GenericSyscon {
+    fn poweroff(&self) {
+        if let Some(ref reg) = self.poweroff {
+            self.regmap.write::<u32>(reg.offset, reg.value);
+        }
+    }
+
+    fn reboot(&self) {
+        if let Some(ref reg) = self.reboot {
+            self.regmap.write::<u32>(reg.offset, reg.value);
+        }
+    }
+}
+
 fn find_syscon_driver<'d>(
     fdt: &'d Fdt,
     phandle: u32,
@@ -83,18 +93,4 @@ fn parse_syscon_driver_node(node: Node) -> Option<SysconRegister> {
         value,
         _mask: mask,
     })
-}
-
-impl super::Syscon for GenericSyscon {
-    fn poweroff(&self) {
-        if let Some(ref reg) = self.poweroff {
-            self.regmap.write::<u32>(reg.offset, reg.value);
-        }
-    }
-
-    fn reboot(&self) {
-        if let Some(ref reg) = self.reboot {
-            self.regmap.write::<u32>(reg.offset, reg.value);
-        }
-    }
 }
