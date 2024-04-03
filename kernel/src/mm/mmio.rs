@@ -133,4 +133,31 @@ impl Regmap {
             ptr.write_volatile(v)
         }
     }
+
+    /// Reads a value of type `T` at `offset` bytes from the start of this regmap.
+    pub fn read<T>(&self, offset: usize) -> T {
+        assert!(self.len >= offset + mem::size_of::<T>());
+
+        // SAFETY: proper checks are in place to make sure that `ptr` is a valid address for T
+        unsafe {
+            let ptr = (self.base + offset) as *const T;
+            assert!(ptr.is_aligned());
+            ptr.read_volatile()
+        }
+    }
+
+    /// Reads `buf.len()` bytes starting at `offset` and places them in `buf`.
+    pub fn read_bytes(&self, offset: usize, buf: &mut [u8]) {
+        assert!(self.len >= offset + buf.len());
+
+        // SAFETY: proper checks are in place to make sure that `ptr` is a valid address for T
+        unsafe {
+            let ptr = (self.base + offset) as *const u8;
+            assert!(ptr.is_aligned());
+
+            for (i, b) in buf.iter_mut().enumerate() {
+                *b = ptr.add(i).read_volatile();
+            }
+        }
+    }
 }

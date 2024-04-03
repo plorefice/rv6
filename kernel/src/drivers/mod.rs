@@ -7,6 +7,7 @@ use fdt::{Fdt, FdtParseError, Node, StringList};
 
 pub mod ns16550;
 pub mod syscon;
+pub mod virtio;
 
 /// A device driver with FDT bindings.
 pub trait Driver {
@@ -76,7 +77,10 @@ macro_rules! driver_info {
 /// Entry point of the initialization of kernel drivers.
 pub fn init<'d>(fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
     // TODO: global vector with dynamic registration maybe?
-    let infos: &[&dyn DynDriverInfo] = &[&syscon::GenericSysconDriverInfo];
+    let infos: &[&dyn DynDriverInfo] = &[
+        &syscon::GenericSysconDriverInfo,
+        &virtio::VirtioMmioDriverInfo,
+    ];
 
     let mut nodes = VecDeque::from_iter(iter::once(fdt.root_node()?));
 
@@ -91,7 +95,10 @@ pub fn init<'d>(fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
             .iter()
             .find(|i| compatibles.clone().any(|c| i.of_match().contains(&c)))
         {
-            modinfo.init(node)?;
+            match modinfo.init(node) {
+                Ok(_) | Err(DriverError::DeviceNotFound) => (),
+                Err(e) => return Err(e),
+            }
         }
     }
 
@@ -105,6 +112,10 @@ pub enum DriverError<'d> {
     Fdt(FdtParseError<'d>),
     /// The FDT node did not contain a necessary property for driver initialization.
     MissingRequiredProperty(&'d str),
+    /// An unexpected error occurred.
+    UnexpectedError(&'d str),
+    /// The device could not be found during initialization.
+    DeviceNotFound,
 }
 
 impl<'d> From<FdtParseError<'d>> for DriverError<'d> {
