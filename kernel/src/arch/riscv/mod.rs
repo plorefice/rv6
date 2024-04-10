@@ -5,8 +5,9 @@
 
 use crate::arch::riscv::registers::{SiFlags, Sie, Sip, Sstatus, SstatusFlags};
 
+pub use addr::PAGE_SIZE;
 pub use instructions::wfi;
-pub use mm::{iomap, pa_to_va};
+pub use mm::{alloc_contiguous, alloc_contiguous_zeroed, iomap, pa_to_va, palloc};
 
 mod addr;
 mod entry;

@@ -2,7 +2,9 @@
 
 use core::{
     alloc::{GlobalAlloc, Layout},
-    mem,
+    mem::{self, size_of, MaybeUninit},
+    ops::{Deref, DerefMut},
+    ptr::NonNull,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -274,4 +276,109 @@ pub unsafe fn iomap(base: impl PhysicalAddress<u64>, len: u64) -> *mut u8 {
     }
 
     ptr
+}
+
+// TODO: implement Drop
+pub struct Cookie<T: Sized> {
+    ptr: NonNull<T>,
+    phys: PhysAddr,
+}
+
+impl<T: Sized> Cookie<T> {
+    pub fn phys_addr(&self) -> impl PhysicalAddress<u64> {
+        self.phys
+    }
+}
+
+impl<T: Sized> AsRef<T> for Cookie<T> {
+    fn as_ref(&self) -> &T {
+        // SAFETY: Cookie is safe by construction
+        unsafe { self.ptr.as_ref() }
+    }
+}
+
+impl<T: Sized> AsMut<T> for Cookie<T> {
+    fn as_mut(&mut self) -> &mut T {
+        // SAFETY: Cookie is safe by construction
+        unsafe { self.ptr.as_mut() }
+    }
+}
+
+impl<T: Sized> Deref for Cookie<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        self.as_ref()
+    }
+}
+
+impl<T: Sized> DerefMut for Cookie<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.as_mut()
+    }
+}
+
+/// Allocates an object of type `T` in contiguous physical memory, initializing with the contents
+/// of `val` following the same semantics of [`core::ptr::write`].
+///
+/// The cookie tracks the location of the object in physical memory.
+pub fn palloc<T: Sized>(val: T) -> Cookie<T> {
+    let layout = Layout::new::<T>();
+
+    // SAFETY: `T` is a sized type
+    let frame = unsafe {
+        GFA.lock()
+            .as_mut()
+            .unwrap()
+            .alloc(layout.size())
+            .expect("oom")
+    };
+
+    // Initialize ptr with the contents of `val`
+    // SAFETY: `frame.ptr` is known to be a valid pointer
+    let ptr = unsafe {
+        let ptr = NonNull::new_unchecked(frame.ptr as *mut T);
+        ptr.as_ptr().write(val);
+        ptr
+    };
+
+    Cookie {
+        ptr,
+        phys: frame.paddr,
+    }
+}
+
+/// Allocates a block of contiguous physical memory, mapped into contiguous virtual memory,
+/// according to the provided layout.
+///
+/// # Safety
+///
+/// `layout` must have non-zero size. The returned memory is unitialized.
+pub unsafe fn alloc_contiguous(layout: Layout) -> (*mut u8, impl PhysicalAddress<u64>) {
+    assert!(layout.align() <= PAGE_SIZE as usize);
+
+    // SAFETY: assuming caller has upheld safety contract
+    let frame = unsafe {
+        GFA.lock()
+            .as_mut()
+            .unwrap()
+            .alloc(layout.size())
+            .expect("oom")
+    };
+
+    (frame.ptr as *mut u8, frame.paddr)
+}
+
+/// Same as [`alloc_contiguous`], but initializes the memory with zeros.
+///
+/// # Safety
+///
+/// See [`alloc_contiguous`].
+pub unsafe fn alloc_contiguous_zeroed(layout: Layout) -> (*mut u8, impl PhysicalAddress<u64>) {
+    // SAFETY: assuming caller has upheld safety contract
+    unsafe {
+        let (ptr, pa) = alloc_contiguous(layout);
+        ptr.write_bytes(0, layout.size());
+        (ptr, pa)
+    }
 }

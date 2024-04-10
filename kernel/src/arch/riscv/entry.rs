@@ -24,7 +24,4 @@ pub unsafe extern "C" fn arch_init(fdt_data: *const u8, kernel_rpt_va: usize) {
     sbi::show_info();
     trap::init();
     mm::setup_late(&fdt, VirtAddr::new(kernel_rpt_va));
-
-    // Start ticking
-    time::schedule_next_tick(time::CLINT_TIMEBASE);
 }
