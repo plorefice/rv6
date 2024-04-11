@@ -249,6 +249,9 @@ pub unsafe fn pa_to_va(pa: impl PhysicalAddress<u64>) -> VirtAddr {
 ///
 /// See various `map` functions.
 pub unsafe fn iomap(base: impl PhysicalAddress<u64>, len: u64) -> *mut u8 {
+    // iomap entire pages only
+    let len = len.align_up(PAGE_SIZE);
+
     // TODO: should we take an alignment requirement from the caller?
     let layout = Layout::from_size_align(len as usize, mem::align_of::<u64>())
         .expect("invalid memory layout");

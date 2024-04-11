@@ -104,6 +104,7 @@ impl<T> VolatileCell<T> {
 }
 
 /// A MMIO region mapped into virtual memory.
+#[derive(Debug)]
 pub struct Regmap {
     base: usize,
     len: usize,
