@@ -8,11 +8,6 @@ fn main() {
         let mut cc = cc::Build::new();
         cc.compiler("riscv64-elf-gcc").flag("-mabi=lp64d");
 
-        #[cfg(feature = "config-qemu")]
-        cc.flag("-DCONFIG_QEMU");
-        #[cfg(feature = "config-milkv")]
-        cc.flag("-DCONFIG_MILKV");
-
         cc.file("src/arch/riscv/head.S")
             .file("src/arch/riscv/trap.S")
             .file("src/ksyms.S")

@@ -25,7 +25,6 @@ extern crate alloc;
 pub mod macros;
 
 pub mod arch;
-pub mod config;
 pub mod drivers;
 pub mod ksyms;
 pub mod mm;
