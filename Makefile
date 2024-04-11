@@ -11,7 +11,7 @@ CROSS_COMPILE ?= riscv64-elf-
 OBJCOPY = $(CROSS_COMPILE)objcopy
 LD = $(CROSS_COMPILE)ld
 QEMU = qemu-system-riscv64 -M virt -cpu rv64,sv39=on -m 256M -nographic -serial mon:stdio \
-		-device virtio-blk-device,drive=hd0 -drive file=hdd.img,format=raw,id=hd0
+		-device virtio-blk-device,serial=rv6-blk-dev,drive=hd0 -drive file=hdd.img,format=raw,id=hd0
 
 all: $(RV6_BIN)
 

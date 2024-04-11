@@ -1,3 +1,6 @@
+use core::ffi::CStr;
+
+use alloc::string::String;
 use bitflags::bitflags;
 
 use crate::{
@@ -32,7 +35,6 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
                 | DeviceFeatures::BLK_SIZE
                 | DeviceFeatures::TOPOLOGY);
         dev.enable_device_features(0, features.bits());
-        kprintln!("virtio-blk-dev: {features:?}");
 
         // Configure virtqueues
         let virtq = dev.allocate_virtq(0);
@@ -46,21 +48,22 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
 
         // Read configuration
         slf.read_config();
-        kprintln!("virtio-blk-dev: {:?}", slf.config);
+        kprintln!(
+            "virtio-blk-dev: {} sectors disk ({} MiB), {}c/{}h/{}s",
+            slf.config.capacity,
+            (slf.config.capacity * 512) / (1 << 20),
+            slf.config.geometry.cylinders,
+            slf.config.geometry.heads,
+            slf.config.geometry.sectors
+        );
 
         // Device is now live
         slf.dev.update_status(Status::DRIVER_OK);
 
-        // Try doing a simple transfer
-        let data = palloc([0_u8; 512]);
-        slf.transfer(VirtioBlkReqType::In, 0, data.phys_addr(), 512);
-
-        while !slf.dev.interrupts().contains(InterruptStatus::USED_BUFFER) {
-            core::hint::spin_loop();
+        // Check device ID if available
+        if let Some(id) = slf.read_device_id() {
+            kprintln!("virtio-blk-dev: device ID: {id}");
         }
-        slf.dev.clear_interrupts(InterruptStatus::USED_BUFFER);
-
-        kprintln!("virtio-blk-dev: {:x?}", &data[..16]);
 
         slf
     }
@@ -100,6 +103,24 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
         }
     }
 
+    fn read_device_id(&mut self) -> Option<String> {
+        let buf = palloc([0_u8; 20]);
+
+        self.transfer(VirtioBlkReqType::GetId, 0, buf.phys_addr(), 20);
+
+        while !self.dev.interrupts().contains(InterruptStatus::USED_BUFFER) {
+            core::hint::spin_loop();
+        }
+        self.dev.clear_interrupts(InterruptStatus::USED_BUFFER);
+
+        let id = CStr::from_bytes_until_nul(buf.as_ref()).ok()?;
+        if id.is_empty() {
+            return None;
+        }
+
+        id.to_str().ok().map(String::from)
+    }
+
     fn transfer(
         &mut self,
         kind: VirtioBlkReqType,
@@ -119,12 +140,12 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
 
         // TODO: validate data size according to kinds
         let data_buf = match kind {
-            In => Some(Writeable {
+            In | GetId => Some(Writeable {
                 addr: data.into(),
                 len,
             }),
             Flush => None,
-            Out | GetId | GetLifetime | Discard | WriteZeroes | SecureErase => Some(Readable {
+            Out | GetLifetime | Discard | WriteZeroes | SecureErase => Some(Readable {
                 addr: data.into(),
                 len,
             }),
