@@ -5,6 +5,7 @@ use core::{
     mem::{self, size_of, MaybeUninit},
     ops::{Deref, DerefMut},
     ptr::NonNull,
+    slice,
     sync::atomic::{AtomicU64, Ordering},
 };
 
@@ -282,32 +283,32 @@ pub unsafe fn iomap(base: impl PhysicalAddress<u64>, len: u64) -> *mut u8 {
 }
 
 // TODO: implement Drop
-pub struct Cookie<T: Sized> {
+pub struct Cookie<T: ?Sized> {
     ptr: NonNull<T>,
     phys: PhysAddr,
 }
 
-impl<T: Sized> Cookie<T> {
+impl<T: ?Sized> Cookie<T> {
     pub fn phys_addr(&self) -> impl PhysicalAddress<u64> {
         self.phys
     }
 }
 
-impl<T: Sized> AsRef<T> for Cookie<T> {
+impl<T: ?Sized> AsRef<T> for Cookie<T> {
     fn as_ref(&self) -> &T {
         // SAFETY: Cookie is safe by construction
         unsafe { self.ptr.as_ref() }
     }
 }
 
-impl<T: Sized> AsMut<T> for Cookie<T> {
+impl<T: ?Sized> AsMut<T> for Cookie<T> {
     fn as_mut(&mut self) -> &mut T {
         // SAFETY: Cookie is safe by construction
         unsafe { self.ptr.as_mut() }
     }
 }
 
-impl<T: Sized> Deref for Cookie<T> {
+impl<T: ?Sized> Deref for Cookie<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -315,7 +316,7 @@ impl<T: Sized> Deref for Cookie<T> {
     }
 }
 
-impl<T: Sized> DerefMut for Cookie<T> {
+impl<T: ?Sized> DerefMut for Cookie<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         self.as_mut()
     }
@@ -357,7 +358,7 @@ pub fn palloc<T: Sized>(val: T) -> Cookie<T> {
 /// # Safety
 ///
 /// `layout` must have non-zero size. The returned memory is unitialized.
-pub unsafe fn alloc_contiguous(layout: Layout) -> (*mut u8, impl PhysicalAddress<u64>) {
+pub unsafe fn alloc_contiguous(layout: Layout) -> Cookie<[u8]> {
     assert!(layout.align() <= PAGE_SIZE as usize);
 
     // SAFETY: assuming caller has upheld safety contract
@@ -369,7 +370,13 @@ pub unsafe fn alloc_contiguous(layout: Layout) -> (*mut u8, impl PhysicalAddress
             .expect("oom")
     };
 
-    (frame.ptr as *mut u8, frame.paddr)
+    // SAFETY: we have just allocated `layout.size()` bytes into `frame`
+    let slice = unsafe { slice::from_raw_parts_mut(frame.ptr as *mut u8, layout.size()) };
+
+    Cookie {
+        ptr: NonNull::new(slice).unwrap(),
+        phys: frame.paddr,
+    }
 }
 
 /// Same as [`alloc_contiguous`], but initializes the memory with zeros.
@@ -377,11 +384,11 @@ pub unsafe fn alloc_contiguous(layout: Layout) -> (*mut u8, impl PhysicalAddress
 /// # Safety
 ///
 /// See [`alloc_contiguous`].
-pub unsafe fn alloc_contiguous_zeroed(layout: Layout) -> (*mut u8, impl PhysicalAddress<u64>) {
+pub unsafe fn alloc_contiguous_zeroed(layout: Layout) -> Cookie<[u8]> {
     // SAFETY: assuming caller has upheld safety contract
     unsafe {
-        let (ptr, pa) = alloc_contiguous(layout);
-        ptr.write_bytes(0, layout.size());
-        (ptr, pa)
+        let mut ck = alloc_contiguous(layout);
+        ck.as_mut().fill(0);
+        ck
     }
 }

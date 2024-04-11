@@ -40,7 +40,7 @@ impl Virtq {
         let vq_total_sz = vq_desc_sz + vq_avail_sz + vq_used_sz + vq_avail_pad;
 
         // SAFETY: layout is valid
-        let (vq_ptr, vq_pa) = unsafe {
+        let vq_mem = unsafe {
             arch::alloc_contiguous_zeroed(
                 Layout::from_size_align(vq_total_sz, PAGE_SIZE as usize).unwrap(),
             )
@@ -49,6 +49,8 @@ impl Virtq {
         // SAFETY: lots of pointer arithmetics down below, if my calculations are correct
         //         this should be safe
         unsafe {
+            let vq_ptr = vq_mem.as_ptr() as *mut u8;
+
             let vq_avail_off = vq_desc_sz;
             let vq_used_off = vq_avail_off + vq_avail_sz + vq_avail_pad;
 
@@ -73,7 +75,7 @@ impl Virtq {
             Self {
                 idx,
                 size: size as u16,
-                phys: vq_pa.into(),
+                phys: vq_mem.phys_addr().into(),
 
                 descr,
                 avail,
