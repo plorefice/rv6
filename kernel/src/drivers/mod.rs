@@ -80,6 +80,7 @@ pub fn init<'d>(fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
     let infos: &[&dyn DynDriverInfo] = &[
         &syscon::GenericSysconDriverInfo,
         &virtio::VirtioMmioDriverInfo,
+        &ns16550::Ns16550DriverInfo,
     ];
 
     let mut nodes = VecDeque::from_iter(iter::once(fdt.root_node()?));
