@@ -12,7 +12,6 @@
 #![warn(clippy::missing_safety_doc)]
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![deny(unsafe_op_in_unsafe_fn)]
-#![feature(linkage)]
 
 use alloc::{boxed::Box, string::String};
 use fdt::Fdt;

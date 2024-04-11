@@ -1,4 +1,7 @@
-use core::{cell::UnsafeCell, mem};
+use core::{
+    cell::UnsafeCell,
+    mem::{self, align_of},
+};
 
 use crate::{arch, mm::PhysicalAddress};
 
@@ -129,7 +132,7 @@ impl Regmap {
         // SAFETY: proper checks are in place to make sure that `ptr` is a valid address for T
         unsafe {
             let ptr = (self.base + offset) as *mut T;
-            assert!(ptr.is_aligned());
+            assert_eq!(ptr.align_offset(align_of::<T>()), 0);
             ptr.write_volatile(v)
         }
     }
@@ -141,7 +144,7 @@ impl Regmap {
         // SAFETY: proper checks are in place to make sure that `ptr` is a valid address for T
         unsafe {
             let ptr = (self.base + offset) as *const T;
-            assert!(ptr.is_aligned());
+            assert_eq!(ptr.align_offset(align_of::<T>()), 0);
             ptr.read_volatile()
         }
     }
@@ -153,7 +156,6 @@ impl Regmap {
         // SAFETY: proper checks are in place to make sure that `ptr` is a valid address for T
         unsafe {
             let ptr = (self.base + offset) as *const u8;
-            assert!(ptr.is_aligned());
 
             for (i, b) in buf.iter_mut().enumerate() {
                 *b = ptr.add(i).read_volatile();
