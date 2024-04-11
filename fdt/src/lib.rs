@@ -241,9 +241,9 @@ impl<'d, 'fdt> Node<'d, 'fdt> {
         self.props.clone()
     }
 
-    pub fn property<T: 'd>(&self, name: &str) -> Option<T>
+    pub fn property<T>(&self, name: &str) -> Option<T>
     where
-        T: PropValue<'d>,
+        T: PropValue<'d> + 'd,
     {
         self.properties()
             .find(|p| p.name() == Some(name))

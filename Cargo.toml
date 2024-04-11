@@ -1,4 +1,0 @@
-[workspace]
-resolver = "2"
-exclude = ["ksymsgen"]
-members = ["fdt", "kernel"]

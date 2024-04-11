@@ -1,6 +1,6 @@
 # Build artifacts
-/target
-/ksymsgen/target
+/*/target
+/*/Cargo.lock
 /rv6
 /rv6.bin
 /rv6.map

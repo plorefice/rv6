@@ -19,6 +19,7 @@ spin = "0.9.8"
 cc = "1.0.83"
 
 [features]
+default = ["config-qemu"]
 
 # MMU schemes
 sv39 = []

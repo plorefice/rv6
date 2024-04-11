@@ -13,7 +13,6 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![deny(unsafe_op_in_unsafe_fn)]
 #![feature(linkage)]
-#![feature(pointer_is_aligned)]
 
 use alloc::{boxed::Box, string::String};
 use fdt::Fdt;

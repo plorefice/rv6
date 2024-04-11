@@ -92,7 +92,7 @@ impl Virtq {
         (self.phys / PAGE_SIZE) as u32
     }
 
-    pub fn submit<'a, D, I: 'a>(&mut self, dev: &D, buffers: I)
+    pub fn submit<'a, D, I>(&mut self, dev: &D, buffers: I)
     where
         D: VirtioDev,
         I: IntoIterator<Item = &'a VirtqBuffer> + Clone,
