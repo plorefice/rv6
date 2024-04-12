@@ -13,7 +13,22 @@ const CAUSE_IRQ_FLAG_MASK: usize = 1 << 63;
 #[repr(usize)]
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash)]
 enum IrqCause {
-    STimer = 5,
+    Software,
+    Timer,
+    External,
+}
+
+impl From<usize> for IrqCause {
+    fn from(n: usize) -> Self {
+        use IrqCause::*;
+
+        match n {
+            1 => Software,
+            5 => Timer,
+            9 => External,
+            _ => unreachable!(),
+        }
+    }
 }
 
 /// Possible exception causes on a RISC-V CPU.
@@ -123,9 +138,14 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapF
     let irq = cause & !CAUSE_IRQ_FLAG_MASK;
 
     if is_irq {
-        if irq == IrqCause::STimer as usize {
-            kprintln!("Tick!");
-            time::schedule_next_tick(time::CLINT_TIMEBASE);
+        let irq = IrqCause::from(irq);
+
+        match irq {
+            IrqCause::Timer => {
+                kprintln!("Tick!");
+                time::schedule_next_tick(time::CLINT_TIMEBASE);
+            }
+            _ => kprintln!("Unhandled IRQ: {:?}", irq),
         }
 
         // After an interrupt, continue from where we left off
