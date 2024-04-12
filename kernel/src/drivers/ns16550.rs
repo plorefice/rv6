@@ -2,7 +2,6 @@
 
 use core::{fmt::Write, hint};
 
-use alloc::sync::Arc;
 use fdt::Node;
 
 use crate::{driver_info, drivers::Driver, mm::mmio::Regmap};
@@ -20,7 +19,7 @@ pub struct Ns16550 {
 }
 
 impl Driver for Ns16550 {
-    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<Arc<Self>, DriverError<'d>> {
+    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>> {
         let (base, size) = node
             .property::<(u64, u64)>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
@@ -33,7 +32,9 @@ impl Driver for Ns16550 {
         kprintln!("ns16550: UART at 0x{:x}", base);
         writeln!(slf, "*** Hello, world! ***").ok();
 
-        Ok(slf.into())
+        // TODO: register this as console device
+
+        Ok(())
     }
 }
 

@@ -1,6 +1,6 @@
 //! System controller drivers.
 
-use alloc::sync::Arc;
+use alloc::boxed::Box;
 use spin::Mutex;
 
 mod generic;
@@ -17,13 +17,22 @@ pub trait Syscon: Sync + Send {
 }
 
 /// SYSCON functionality provider.
-static SYSCON: Mutex<Option<Arc<dyn Syscon>>> = Mutex::new(None);
+static SYSCON: Mutex<Option<Box<dyn Syscon>>> = Mutex::new(None);
 
 /// Registers a new system controller as global provider.
 ///
 /// If a provider is already registered, it will be replaced.
-pub fn register_provider(syscon: Arc<dyn Syscon>) {
-    *SYSCON.lock() = Some(syscon);
+pub fn register_provider<T>(dev: T)
+where
+    T: Syscon + 'static,
+{
+    let mut syscon = SYSCON.lock();
+
+    if syscon.is_none() {
+        *syscon = Some(Box::new(dev));
+    } else {
+        kprintln!("Error: only one system controller is supported!")
+    }
 }
 
 /// Powers off the system.

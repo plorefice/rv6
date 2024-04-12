@@ -2,7 +2,7 @@
 
 use core::mem::size_of;
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::boxed::Box;
 use fdt::Node;
 
 use crate::{
@@ -28,7 +28,7 @@ pub struct VirtioMmio {
 }
 
 impl Driver for VirtioMmio {
-    fn init<'d, 'fdt: 'd>(node: Node) -> Result<Arc<Self>, DriverError<'d>> {
+    fn init<'d, 'fdt: 'd>(node: Node) -> Result<(), DriverError<'d>> {
         let (base, size) = node
             .property::<(u64, u64)>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
@@ -56,14 +56,16 @@ impl Driver for VirtioMmio {
         // Device initialization
         dev.set_guest_page_size(arch::PAGE_SIZE as u32);
 
-        let driver = match dev_id {
+        let _driver = match dev_id {
             2 => Box::new(VirtioBlkDev::new(dev)),
             _ => todo!("unsupported virtio device"),
         };
 
         kprintln!("virtio-mmio: new device {vendor_id:x}:{dev_id:x} at 0x{base:x}");
 
-        Ok(VirtioMmio { _driver: driver }.into())
+        // TODO: register this as block device
+
+        Ok(())
     }
 }
 

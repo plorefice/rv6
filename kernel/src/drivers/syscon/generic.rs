@@ -1,6 +1,5 @@
 //! Generic system controller.
 
-use alloc::sync::Arc;
 use fdt::{Fdt, Node, PropEncodedArray};
 
 use crate::{
@@ -28,7 +27,7 @@ struct SysconRegister {
 }
 
 impl Driver for GenericSyscon {
-    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<Arc<Self>, DriverError<'d>> {
+    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>> {
         let mut regs = node
             .property::<PropEncodedArray<(u64, u64)>>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
@@ -50,11 +49,9 @@ impl Driver for GenericSyscon {
             slf.reboot = find_syscon_driver(node.fdt(), phandle, "syscon-reboot")?;
         }
 
-        let slf = Arc::new(slf);
+        syscon::register_provider(slf);
 
-        syscon::register_provider(slf.clone());
-
-        Ok(slf)
+        Ok(())
     }
 }
 

@@ -16,14 +16,14 @@ fn panic(info: &PanicInfo) -> ! {
 #[cfg(test)]
 #[panic_handler]
 fn panic(info: &PanicInfo) -> ! {
-    use crate::drivers::syscon::SYSCON;
+    use crate::drivers::syscon;
 
     kprintln!("FAILED");
     kprintln!();
     kprintln!("Error: {}", info);
 
     // Exit from QEMU with error
-    SYSCON.lock().poweroff(1);
+    syscon::poweroff();
 
     unreachable!();
 }

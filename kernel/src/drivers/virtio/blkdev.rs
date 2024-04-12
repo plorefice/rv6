@@ -1,4 +1,4 @@
-use core::ffi::CStr;
+use core::{ffi::CStr, hint};
 
 use alloc::string::String;
 use bitflags::bitflags;
@@ -108,11 +108,6 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
 
         self.transfer(VirtioBlkReqType::GetId, 0, buf.phys_addr(), 20);
 
-        while !self.dev.interrupts().contains(InterruptStatus::USED_BUFFER) {
-            core::hint::spin_loop();
-        }
-        self.dev.clear_interrupts(InterruptStatus::USED_BUFFER);
-
         let id = CStr::from_bytes_until_nul(buf.as_ref()).ok()?;
         if id.is_empty() {
             return None;
@@ -167,6 +162,13 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
             .iter()
             .filter_map(Option::as_ref),
         );
+
+        // TODO: replace this with proper interrupt handling
+        while !self.dev.interrupts().contains(InterruptStatus::USED_BUFFER) {
+            hint::spin_loop();
+        }
+
+        self.dev.clear_interrupts(InterruptStatus::USED_BUFFER);
     }
 }
 

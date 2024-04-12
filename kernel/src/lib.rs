@@ -16,7 +16,7 @@
 use alloc::{boxed::Box, string::String};
 use fdt::Fdt;
 
-use crate::arch::wfi;
+use crate::drivers::{irqchip, syscon};
 
 #[macro_use]
 extern crate alloc;
@@ -63,10 +63,9 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     let fdt = unsafe { Fdt::from_raw_ptr(fdt_data) }.expect("invalid fdt data");
 
     // Subsystem initialization
+    irqchip::init(&fdt).expect("irqchip initialization failed");
     drivers::init(&fdt).expect("driver initialization failed");
 
-    loop {
-        wfi();
-        kprintln!("Main task awoke!");
-    }
+    syscon::poweroff();
+    arch::halt();
 }
