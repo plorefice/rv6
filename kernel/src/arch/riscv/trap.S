@@ -11,6 +11,12 @@
 .global trap_entry
 .align 4
 trap_entry:
+    // If trap came from U-mode, swap to kernel stack using sscratch
+    csrr t0, sstatus
+    andi t0, t0, (1 << 8)       // SPP bit
+    bnez t0, 1f                 // if SPP=1, trap from S-mode, don't swap
+    csrrw sp, sscratch, sp      // sp <- ksp, sscratch <- usp
+1:
     // Make space to save registers
     addi sp, sp, -256
 
@@ -91,5 +97,11 @@ trap_entry:
     // Restore stack pointer
     addi sp, sp, 256
 
+    // If returning to U-mode, swap back to user stack
+    csrr t0, sstatus
+    andi t0, t0, (1 << 8)       // SPP
+    bnez t0, 2f                 // returning to S-mode, don't swap
+    csrrw sp, sscratch, sp      // sp <- usp, sscratch <- ksp
+2:
     // Back to normal execution
     sret
