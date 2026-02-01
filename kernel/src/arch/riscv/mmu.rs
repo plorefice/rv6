@@ -316,6 +316,8 @@ pub enum MapError {
     AlreadyMapped,
     /// Frame allocation failed.
     AllocationFailed,
+    /// A page table entry was found corrupted or not respecting some invariants.
+    CorruptedPageTable,
 }
 
 /// A simple memory mapper.
@@ -480,6 +482,84 @@ impl<'a> PageTableWalker<'a> {
                     flags,
                     allocator,
                 )?;
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Copy kernel mappings to this page table. User mappings are ignored.
+    ///
+    /// # Safety
+    ///
+    /// It is assumed that `kernel_pt` points to a valid root page table. If not, this function
+    /// might perform invalid memory accesses.
+    pub unsafe fn copy_kernel_mappings(
+        &mut self,
+        kernel_pt: &PageTable,
+        allocator: &mut impl FrameAllocator<PhysAddr, PAGE_SIZE>,
+    ) -> Result<(), MapError> {
+        // Start recursive copy from the top level
+        // SAFETY: assuming caller has upheld the safety contract
+        unsafe {
+            self._copy_kernel_mappings_recursive(
+                kernel_pt,
+                VirtAddr::new_truncated(0),
+                PAGE_LEVELS - 1,
+                allocator,
+            )
+        }
+    }
+
+    /// Recursively copies kernel page table entries to the user page table.
+    ///
+    /// # Safety
+    ///
+    /// Assumes that both page table arguments are valid and the allocator is properly initialized.
+    unsafe fn _copy_kernel_mappings_recursive(
+        &mut self,
+        kernel_table: &PageTable,
+        base_vaddr: VirtAddr,
+        level: usize,
+        allocator: &mut impl FrameAllocator<PhysAddr, PAGE_SIZE>,
+    ) -> Result<(), MapError> {
+        for (i, entry) in kernel_table
+            .iter()
+            .enumerate()
+            .filter(|(_, e)| e.is_valid() && !e.is_user())
+        {
+            let vaddr = base_vaddr + (i << (9 * level + PAGE_SHIFT as usize));
+
+            if entry.is_leaf() {
+                // This is a leaf entry - map it directly at the appropriate page size
+                let page_size = PageSize::from_table_level(level).unwrap();
+
+                // SAFETY: assuming caller has upheld the safety contract
+                unsafe {
+                    self.map(
+                        vaddr,
+                        PhysAddr::from_ppn(entry.get_ppn()),
+                        page_size,
+                        entry.flags(),
+                        allocator,
+                    )?;
+                }
+            } else {
+                // This is a non-leaf entry pointing to another page table - recurse into it
+                // Level 0 entries should always be leaf entries
+                if level == 0 {
+                    return Err(MapError::CorruptedPageTable);
+                }
+
+                // SAFETY: if this PTE is valid then the PPN points to valid memory
+                let inner_table = unsafe {
+                    &*pa_to_va(PhysAddr::from_ppn(entry.get_ppn())).as_ptr::<PageTable>()
+                };
+
+                // SAFETY: assuming caller has upheld the safety contract
+                unsafe {
+                    self._copy_kernel_mappings_recursive(inner_table, vaddr, level - 1, allocator)?;
+                }
             }
         }
 
