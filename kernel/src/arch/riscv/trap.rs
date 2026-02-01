@@ -157,6 +157,7 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapF
             InstrPageFault | LoadPageFault | StorePageFault => {
                 kprintln!("=> Page fault trying to access {:016x}", tval)
             }
+            EnvCallFromU => kprintln!("=> Environment call from user mode"),
             ex => kprintln!("=> Unhandled exception: {:?}, tval {:016x}", ex, tval),
         }
 
