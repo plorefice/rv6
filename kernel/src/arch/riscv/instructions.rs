@@ -28,3 +28,12 @@ pub fn sfence_vma() {
         asm!("sfence.vma", options(nomem, nostack, preserves_flags));
     }
 }
+
+/// Executes an instruction cache flush.
+#[inline]
+pub fn fence_i() {
+    // SAFETY: no memory side effects
+    unsafe {
+        asm!("fence.i", options(nomem, nostack, preserves_flags));
+    }
+}
