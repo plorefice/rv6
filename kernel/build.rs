@@ -6,7 +6,9 @@ fn main() {
     if target == "riscv64" {
         // Build startup code and archive it
         let mut cc = cc::Build::new();
-        cc.compiler("riscv64-elf-gcc").flag("-mabi=lp64d");
+        cc.compiler("riscv64-elf-gcc")
+            .flag("-march=rv64gc")
+            .flag("-mabi=lp64d");
 
         cc.file("src/arch/riscv/head.S")
             .file("src/arch/riscv/trap.S")

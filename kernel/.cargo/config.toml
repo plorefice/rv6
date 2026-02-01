@@ -1,6 +1,8 @@
 [unstable]
-build-std = ["core", "alloc"]
+build-std = ["core", "alloc", "compiler_builtins"]
+build-std-features = ["compiler-builtins-mem"]
+json-target-spec = true
 
 [build]
-target = "riscv64gc-unknown-none-elf"
+target = "riscv64gc-lp64d.json"
 rustflags = ["-C", "force-frame-pointers=yes"]
