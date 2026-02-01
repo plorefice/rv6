@@ -406,6 +406,52 @@ impl Satp {
     }
 }
 
+#[derive(Debug)]
+pub struct Sepc;
+
+impl Sepc {
+    /// Reads the content of `sepc`.
+    #[inline]
+    pub fn read() -> u64 {
+        let value: u64;
+        // SAFETY: read with no memory side effects
+        unsafe {
+            asm!("csrr {}, sepc", out(reg) value, options(nomem));
+        }
+        value
+    }
+
+    /// Writes to `sepc`.
+    #[inline]
+    pub fn write(v: u64) {
+        // SAFETY: write with no memory side effects
+        unsafe { asm!("csrw sepc, {}", in(reg) v, options(nostack)) };
+    }
+}
+
+#[derive(Debug)]
+pub struct Sscratch;
+
+impl Sscratch {
+    /// Reads the content of `sscratch`.
+    #[inline]
+    pub fn read() -> u64 {
+        let value: u64;
+        // SAFETY: read with no memory side effects
+        unsafe {
+            asm!("csrr {}, sscratch", out(reg) value, options(nomem));
+        }
+        value
+    }
+
+    /// Writes to `sscratch`.
+    #[inline]
+    pub fn write(v: u64) {
+        // SAFETY: write with no memory side effects
+        unsafe { asm!("csrw sscratch, {}", in(reg) v, options(nostack)) };
+    }
+}
+
 /// The `time` register holds the wall-clock real time that has passed
 /// from an arbitrary start time in the past.
 #[derive(Debug)]
