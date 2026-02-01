@@ -16,7 +16,7 @@ pub struct Fdt<'d> {
 }
 
 impl<'d> Fdt<'d> {
-    pub fn from_bytes(fdt: &'d [u8]) -> Result<Self, FdtParseError> {
+    pub fn from_bytes(fdt: &'d [u8]) -> Result<Self, FdtParseError<'d>> {
         let hdr = Header::from_bytes(fdt)?;
 
         if hdr.totalsize as usize != fdt.len() {
@@ -45,7 +45,9 @@ impl<'d> Fdt<'d> {
         self.hdr.boot_cpuid_phys
     }
 
-    pub fn reserved_memory_map(&self) -> impl Iterator<Item = Result<ReserveEntry, FdtParseError>> {
+    pub fn reserved_memory_map(
+        &'_ self,
+    ) -> impl Iterator<Item = Result<ReserveEntry, FdtParseError<'_>>> {
         self.data[self.hdr.off_mem_rsvmap as usize..]
             .chunks_exact(16)
             .map(ReserveEntry::from_bytes)
@@ -55,7 +57,7 @@ impl<'d> Fdt<'d> {
             })
     }
 
-    pub fn root_node<'fdt>(&'fdt self) -> Result<Node<'d, 'fdt>, FdtParseError> {
+    pub fn root_node<'fdt>(&'fdt self) -> Result<Node<'d, 'fdt>, FdtParseError<'d>> {
         Node::from_bytes(
             self,
             0,
@@ -68,7 +70,7 @@ impl<'d> Fdt<'d> {
     pub fn find_by_path<'fdt>(
         &'fdt self,
         path: &str,
-    ) -> Result<Option<Node<'d, 'fdt>>, FdtParseError> {
+    ) -> Result<Option<Node<'d, 'fdt>>, FdtParseError<'d>> {
         let root = self.root_node()?;
 
         if path.is_empty() || path == "/" {
@@ -91,7 +93,7 @@ impl<'d> Fdt<'d> {
     pub fn find_compatible<'fdt>(
         &'fdt self,
         compatbile: &str,
-    ) -> Result<Option<Node<'d, 'fdt>>, FdtParseError> {
+    ) -> Result<Option<Node<'d, 'fdt>>, FdtParseError<'d>> {
         self.find(|n| {
             matches!(
                 n.property::<StringList>("compatible")
@@ -101,7 +103,7 @@ impl<'d> Fdt<'d> {
         })
     }
 
-    pub fn find<'fdt, F>(&'fdt self, f: F) -> Result<Option<Node<'d, 'fdt>>, FdtParseError>
+    pub fn find<'fdt, F>(&'fdt self, f: F) -> Result<Option<Node<'d, 'fdt>>, FdtParseError<'d>>
     where
         F: Fn(&Node<'d, 'fdt>) -> bool + Copy,
     {
@@ -132,7 +134,7 @@ struct Header {
 }
 
 impl Header {
-    fn from_bytes(s: &[u8]) -> Result<Self, FdtParseError> {
+    fn from_bytes<'d>(s: &'d [u8]) -> Result<Self, FdtParseError<'d>> {
         let (_, header) = Header::parse(s).map_err(FdtParseError::ParseError)?;
 
         if header.magic != 0xd00dfeed {
@@ -183,7 +185,7 @@ pub struct ReserveEntry {
 }
 
 impl ReserveEntry {
-    fn from_bytes(s: &[u8]) -> Result<Self, FdtParseError> {
+    fn from_bytes<'d>(s: &'d [u8]) -> Result<Self, FdtParseError<'d>> {
         Ok(Self::parse(s).map_err(FdtParseError::ParseError)?.1)
     }
 

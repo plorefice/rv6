@@ -16,7 +16,7 @@ use crate::{
     mm::{allocator::FrameAllocator, Align},
 };
 
-#[cfg(all(feature = "sv39", feature = "sv38"))]
+#[cfg(all(feature = "sv39", feature = "sv48"))]
 compile_error!("Features \"sv39\" and \"sv48\" are mutually exclusive.");
 
 #[cfg(feature = "sv39")]
