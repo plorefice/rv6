@@ -66,6 +66,9 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     irqchip::init(&fdt).expect("irqchip initialization failed");
     drivers::init(&fdt).expect("driver initialization failed");
 
+    // TODO: remove me, this is just a sample
+    arch::riscv::spawn_test_userspace_process();
+
     syscon::poweroff();
     arch::halt();
 }
