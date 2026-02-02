@@ -7,10 +7,10 @@ use core::{
 use spin::Mutex;
 
 use crate::{
-    arch::pa_to_va,
+    arch::phys_to_virt,
     mm::{
-        allocator::{Frame, FrameAllocator},
         PhysicalAddress,
+        allocator::{Frame, FrameAllocator},
     },
 };
 
@@ -134,7 +134,7 @@ where
         let paddr = A::try_from(bump.ptr as u64).ok()?;
         let frame = Frame {
             // SAFETY: safe as long as Self::new was called with physical addresses
-            ptr: unsafe { pa_to_va(paddr).as_mut_ptr() },
+            ptr: unsafe { phys_to_virt(paddr).as_mut_ptr() },
             paddr,
         };
 

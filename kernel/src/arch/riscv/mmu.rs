@@ -10,7 +10,7 @@ use bitflags::bitflags;
 
 use crate::{
     arch::{
-        pa_to_va,
+        phys_to_virt,
         riscv::{
             addr::{PhysAddr, VirtAddr, PAGE_SHIFT, PAGE_SIZE},
             instructions::sfence_vma,
@@ -399,7 +399,7 @@ impl<'a> PageTableWalker<'a> {
             };
 
             // SAFETY: the resulting pointer points to properly initialized memory
-            let table = unsafe { &mut *pa_to_va(table_paddr).as_mut_ptr::<PageTable>() };
+            let table = unsafe { &mut *phys_to_virt(table_paddr).as_mut_ptr::<PageTable>() };
 
             pte = table.get_entry_mut(vpn[i]).unwrap();
         }
@@ -558,7 +558,7 @@ impl<'a> PageTableWalker<'a> {
 
                 // SAFETY: if this PTE is valid then the PPN points to valid memory
                 let inner_table = unsafe {
-                    &*pa_to_va(PhysAddr::from_ppn(entry.get_ppn())).as_ptr::<PageTable>()
+                    &*phys_to_virt(PhysAddr::from_ppn(entry.get_ppn())).as_ptr::<PageTable>()
                 };
 
                 // SAFETY: assuming caller has upheld the safety contract
@@ -610,7 +610,7 @@ impl<'a> PageTableWalker<'a> {
             }
 
             // SAFETY: if this PTE is valid then the PPN points to valid memory
-            table = unsafe { &*pa_to_va(PhysAddr::from_ppn(pte.get_ppn())).as_ptr::<PageTable>() };
+            table = unsafe { &*phys_to_virt(PhysAddr::from_ppn(pte.get_ppn())).as_ptr::<PageTable>() };
         }
 
         None
@@ -699,7 +699,7 @@ fn _dump_page_table(
         } else {
             // SAFETY: we are traversing a page table, so we assume that the corresponding virtual
             //         memory has been properly mapped
-            let inner = unsafe { pa_to_va(PhysAddr::from_ppn(entry.get_ppn())) };
+            let inner = unsafe { phys_to_virt(PhysAddr::from_ppn(entry.get_ppn())) };
 
             // SAFETY: non-leaf PTEs point to other page tables
             let inner = unsafe { &*inner.as_mut_ptr::<PageTable>() };

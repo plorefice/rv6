@@ -19,6 +19,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "cpio"
+version = "0.1.0"
+
+[[package]]
 name = "fdt"
 version = "0.1.0"
 dependencies = [
@@ -83,6 +87,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags",
  "cc",
+ "cpio",
  "fdt",
  "lazy_static",
  "paste",

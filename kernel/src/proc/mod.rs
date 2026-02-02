@@ -1,6 +1,6 @@
 //! Process management module.
 
-use crate::arch::{self, pa_to_va};
+use crate::arch::{self, phys_to_virt};
 
 /// Process control block.
 pub struct Process {
@@ -36,22 +36,19 @@ impl Process {
 }
 
 /// Spawns a sample init process.
-pub fn spawn_init_process() -> ! {
+pub fn spawn_init_process(text: &[u8]) -> ! {
     let mut pcb = Process::new();
 
     // Allocate user memory
     let procmem = crate::arch::alloc_process_memory(&mut pcb);
 
     // Copy user code into place
-    // TODO: actually load data from somewhere
     // SAFETY: `code_frame` was just allocated and mapped.
     unsafe {
-        let code: [u32; 4] = [0x00000513, 0x02a00893, 0x00000073, 0x0000006f];
-
         core::ptr::copy_nonoverlapping(
-            code.as_ptr(),
-            pa_to_va(procmem.text_frame).as_mut_ptr(),
-            code.len(),
+            text.as_ptr(),
+            phys_to_virt(procmem.text_frame).as_mut_ptr(),
+            text.len(),
         );
     }
 

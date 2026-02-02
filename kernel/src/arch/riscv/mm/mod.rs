@@ -245,7 +245,7 @@ fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: u64) {
 ///
 /// For performance reasons, no checks are performed on `pa`. It is assumed that the caller
 /// upholds the condition `phys_mem_start <= pa < phys_mem_end`.
-pub unsafe fn pa_to_va(pa: impl PhysicalAddress<u64>) -> VirtAddr {
+pub unsafe fn phys_to_virt(pa: impl PhysicalAddress<u64>) -> VirtAddr {
     PHYS_TO_VIRT_OFFSET + (pa.into() - PHYS_MEM_OFFSET.load(Ordering::Relaxed)) as usize
 }
 

@@ -7,7 +7,7 @@
 //!
 //! This is meant for initrd/initramfs usage in a kernel.
 
-#![allow(dead_code)]
+#![no_std]
 
 use core::{fmt, str};
 
