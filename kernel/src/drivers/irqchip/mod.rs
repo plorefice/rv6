@@ -34,11 +34,10 @@ pub fn init<'d>(fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
         if let Some(modinfo) = infos
             .iter()
             .find(|i| compatibles.clone().any(|c| i.of_match().contains(&c)))
+            && let Err(e) = modinfo.init(node)
         {
-            if let Err(e) = modinfo.init(node) {
-                kprintln!("Error: Failed to init IRQ chip: {:?}", e);
-            };
-        }
+            kprintln!("Error: Failed to init IRQ chip: {:?}", e);
+        };
     }
 
     Ok(())

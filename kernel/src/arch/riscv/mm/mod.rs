@@ -2,7 +2,7 @@
 
 use core::{
     alloc::{GlobalAlloc, Layout},
-    mem::{self, size_of, MaybeUninit},
+    mem::{self, MaybeUninit, size_of},
     ops::{Deref, DerefMut},
     ptr::NonNull,
     slice,
@@ -11,14 +11,14 @@ use core::{
 
 use crate::{
     arch::riscv::{
-        addr::{PhysAddr, VirtAddr, PAGE_SIZE},
+        addr::{PAGE_SIZE, PhysAddr, VirtAddr},
         instructions::sfence_vma,
         mmu::{self, EntryFlags, PageSize, PageTable},
         registers::Satp,
     },
     mm::{
-        allocator::{BumpAllocator, BumpFrameAllocator, FrameAllocator},
         Align, PhysicalAddress,
+        allocator::{BumpAllocator, BumpFrameAllocator, FrameAllocator},
     },
     proc::{Process, ProcessMemory},
 };
@@ -45,7 +45,7 @@ const IOMAP_MEM_OFFSET: VirtAddr = VirtAddr::new_truncated(0xffff_ffe0_0000_0000
 const LOAD_OFFSET: VirtAddr = VirtAddr::new_truncated(0xffff_ffff_8000_0000);
 
 // Defined in linker script
-extern "C" {
+unsafe extern "C" {
     /// The starting word of the kernel in memory.
     static _start: usize;
     /// The ending word of the kernel in memory.

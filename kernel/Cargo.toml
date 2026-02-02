@@ -1,9 +1,9 @@
 [package]
-authors = ["Pietro Lorefice <pietro.lorefice@gmail.com>"]
-edition = "2018"
-license = "MIT/Apache-2.0"
 name = "rv6"
 version = "0.1.0"
+authors = ["Pietro Lorefice <pietro.lorefice@gmail.com>"]
+license = "MIT/Apache-2.0"
+edition = "2024"
 
 [lib]
 crate-type = ["lib", "staticlib"]

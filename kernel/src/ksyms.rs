@@ -2,7 +2,7 @@
 
 use core::{ffi::c_uchar, ptr, str};
 
-extern "C" {
+unsafe extern "C" {
     static ksyms_offsets: usize; // actually an array
     static ksyms_num_syms: usize;
     static ksyms_markers: usize; // actually an array

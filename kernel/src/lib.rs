@@ -49,7 +49,7 @@ ____________________________________/\\\\////__
 ///
 /// This function uses the raw pointer to the FDT passed from the entry code, and as such is
 /// unsafe.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     kprintln!("{}", RV6_ASCII_LOGO);
 

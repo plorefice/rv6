@@ -132,7 +132,7 @@ impl TrapFrame {
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapFrame) -> usize {
     let is_irq = (cause & CAUSE_IRQ_FLAG_MASK) != 0;
     let irq = cause & !CAUSE_IRQ_FLAG_MASK;
@@ -175,7 +175,7 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapF
 
 /// Configures the trap vector used to handle traps in S-mode.
 pub fn init() {
-    extern "C" {
+    unsafe extern "C" {
         // Defined in trap.S
         fn trap_entry();
     }

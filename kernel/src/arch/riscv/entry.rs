@@ -14,7 +14,7 @@ use super::{mm, sbi, time, trap};
 ///
 /// Physical and virtual memory setup is performed here among other things, so a lot of stuff
 /// can go wrong.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn arch_init(fdt_data: *const u8, kernel_rpt_va: usize) {
     // Parse the FDT
     // SAFETY: `fdt_data` is a valid pointer to a valid FDT

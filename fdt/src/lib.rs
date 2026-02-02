@@ -3,11 +3,11 @@
 use core::fmt;
 
 use nom::{
+    IResult,
     bytes::complete::{tag, take, take_while},
     combinator::map_res,
     multi::many0_count,
     number::complete::{be_u32, be_u64},
-    IResult,
 };
 
 pub struct Fdt<'d> {
@@ -32,8 +32,8 @@ impl<'d> Fdt<'d> {
     /// field of the FDT header to retrieve the blob length. Moreover, the data must remain valid
     /// and not mutated for the duration of lifetime `'d`.
     pub unsafe fn from_raw_ptr(fdt: *const u8) -> Result<Self, FdtParseError<'d>> {
-        let size = (fdt as *const u32).offset(1).read().to_be() as usize;
-        let data = core::slice::from_raw_parts(fdt, size);
+        let size = unsafe { (fdt as *const u32).offset(1).read().to_be() as usize };
+        let data = unsafe { core::slice::from_raw_parts(fdt, size) };
         Self::from_bytes(data)
     }
 
@@ -252,7 +252,7 @@ impl<'d, 'fdt> Node<'d, 'fdt> {
             .and_then(|p| p.value())
     }
 
-    pub fn children(&self) -> impl Iterator<Item = Node<'d, 'fdt>> {
+    pub fn children(&self) -> impl Iterator<Item = Node<'d, 'fdt>> + use<'d, 'fdt> {
         self.children.clone()
     }
 

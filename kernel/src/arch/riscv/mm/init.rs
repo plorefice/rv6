@@ -46,9 +46,9 @@ struct FfiPair {
 ///
 /// Moreover, at this point no frame allocator has been setup yet, so we use a few statically
 /// allocated frames to perform the mappings.
-#[no_mangle]
+#[unsafe(no_mangle)]
 unsafe extern "C" fn setup_early_vm(fdt_ptr: *const u8) -> FfiPair {
-    extern "C" {
+    unsafe extern "C" {
         fn _start();
         fn _end();
     }

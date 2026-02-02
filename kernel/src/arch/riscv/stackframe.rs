@@ -47,7 +47,7 @@ fn walk_stack_frame() {
 
 /// Returns whether an address lies withing the kernel's `.text` section.
 fn is_kernel_text_address(pc: usize) -> bool {
-    extern "C" {
+    unsafe extern "C" {
         static _stext: usize;
         static _etext: usize;
     }
