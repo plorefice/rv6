@@ -34,6 +34,7 @@ debug: $(RV6_BIN)
 	@$(QEMU) -kernel "$<" -S -s
 
 clean:
+	@cargo clean
 	@cd kernel && cargo clean
 	@rm -f "$(RV6_BIN)" "$(RV6_DYLIB)" rv6.map
 
