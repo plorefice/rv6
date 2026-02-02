@@ -18,4 +18,4 @@ cp output/userland/init/init output/initrd/bin/init
 
 # Create cpio initrd image
 cd output/initrd
-find . -print0 | cpio -0 -o --format=newc > ../initrd.cpio
+find . -print0 | perl -0pe 's|^\./||' | cpio -0 -o --format=newc > ../initrd.cpio

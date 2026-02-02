@@ -16,7 +16,7 @@
 use alloc::{boxed::Box, string::String};
 use fdt::Fdt;
 
-use crate::{arch::phys_to_virt, drivers::irqchip};
+use crate::drivers::irqchip;
 
 #[macro_use]
 extern crate alloc;
@@ -26,6 +26,7 @@ pub mod macros;
 
 pub mod arch;
 pub mod drivers;
+pub mod initrd;
 pub mod ksyms;
 pub mod mm;
 pub mod panic;
@@ -67,31 +68,12 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     irqchip::init(&fdt).expect("irqchip initialization failed");
     drivers::init(&fdt).expect("driver initialization failed");
 
-    let chosen = fdt.find_by_path("/chosen").unwrap().unwrap();
-    let (start_hi, start_lo) = chosen
-        .property::<(u32, u32)>("linux,initrd-start")
-        .expect("missing initrd-start property");
-    let (end_hi, end_lo) = chosen
-        .property::<(u32, u32)>("linux,initrd-end")
-        .expect("missing initrd-end property");
+    // Load initrd
+    let initrd = initrd::load_from_fdt(&fdt).expect("failed to load initrd");
 
-    let start: u64 = ((start_hi as u64) << 32) | (start_lo as u64);
-    let end: u64 = ((end_hi as u64) << 32) | (end_lo as u64);
-
-    kprintln!(
-        "Found initrd image at {:#x} (size {:#x})",
-        start,
-        end - start
-    );
-
-    let initrd_data = unsafe {
-        let va = phys_to_virt(start).as_ptr::<u8>();
-        core::slice::from_raw_parts(va, (end - start) as usize)
-    };
-
-    let init_code = cpio::find_file(initrd_data, "bin/init").unwrap().unwrap();
+    // Run init code
+    let init_code = initrd.find_file("bin/init").expect("init not found");
     kprintln!("Found init program in initrd, size {}", init_code.len());
-
     proc::spawn_init_process(init_code);
 
     // syscon::poweroff();
