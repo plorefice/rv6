@@ -7,10 +7,10 @@ use crate::arch::riscv::registers::{SiFlags, Sie, Sip, Sstatus, SstatusFlags};
 
 pub use addr::PAGE_SIZE;
 pub use irq::{local_irq_disable, local_irq_enable};
-pub use mm::{alloc_contiguous, alloc_contiguous_zeroed, iomap, pa_to_va, palloc};
-
-// TODO: remove me, this is just a sample
-pub(crate) use mm::spawn_test_userspace_process;
+pub use mm::{
+    alloc_contiguous, alloc_contiguous_zeroed, iomap, pa_to_va, palloc, proc::alloc_process_memory,
+};
+pub use proc::switch_to_process;
 
 mod addr;
 mod entry;
@@ -18,6 +18,7 @@ mod instructions;
 mod irq;
 mod mm;
 mod mmu;
+mod proc;
 mod registers;
 mod sbi;
 mod stackframe;

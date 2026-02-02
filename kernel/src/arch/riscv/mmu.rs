@@ -11,7 +11,11 @@ use bitflags::bitflags;
 use crate::{
     arch::{
         pa_to_va,
-        riscv::addr::{PhysAddr, VirtAddr, PAGE_SHIFT, PAGE_SIZE},
+        riscv::{
+            addr::{PhysAddr, VirtAddr, PAGE_SHIFT, PAGE_SIZE},
+            instructions::sfence_vma,
+            registers::Satp,
+        },
     },
     mm::{allocator::FrameAllocator, Align},
 };
@@ -80,8 +84,9 @@ bitflags! {
         /// PTE flags for MMIO mappings
         const MMIO = Self::RW.bits() | Self::ACCESS.bits() | Self::DIRTY.bits() | Self::GLOBAL.bits();
 
-        /// PTE flags for user mappings
+        /// PTE flags for user text mappings
         const USER_RX = Self::RX.bits() | Self::USER.bits() | Self::ACCESS.bits();
+        /// PTE flags for user read-write data mappings
         const USER_RW = Self::RW.bits() | Self::USER.bits() | Self::ACCESS.bits() | Self::DIRTY.bits();
     }
 }
@@ -617,6 +622,24 @@ impl<'a> PageTableWalker<'a> {
     }
 }
 
+/// Immediately switches active root page table to the one pointed at by `ppn`.
+///
+/// # Safety
+///
+/// `ppn` must point to a valid root page table. Care must be taken by the caller
+/// to ensure that everything has been properly mapped to ensure correct execution
+/// after this function returns.
+pub unsafe fn switch_page_table(pa: PhysAddr) -> PhysAddr {
+    // Swap page tables
+    // SAFETY: assuming caller has upheld the safety contract
+    unsafe {
+        let prev = Satp::read_ppn();
+        Satp::write_ppn(pa.page_index());
+        sfence_vma();
+        PhysAddr::from_ppn(prev)
+    }
+}
+
 /// Dumps the current page mappings to the kernel console.
 ///
 /// Useful to debug the state of virtual memory.
@@ -626,7 +649,6 @@ impl<'a> PageTableWalker<'a> {
 /// It is assumed that `pt` points to the root page table. If not, this function might perform
 /// invalid memory accesses.
 pub unsafe fn dump_root_page_table(pt: &PageTable) {
-    kprintln!("Active memory mappings:");
     kprintln!("  vaddr            paddr            size             attr   ");
     kprintln!("  ---------------- ---------------- ---------------- -------");
     if let Some(mapping) = _dump_page_table(pt, VirtAddr::new_truncated(0), PAGE_LEVELS - 1, None) {

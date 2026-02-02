@@ -20,12 +20,14 @@ use crate::{
         allocator::{BumpAllocator, BumpFrameAllocator, FrameAllocator},
         Align, PhysicalAddress,
     },
+    proc::{Process, ProcessMemory},
 };
 use fdt::{Fdt, PropEncodedArray};
 use mmu::PageTableWalker;
 use spin::Mutex;
 
 mod init;
+pub mod proc;
 
 /// Base address for the physical address space.
 pub static PHYS_MEM_OFFSET: AtomicU64 = AtomicU64::new(0);
@@ -211,140 +213,13 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     }
 
     // SAFETY: `mapper.page_table()` is the root page directory
-    unsafe { mmu::dump_root_page_table(mapper.page_table()) };
+    unsafe {
+        kprintln!("Active memory mappings:");
+        mmu::dump_root_page_table(mapper.page_table())
+    };
 
     // Everything went well, configure this mapper as global
     *MAPPER.lock() = Some(mapper);
-}
-
-// TODO: remove me, this is just a sample
-pub(crate) fn spawn_test_userspace_process() {
-    const USER_TEXT_VA: VirtAddr = VirtAddr::new_truncated(0x4000_0000);
-    const USER_DATA_VA: VirtAddr = VirtAddr::new_truncated(0x4000_1000);
-    const USER_STACK_VA: VirtAddr = VirtAddr::new_truncated(0x4000_2000);
-
-    let code_frame;
-    let data_frame;
-    let stack_frame;
-
-    // SAFETY: `GFA` has been initialized in `setup_late`.
-    unsafe {
-        code_frame = GFA.lock().as_mut().unwrap().alloc(1).expect("oom");
-        data_frame = GFA.lock().as_mut().unwrap().alloc(1).expect("oom");
-        stack_frame = GFA.lock().as_mut().unwrap().alloc(1).expect("oom");
-    };
-
-    let mut gfa = GFA.lock();
-    let gfa = gfa.as_mut().unwrap();
-
-    // Let's start by getting a new root page table and its walker.
-    // SAFETY: if we have correctly set up the frame allocator, this is safe
-    let (mut user_mapper, user_rpt_pa) = unsafe {
-        let rpt_frame = gfa.alloc(1).unwrap();
-
-        let rpt = rpt_frame.ptr as *mut PageTable;
-        rpt.write(PageTable::new());
-
-        (PageTableWalker::new(&mut *rpt), rpt_frame.paddr)
-    };
-
-    // SAFETY: `MAPPER.page_table()` is the kernel root page directory.
-    unsafe {
-        // Copy kernel mappings
-        user_mapper
-            .copy_kernel_mappings(MAPPER.lock().as_ref().unwrap().page_table(), gfa)
-            .unwrap();
-
-        // Map user code pages
-        user_mapper
-            .map(
-                USER_TEXT_VA,
-                code_frame.paddr,
-                PageSize::Kb,
-                EntryFlags::USER_RX,
-                gfa,
-            )
-            .unwrap();
-
-        // Map user data pages
-        user_mapper
-            .map(
-                USER_DATA_VA,
-                data_frame.paddr,
-                PageSize::Kb,
-                EntryFlags::USER_RW,
-                gfa,
-            )
-            .unwrap();
-
-        // Map user stack pages
-        user_mapper
-            .map(
-                USER_STACK_VA,
-                stack_frame.paddr,
-                PageSize::Kb,
-                EntryFlags::USER_RW,
-                gfa,
-            )
-            .unwrap();
-    }
-
-    // Swap page tables.
-    // SAFETY: everything is dandy since the kernel mappings were copied over.
-    unsafe {
-        Satp::write_ppn(user_rpt_pa.page_index());
-        sfence_vma();
-    }
-
-    // SAFETY: `code_frame` was just allocated and mapped.
-    unsafe {
-        // addi a0, zero, 1
-        // ecall
-        let code: [u8; 8] = [0x13, 0x05, 0x10, 0x00, 0x73, 0x00, 0x00, 0x00];
-
-        core::ptr::copy_nonoverlapping(
-            code.as_ptr(),
-            pa_to_va(code_frame.paddr).as_mut_ptr(),
-            code.len(),
-        );
-
-        // Ensure instruction cache is up to date
-        crate::arch::riscv::instructions::fence_i();
-    }
-
-    // Configure sepc and sstatus for user mode
-    // SAFETY: `USER_TEXT_VA` is properly mapped.
-    unsafe {
-        use crate::arch::riscv::registers::{Sepc, Sstatus, SstatusFlags};
-
-        Sepc::write(USER_TEXT_VA.data() as u64);
-        Sstatus::update(|f| {
-            f.remove(SstatusFlags::SPP); // Set to user mode
-            f.insert(SstatusFlags::SPIE); // Enable interrupts on return to user mode
-        });
-    }
-
-    kprintln!("Switching to userspace...");
-
-    // Switch to user stack and jump to user mode
-    // NOTE: stack swap and sret must be "atomic": no stack usage must happen in between!
-    // SAFETY: everything is properly set up for user mode.
-    unsafe {
-        let user_sp = (USER_STACK_VA + PAGE_SIZE as usize).data();
-
-        core::arch::asm!(
-            // sscrath = kernel sp
-            "csrw sscratch, sp",
-            // sp = user sp
-            "mv sp, {user_sp}",
-            // sret to user mode
-            "sret",
-            user_sp = in(reg) user_sp,
-            options(noreturn));
-    }
-
-    // We should never return here!
-    kprintln!("Execution returned to kernel mode unexpectedly!");
 }
 
 fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: u64) {
@@ -412,6 +287,7 @@ pub unsafe fn iomap(base: impl PhysicalAddress<u64>, len: u64) -> *mut u8 {
     ptr
 }
 
+/// A handle to an object allocated in physical memory.
 // TODO: implement Drop
 pub struct Cookie<T: ?Sized> {
     ptr: NonNull<T>,
@@ -419,6 +295,7 @@ pub struct Cookie<T: ?Sized> {
 }
 
 impl<T: ?Sized> Cookie<T> {
+    /// Returns the physical address of the allocated object.
     pub fn phys_addr(&self) -> impl PhysicalAddress<u64> {
         self.phys
     }

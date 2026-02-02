@@ -406,6 +406,7 @@ impl Satp {
     }
 }
 
+/// The `sepc` register holds the exception program counter for supervisor mode.
 #[derive(Debug)]
 pub struct Sepc;
 
@@ -429,6 +430,7 @@ impl Sepc {
     }
 }
 
+/// The `sscratch` register is a scratch register for supervisor mode.
 #[derive(Debug)]
 pub struct Sscratch;
 

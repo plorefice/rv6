@@ -1,3 +1,5 @@
+//! Disables and enables interrupts on RISC-V architectures.
+
 use crate::arch::riscv::registers::{Sstatus, SstatusFlags};
 
 /// Disables interrupts for the current context.

@@ -16,7 +16,7 @@
 use alloc::{boxed::Box, string::String};
 use fdt::Fdt;
 
-use crate::drivers::{irqchip, syscon};
+use crate::drivers::irqchip;
 
 #[macro_use]
 extern crate alloc;
@@ -29,6 +29,7 @@ pub mod drivers;
 pub mod ksyms;
 pub mod mm;
 pub mod panic;
+pub mod proc;
 
 const RV6_ASCII_LOGO: &str = r#"
 ________________________________________/\\\\\_
@@ -66,9 +67,8 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     irqchip::init(&fdt).expect("irqchip initialization failed");
     drivers::init(&fdt).expect("driver initialization failed");
 
-    // TODO: remove me, this is just a sample
-    arch::riscv::spawn_test_userspace_process();
+    proc::spawn_init_process();
 
-    syscon::poweroff();
-    arch::halt();
+    // syscon::poweroff();
+    // arch::halt();
 }
