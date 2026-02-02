@@ -8,12 +8,13 @@ RV6_STATICLIB = kernel/target/$(TARGET)/debug/librv6.a
 OUTPUT_DIR = output
 RV6_DYLIB = $(OUTPUT_DIR)/rv6
 RV6_BIN = $(OUTPUT_DIR)/rv6.bin
+INITRD = $(OUTPUT_DIR)/initrd.cpio
 
 # Tools and utilities
 CROSS_COMPILE ?= riscv64-elf-
 OBJCOPY = $(CROSS_COMPILE)objcopy
 LD = $(CROSS_COMPILE)ld
-QEMU = qemu-system-riscv64 -M virt -cpu rv64,sv39=on -m 256M -nographic -serial mon:stdio \
+QEMU = qemu-system-riscv64 -M virt -cpu rv64,sv39=on -m 256M -nographic -serial mon:stdio -initrd $(INITRD) \
 		-device virtio-blk-device,serial=rv6-blk-dev,drive=hd0 -drive file=hdd.img,format=raw,id=hd0,if=none
 
 all: $(RV6_BIN)
@@ -31,10 +32,13 @@ $(RV6_BIN): $(RV6_DYLIB)
 ksymsgen: FORCE
 	@cd ksymsgen && cargo build
 
-qemu: $(RV6_BIN)
+$(INITRD):
+	@script/make-initrd.sh
+
+qemu: $(RV6_BIN) $(INITRD)
 	@$(QEMU) -kernel "$<"
 
-debug: $(RV6_BIN)
+debug: $(RV6_BIN) $(INITRD)
 	@$(QEMU) -kernel "$<" -S -s
 
 clean:
