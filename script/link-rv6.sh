@@ -18,6 +18,10 @@ CC="${CROSS_COMPILE}"gcc
 LDSCRIPT=$1
 shift
 
+# ... followed by the output file ...
+RV6_ELF=$1
+shift
+
 # ... followed by any archive files
 RV6_LIBS=("$@")
 
@@ -69,7 +73,7 @@ ksyms_step()
 cleanup()
 {
 	rm -f .tmp_rv6*
-	rm -f rv6
+	rm -f "${RV6_ELF}"
 	rm -f rv6.o
 }
 
@@ -111,6 +115,6 @@ ksyms_rv6=""
 ksyms_step 1
 ksyms_step 2
 ksyms_step 3
-link rv6 "${ksymso}"
+link "${RV6_ELF}" "${ksymso}"
 
 rm .tmp_rv6.ksyms*

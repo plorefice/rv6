@@ -1,10 +1,13 @@
 # Build target as recognized by Rust
 TARGET = riscv64gc-lp64d
 
-# Build artifacts
+# Build artifact
 RV6_STATICLIB = kernel/target/$(TARGET)/debug/librv6.a
-RV6_DYLIB = rv6
-RV6_BIN = rv6.bin
+
+# Output files
+OUTPUT_DIR = output
+RV6_DYLIB = $(OUTPUT_DIR)/rv6
+RV6_BIN = $(OUTPUT_DIR)/rv6.bin
 
 # Tools and utilities
 CROSS_COMPILE ?= riscv64-elf-
@@ -19,7 +22,8 @@ $(RV6_STATICLIB): FORCE
 	@cd kernel && cargo build
 
 $(RV6_DYLIB): $(RV6_STATICLIB) ksymsgen
-	@CROSS_COMPILE=$(CROSS_COMPILE) script/link-rv6.sh kernel/src/arch/riscv/linker/qemu.ld "$<"
+	@mkdir -p $(OUTPUT_DIR)
+	@CROSS_COMPILE=$(CROSS_COMPILE) script/link-rv6.sh kernel/src/arch/riscv/linker/qemu.ld "$@" "$<"
 
 $(RV6_BIN): $(RV6_DYLIB)
 	@$(OBJCOPY) -O binary "$<" "$@"
@@ -36,7 +40,7 @@ debug: $(RV6_BIN)
 clean:
 	@cargo clean
 	@cd kernel && cargo clean
-	@rm -f "$(RV6_BIN)" "$(RV6_DYLIB)" rv6.map
+	@rm -rf "$(OUTPUT_DIR)"
 
 FORCE:
 

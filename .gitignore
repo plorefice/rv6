@@ -1,8 +1,6 @@
 # Build artifacts
 **/target
-/rv6
-/rv6.bin
-/rv6.map
+/output
 /hdd.img
 
 # Ignore Cargo.lock by default but keep it for the kernel crate
