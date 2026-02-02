@@ -32,7 +32,7 @@ $(RV6_BIN): $(RV6_DYLIB)
 ksymsgen: FORCE
 	@cd ksymsgen && cargo build
 
-$(INITRD):
+$(INITRD): FORCE
 	@script/make-initrd.sh
 
 qemu: $(RV6_BIN) $(INITRD)

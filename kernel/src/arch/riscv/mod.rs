@@ -12,6 +12,7 @@ pub use mm::{
     proc::alloc_process_memory,
 };
 pub use proc::switch_to_process;
+pub use uaccess::with_user_access;
 
 mod addr;
 mod entry;
@@ -24,6 +25,7 @@ mod registers;
 mod sbi;
 mod stackframe;
 mod trap;
+mod uaccess;
 
 pub mod earlycon;
 pub mod time; // TODO: should really be private, or at least properly abstracted

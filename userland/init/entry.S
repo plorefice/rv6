@@ -1,7 +1,15 @@
-.global _start
+    .section .text
+    .globl _start
+
 _start:
-    /* ECALL $42 */
-    li a0, 0
-    li a7, 42
+    # sys_write(1, msg, msg_len)
+    li      a7, 0          # SYS_write
+    li      a0, 1          # fd = 1 (stdout)
+    la      a1, msg        # buf
+    li      a2, 24         # len
     ecall
-    j .
+
+1:  j       1b             # loop forever
+
+msg:
+    .ascii  "Hello from user space!\n"

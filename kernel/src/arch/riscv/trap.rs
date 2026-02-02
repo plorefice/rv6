@@ -2,7 +2,10 @@
 
 use stackframe::unwind_stack_frame;
 
-use crate::arch::riscv::registers::Stvec;
+use crate::{
+    arch::riscv::registers::Stvec,
+    syscalls::{self, UserPtr},
+};
 
 use super::*;
 
@@ -133,7 +136,7 @@ impl TrapFrame {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapFrame) -> usize {
+extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &mut TrapFrame) -> usize {
     let is_irq = (cause & CAUSE_IRQ_FLAG_MASK) != 0;
     let irq = cause & !CAUSE_IRQ_FLAG_MASK;
 
@@ -142,7 +145,6 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapF
 
         match irq {
             IrqCause::Timer => {
-                kprintln!("Tick!");
                 time::schedule_next_tick(time::CLINT_TIMEBASE);
             }
             _ => kprintln!("Unhandled IRQ: {:?}", irq),
@@ -158,7 +160,20 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &TrapF
                 kprintln!("=> Page fault trying to access {:016x}", tval)
             }
             EnvCallFromU => {
-                kprintln!("=> Environment call {} from user mode", tf.a7);
+                match tf.a7 {
+                    // SYS_write
+                    0 => {
+                        let fd = tf.a0;
+                        let buf = UserPtr::new(tf.a1);
+                        let len = tf.a2;
+                        let ret = syscalls::sys_write(fd, buf, len);
+                        tf.a0 = ret as usize;
+                    }
+                    _ => {
+                        kprintln!("=> Unknown syscall number: {}", tf.a7);
+                    }
+                }
+
                 return epc + 4;
             }
             ex => kprintln!("=> Unhandled exception: {:?}, tval {:016x}", ex, tval),

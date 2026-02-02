@@ -6,7 +6,7 @@ use bitflags::bitflags;
 
 bitflags! {
     /// Flags for the `sstatus` register.
-    #[derive(Debug)]
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub struct SstatusFlags: u64 {
         /// S-Mode interrupt enable.
         const SIE = 1 << 1;
