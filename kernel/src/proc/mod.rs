@@ -46,9 +46,7 @@ pub fn spawn_init_process() -> ! {
     // TODO: actually load data from somewhere
     // SAFETY: `code_frame` was just allocated and mapped.
     unsafe {
-        // addi a0, zero, 1
-        // ecall
-        let code: [u8; 8] = [0x13, 0x05, 0x10, 0x00, 0x73, 0x00, 0x00, 0x00];
+        let code: [u32; 4] = [0x00000513, 0x02a00893, 0x00000073, 0x0000006f];
 
         core::ptr::copy_nonoverlapping(
             code.as_ptr(),
