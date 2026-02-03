@@ -1,12 +1,12 @@
 use crate::{
     arch::{
+        PAGE_SIZE,
         riscv::{
             addr::PhysAddr,
             instructions::{fence_i, sfence_vma},
             mmu,
             registers::{Satp, Sepc, Sscratch, Sstatus, SstatusFlags},
         },
-        PAGE_SIZE,
     },
     proc::{Process, ProcessMemory},
 };

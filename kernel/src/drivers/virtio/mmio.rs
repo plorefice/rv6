@@ -9,8 +9,8 @@ use crate::{
     arch::{self, PAGE_SIZE},
     driver_info,
     drivers::{
-        virtio::{InterruptStatus, VirtioBlkDev, VirtioDev, VirtioDriver, Virtq},
         Driver, DriverError,
+        virtio::{InterruptStatus, VirtioBlkDev, VirtioDev, VirtioDriver, Virtq},
     },
     mm::mmio::Regmap,
 };

@@ -47,10 +47,11 @@ fn find_by_path() {
     // Valid nodes
     assert!(fdt.find_by_path("/poweroff").unwrap().is_some());
     assert!(fdt.find_by_path("/memory@80000000").unwrap().is_some());
-    assert!(fdt
-        .find_by_path("/cpus/cpu@0/interrupt-controller")
-        .unwrap()
-        .is_some());
+    assert!(
+        fdt.find_by_path("/cpus/cpu@0/interrupt-controller")
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[test]

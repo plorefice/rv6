@@ -17,8 +17,8 @@ use core::{mem::size_of, ptr, slice};
 use bitflags::bitflags;
 
 use crate::mm::{
-    allocator::{AllocatorError, Frame, FrameAllocator},
     PhysicalAddress,
+    allocator::{AllocatorError, Frame, FrameAllocator},
 };
 
 bitflags! {

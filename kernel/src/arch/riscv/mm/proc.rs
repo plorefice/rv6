@@ -1,11 +1,11 @@
 use crate::{
     arch::{
+        PAGE_SIZE,
         riscv::{
             addr::VirtAddr,
             mm::{GFA, MAPPER},
             mmu::{EntryFlags, PageSize, PageTable, PageTableWalker},
         },
-        PAGE_SIZE,
     },
     mm::allocator::FrameAllocator,
     proc::{Process, ProcessMemory},

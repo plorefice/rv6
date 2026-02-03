@@ -12,12 +12,12 @@ use crate::{
     arch::{
         phys_to_virt,
         riscv::{
-            addr::{PhysAddr, VirtAddr, PAGE_SHIFT, PAGE_SIZE},
+            addr::{PAGE_SHIFT, PAGE_SIZE, PhysAddr, VirtAddr},
             instructions::sfence_vma,
             registers::Satp,
         },
     },
-    mm::{allocator::FrameAllocator, Align},
+    mm::{Align, allocator::FrameAllocator},
 };
 
 #[cfg(all(feature = "sv39", feature = "sv48"))]
@@ -610,7 +610,8 @@ impl<'a> PageTableWalker<'a> {
             }
 
             // SAFETY: if this PTE is valid then the PPN points to valid memory
-            table = unsafe { &*phys_to_virt(PhysAddr::from_ppn(pte.get_ppn())).as_ptr::<PageTable>() };
+            table =
+                unsafe { &*phys_to_virt(PhysAddr::from_ppn(pte.get_ppn())).as_ptr::<PageTable>() };
         }
 
         None

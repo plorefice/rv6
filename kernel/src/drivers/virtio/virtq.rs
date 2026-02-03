@@ -2,7 +2,7 @@ use core::{
     alloc::Layout,
     mem::size_of,
     slice,
-    sync::atomic::{fence, Ordering},
+    sync::atomic::{Ordering, fence},
 };
 
 use crate::{

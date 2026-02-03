@@ -4,7 +4,7 @@ use fdt::{Fdt, Node, PropEncodedArray};
 
 use crate::{
     driver_info,
-    drivers::{syscon, Driver, DriverError},
+    drivers::{Driver, DriverError, syscon},
     mm::mmio::Regmap,
 };
 

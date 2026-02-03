@@ -3,8 +3,8 @@ use fdt::Node;
 use crate::{
     driver_info,
     drivers::{
-        irqchip::{self, InterruptController},
         Driver, DriverError,
+        irqchip::{self, InterruptController},
     },
     mm::mmio::Regmap,
 };

@@ -6,8 +6,8 @@ use bitflags::bitflags;
 use crate::{
     arch::palloc,
     drivers::virtio::{
-        virtq::{Virtq, VirtqBuffer},
         InterruptStatus, Status, VirtioDev, VirtioDriver,
+        virtq::{Virtq, VirtqBuffer},
     },
     mm::PhysicalAddress,
 };
