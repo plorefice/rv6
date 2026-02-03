@@ -32,7 +32,7 @@ pub unsafe fn switch_to_process(pcb: &Process, procmem: &ProcessMemory) -> ! {
     // Configure s-registers for user mode switch
     // SAFETY: assuming memory has been properly mapped and loaded
     unsafe {
-        let user_sp = procmem.stack_top_va as u64 + PAGE_SIZE;
+        let user_sp = procmem.stack_top_va as u64;
 
         // Prepare user PC and SP
         Sepc::write(procmem.text_start_va as u64);
