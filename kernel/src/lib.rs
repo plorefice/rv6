@@ -73,7 +73,7 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     let initrd = initrd::load_from_fdt(&fdt).expect("failed to load initrd");
 
     // Run init code
-    let init_code = initrd.find_file("bin/init").expect("init not found");
+    let init_code = initrd.find_file("init").expect("init not found");
     kprintln!("Found init program in initrd, size {}", init_code.len());
     proc::spawn_init_process(init_code);
 

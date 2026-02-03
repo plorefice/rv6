@@ -54,11 +54,19 @@ ksymsgen:
 	cargo build -p ksymsgen
 
 # ----------------------------
+# Userland build
+# ----------------------------
+
+userland:
+	cd userland && make all
+
+# ----------------------------
 # Initramfs and disk image
 # ----------------------------
 
-initrd:
-	scripts/make-initrd.sh
+initrd: userland
+	cd userland && make install
+	cd out/rootfs && find . -print0 | perl -0pe 's|^\./||' | cpio -0 -o --format=newc > ../initrd.cpio
 
 hddimg:
 	mkdir -p {{OUTDIR}}
@@ -89,6 +97,7 @@ gdb:
 clean:
 	cargo clean
 	cd kernel && cargo clean
+	cd userland && make distclean
 	rm -rf {{OUTDIR}}
 
 help:
