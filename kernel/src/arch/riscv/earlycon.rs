@@ -4,7 +4,7 @@
 
 use crate::arch::riscv::sbi;
 
-/// Writes a single char to the debug console.
-pub fn put(c: char) {
-    sbi::console::put(c as u8)
+/// Writes a single byte to the debug console.
+pub fn put(c: u8) {
+    sbi::console::put(c)
 }

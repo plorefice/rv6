@@ -51,15 +51,20 @@ pub fn sys_write(fd: usize, buf: UserPtr<u8>, len: usize) -> isize {
         return -1;
     }
 
-    let mut slice = vec![0u8; len];
-    // SAFETY: TODO: validate user pointer
-    unsafe { copy_from_user(&mut slice[..], buf) };
+    // Print each byte to the early console
+    arch::with_user_access(|| {
+        let mut p = buf.addr as *const u8;
+        for _ in 0..len {
+            // SAFETY: TODO: validate user pointer
+            let byte = unsafe {
+                let b = core::ptr::read_volatile(p);
+                p = p.add(1);
+                b
+            };
 
-    match core::str::from_utf8(slice.as_slice()) {
-        Ok(s) => {
-            kprint!("{}", s); // TODO: use console driver
-            len as isize
+            arch::earlycon::put(byte);
         }
-        Err(_) => -1,
-    }
+    });
+
+    len as isize
 }
