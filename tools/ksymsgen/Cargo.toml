@@ -6,4 +6,4 @@ license = "MIT/Apache-2.0"
 edition = "2024"
 
 [dependencies]
-rustc-demangle = "0.1.18"
+rustc-demangle = "0.1.27"

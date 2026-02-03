@@ -9,15 +9,15 @@ edition = "2024"
 crate-type = ["lib", "staticlib"]
 
 [dependencies]
-bitflags = "2.4.2"
+bitflags = "2.10.0"
 cpio = { path = "../crates/cpio" }
 fdt = { path = "../crates/fdt" }
-lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
-paste = "1.0.14"
+lazy_static = { version = "1.5.0", features = ["spin_no_std"] }
+paste = "1.0.15"
 spin = "0.10.0"
 
 [build-dependencies]
-cc = "1.0.83"
+cc = "1.2.55"
 
 [features]
 default = ["sv39"]

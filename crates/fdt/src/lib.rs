@@ -3,7 +3,7 @@
 use core::fmt;
 
 use nom::{
-    IResult,
+    IResult, Parser,
     bytes::complete::{tag, take, take_while},
     combinator::map_res,
     multi::many0_count,
@@ -299,14 +299,14 @@ impl<'d, 'fdt> Node<'d, 'fdt> {
         let start = input;
 
         // Skip FDT_NOP tokens
-        let (input, _) = many0_count(tag(&[0, 0, 0, 4]))(input)?;
+        let (input, _) = many0_count(tag([0, 0, 0, 4].as_ref())).parse(input)?;
 
         // FDT_BEGIN_NODE
-        let (input, _) = tag(&[0, 0, 0, 1])(input)?;
+        let (input, _) = tag([0, 0, 0, 1].as_ref())(input)?;
 
         // NUL terminated name
-        let (input, name) = map_res(take_while(|c| c != 0), core::str::from_utf8)(input)?;
-        let (input, _) = tag(&[0])(input)?;
+        let (input, name) = map_res(take_while(|c| c != 0), core::str::from_utf8).parse(input)?;
+        let (input, _) = tag([0].as_ref())(input)?;
 
         // Padded to 4 bytes
         let n = start.len() - input.len();
@@ -322,10 +322,10 @@ impl<'d, 'fdt> Node<'d, 'fdt> {
         let (input, _) = take(children.clone().span())(input)?;
 
         // Skip FDT_NOP tokens
-        let (input, _) = many0_count(tag(&[0, 0, 0, 4]))(input)?;
+        let (input, _) = many0_count(tag([0, 0, 0, 4].as_ref())).parse(input)?;
 
         // FDT_END
-        let (input, _) = tag(&[0, 0, 0, 2])(input)?;
+        let (input, _) = tag([0, 0, 0, 2].as_ref())(input)?;
 
         let span = start.len() - input.len();
 
@@ -413,10 +413,10 @@ impl<'d> Property<'d> {
         let start = input;
 
         // Skip FDT_NOP tokens
-        let (input, _) = many0_count(tag(&[0, 0, 0, 4]))(input)?;
+        let (input, _) = many0_count(tag([0, 0, 0, 4].as_ref())).parse(input)?;
 
         // Skip FDT_PROP token
-        let (input, _) = tag(&[0, 0, 0, 3])(input)?;
+        let (input, _) = tag([0, 0, 0, 3].as_ref())(input)?;
 
         // Property length and name string offset
         let (input, len) = be_u32(input)?;
