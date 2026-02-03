@@ -1,7 +1,7 @@
 # userland/apps/init/Makefile
 
 APP := init
-SRCS := entry.S
+SRCS := init.c
 
 # Install as /init (top-level file in rootfs)
 INSTALL_SUBDIR := .
