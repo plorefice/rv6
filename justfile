@@ -71,7 +71,7 @@ initrd: userland
 hddimg:
 	mkdir -p {{OUTDIR}}
 	dd if=/dev/zero of={{HDDIMG}} bs=1M count=64
-	mkfs.ext2 -F {{HDDIMG}}
+#   mkfs.ext2 -F {{HDDIMG}}
 
 # ----------------------------
 # QEMU
