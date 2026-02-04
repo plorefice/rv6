@@ -123,7 +123,7 @@ impl<const N: u64, A> FrameAllocator<A, N> for BumpFrameAllocator<N, A>
 where
     A: PhysicalAddress<u64>,
 {
-    unsafe fn alloc(&mut self, count: usize) -> Option<Frame<A>> {
+    fn alloc(&mut self, count: usize) -> Option<Frame<A>> {
         let bump = &mut self.inner;
 
         let next = bump.ptr.checked_add(count * N as usize)?;
@@ -144,5 +144,5 @@ where
         Some(frame)
     }
 
-    unsafe fn free(&mut self, _address: A) {}
+    fn free(&mut self, _frame: Frame<A>) {}
 }

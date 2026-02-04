@@ -398,9 +398,8 @@ impl<'a> PageTableWalker<'a> {
         for i in (page_size.to_table_level()..PAGE_LEVELS - 1).rev() {
             // Traverse page table entry to the next level, or allocate a new level of page table
             let table_paddr = if !pte.is_valid() {
-                // SAFETY: PageTable fits in a single 4k page
-                let frame = unsafe { allocator.alloc(1).ok_or(MapError::AllocationFailed)? };
-                let new_table_addr = frame.paddr;
+                let frame = allocator.alloc(1).ok_or(MapError::AllocationFailed)?;
+                let new_table_addr = frame.phys();
 
                 pte.clear();
                 pte.set_flags(EntryFlags::VALID);
@@ -409,7 +408,7 @@ impl<'a> PageTableWalker<'a> {
                 // Initialize the newly allocated page table
                 // SAFETY: new_table_addr points to valid writable memory
                 unsafe {
-                    (frame.ptr as *mut PageTable).write(PageTable::default());
+                    (frame.virt() as *mut PageTable).write(PageTable::default());
                 }
 
                 new_table_addr

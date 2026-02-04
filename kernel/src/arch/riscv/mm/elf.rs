@@ -37,10 +37,10 @@ impl ArchLoader for RiscvLoader {
         let (mut user_mapper, user_rpt_pa) = unsafe {
             let rpt_frame = gfa.alloc(1).expect("oom");
 
-            let rpt = rpt_frame.ptr as *mut PageTable;
+            let rpt = rpt_frame.virt() as *mut PageTable;
             rpt.write(PageTable::new());
 
-            (PageTableWalker::new(&mut *rpt), rpt_frame.paddr)
+            (PageTableWalker::new(&mut *rpt), rpt_frame.phys())
         };
 
         let kernel_rpt = MAPPER.lock();
@@ -102,12 +102,11 @@ impl ArchLoader for RiscvLoader {
         let gfa = gfa.as_mut().expect("GFA not initialized");
 
         // Allocate a physical frame for the mapping
-        // SAFETY: if the frame allocator is correctly set up, this is safe
-        let frame = unsafe { gfa.alloc(n_pages).expect("oom") };
+        let frame = gfa.alloc(n_pages).expect("oom");
 
         for i in 0..n_pages {
             let va = vaddr + i * (self.page_size() as usize);
-            let pa = frame.paddr + (i as u64) * self.page_size();
+            let pa = frame.phys() + (i as u64) * self.page_size();
 
             // Map each page
             // SAFETY: caller must ensure that vaddr and len are page-aligned and valid.

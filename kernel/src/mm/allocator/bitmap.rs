@@ -104,7 +104,7 @@ impl<A, const N: u64> FrameAllocator<A, N> for BitmapAllocator<A, N>
 where
     A: PhysicalAddress<u64>,
 {
-    unsafe fn alloc(&mut self, count: usize) -> Option<Frame<A>> {
+    fn alloc(&mut self, count: usize) -> Option<Frame<A>> {
         let mut i: usize = 0;
 
         'outer: while i < self.num_pages as usize {
@@ -151,8 +151,8 @@ where
         None
     }
 
-    unsafe fn free(&mut self, address: A) {
-        let offset: u64 = (address - self.base_addr).into() / N;
+    fn free(&mut self, frame: Frame<A>) {
+        let offset: u64 = (frame.phys() - self.base_addr).into() / N;
 
         for i in offset..self.num_pages {
             let flags = &mut self.descriptors[i as usize].flags;
@@ -252,110 +252,98 @@ mod tests {
 
     #[test]
     fn single_page() {
-        unsafe {
-            let (_, mut allocator) = create_allocator();
+        let (_, mut allocator) = create_allocator();
 
-            let ptr = allocator.alloc(1).expect("allocation failed");
-            assert_allocated(&mut allocator, 0, 1);
+        let ptr = allocator.alloc(1).expect("allocation failed");
+        assert_allocated(&mut allocator, 0, 1);
 
-            allocator.free(ptr);
-            assert_free(&mut allocator, 0, 1);
-        }
+        allocator.free(ptr);
+        assert_free(&mut allocator, 0, 1);
     }
 
     #[test]
     fn multiple_pages() {
-        unsafe {
-            let (_, mut allocator) = create_allocator();
+        let (_, mut allocator) = create_allocator();
 
-            let ptr = allocator.alloc(4).expect("allocation failed");
-            assert_allocated(&mut allocator, 0, 4);
+        let ptr = allocator.alloc(4).expect("allocation failed");
+        assert_allocated(&mut allocator, 0, 4);
 
-            allocator.free(ptr);
-            assert_free(&mut allocator, 0, 4);
-        };
+        allocator.free(ptr);
+        assert_free(&mut allocator, 0, 4);
     }
 
     #[test]
     fn multiple_allocations() {
-        unsafe {
-            let (_, mut allocator) = create_allocator();
+        let (_, mut allocator) = create_allocator();
 
-            let p1 = allocator.alloc(4).expect("allocation #1 failed");
-            let p2 = allocator.alloc(1).expect("allocation #2 failed");
-            let p3 = allocator.alloc(3).expect("allocation #3 failed");
+        let p1 = allocator.alloc(4).expect("allocation #1 failed");
+        let p2 = allocator.alloc(1).expect("allocation #2 failed");
+        let p3 = allocator.alloc(3).expect("allocation #3 failed");
 
-            assert_allocated(&mut allocator, 0, 4);
-            assert_allocated(&mut allocator, 4, 1);
-            assert_allocated(&mut allocator, 5, 3);
+        assert_allocated(&mut allocator, 0, 4);
+        assert_allocated(&mut allocator, 4, 1);
+        assert_allocated(&mut allocator, 5, 3);
 
-            allocator.free(p1);
-            assert_free(&mut allocator, 0, 4);
-            assert_allocated(&mut allocator, 4, 1);
-            assert_allocated(&mut allocator, 5, 3);
+        allocator.free(p1);
+        assert_free(&mut allocator, 0, 4);
+        assert_allocated(&mut allocator, 4, 1);
+        assert_allocated(&mut allocator, 5, 3);
 
-            allocator.free(p3);
-            assert_free(&mut allocator, 0, 4);
-            assert_allocated(&mut allocator, 4, 1);
-            assert_free(&mut allocator, 5, 3);
+        allocator.free(p3);
+        assert_free(&mut allocator, 0, 4);
+        assert_allocated(&mut allocator, 4, 1);
+        assert_free(&mut allocator, 5, 3);
 
-            allocator.free(p2);
-            assert_free(&mut allocator, 0, NUM_PAGES - 1);
-        };
+        allocator.free(p2);
+        assert_free(&mut allocator, 0, NUM_PAGES - 1);
     }
 
     #[test]
     fn reuse_pages() {
-        unsafe {
-            let (_, mut allocator) = create_allocator();
+        let (_, mut allocator) = create_allocator();
 
-            let p1 = allocator.alloc(4).expect("allocation #1 failed");
-            let p2 = allocator.alloc(2).expect("allocation #2 failed");
+        let p1 = allocator.alloc(4).expect("allocation #1 failed");
+        let p2 = allocator.alloc(2).expect("allocation #2 failed");
 
-            allocator.free(p1);
+        allocator.free(p1);
 
-            let p1 = allocator.alloc(2).expect("re-allocation failed");
+        let p1 = allocator.alloc(2).expect("re-allocation failed");
 
-            assert_allocated(&mut allocator, 0, 2);
-            assert_free(&mut allocator, 2, 2);
-            assert_allocated(&mut allocator, 4, 2);
+        assert_allocated(&mut allocator, 0, 2);
+        assert_free(&mut allocator, 2, 2);
+        assert_allocated(&mut allocator, 4, 2);
 
-            allocator.free(p1);
-            allocator.free(p2);
+        allocator.free(p1);
+        allocator.free(p2);
 
-            assert_free(&mut allocator, 0, NUM_PAGES - 1);
-        };
+        assert_free(&mut allocator, 0, NUM_PAGES - 1);
     }
 
     #[test]
     fn big_allocation() {
-        unsafe {
-            let (_, mut allocator) = create_allocator();
+        let (_, mut allocator) = create_allocator();
 
-            assert_eq!(allocator.alloc(NUM_PAGES as usize), None);
-            assert_eq!(allocator.alloc(2 * NUM_PAGES as usize), None);
+        assert_eq!(allocator.alloc(NUM_PAGES as usize), None);
+        assert_eq!(allocator.alloc(2 * NUM_PAGES as usize), None);
 
-            allocator.alloc(1).expect("allocation failed");
-        };
+        allocator.alloc(1).expect("allocation failed");
     }
 
     #[test]
     fn spare_allocation() {
-        unsafe {
-            let (_, mut allocator) = create_allocator();
+        let (_, mut allocator) = create_allocator();
 
-            let _ = allocator.alloc((NUM_PAGES - 1) as usize / 3).unwrap();
-            let p = allocator.alloc((NUM_PAGES - 1) as usize / 3).unwrap();
-            let _ = allocator.alloc((NUM_PAGES - 1) as usize / 3).unwrap();
+        let _ = allocator.alloc((NUM_PAGES - 1) as usize / 3).unwrap();
+        let p = allocator.alloc((NUM_PAGES - 1) as usize / 3).unwrap();
+        let _ = allocator.alloc((NUM_PAGES - 1) as usize / 3).unwrap();
 
-            allocator.free(p);
+        allocator.free(p);
 
-            assert_eq!(
-                allocator.alloc(NUM_PAGES as usize / 2),
-                None,
-                "requested memory shou  ld not have fit"
-            );
-        };
+        assert_eq!(
+            allocator.alloc(NUM_PAGES as usize / 2),
+            None,
+            "requested memory shou  ld not have fit"
+        );
     }
 
     // --- Test types and utilities ---

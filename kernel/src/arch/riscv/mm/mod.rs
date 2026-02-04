@@ -145,10 +145,10 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     let (mut mapper, rpt_pa) = unsafe {
         let rpt_frame = gfa.alloc(1).unwrap();
 
-        let rpt = rpt_frame.ptr as *mut PageTable;
+        let rpt = rpt_frame.virt() as *mut PageTable;
         rpt.write(PageTable::new());
 
-        (PageTableWalker::new(&mut *rpt), rpt_frame.paddr)
+        (PageTableWalker::new(&mut *rpt), rpt_frame.phys())
     };
 
     // SAFETY: new mapper
@@ -189,15 +189,14 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     let heap_prealloc_base = IOMAP_MEM_OFFSET - HEAP_PREALLOC_SIZE;
     let n_pages = HEAP_PREALLOC_SIZE / map_size.size() as usize;
 
-    // SAFETY: n_pages is enough to cover the requested heap size
-    let frame = unsafe { gfa.alloc(n_pages).expect("oom for heap allocation") };
+    let frame = gfa.alloc(n_pages).expect("oom for heap allocation");
 
     // SAFETY: new mapper
     unsafe {
         mapper
             .map_range(
                 heap_prealloc_base,
-                frame.paddr..frame.paddr + HEAP_PREALLOC_SIZE as u64,
+                frame.phys()..frame.phys() + HEAP_PREALLOC_SIZE as u64,
                 map_size,
                 EntryFlags::KERNEL,
                 gfa,
@@ -333,26 +332,24 @@ impl<T: ?Sized> DerefMut for Cookie<T> {
 pub fn palloc<T: Sized>(val: T) -> Cookie<T> {
     let layout = Layout::new::<T>();
 
-    // SAFETY: `T` is a sized type
-    let frame = unsafe {
-        GFA.lock()
-            .as_mut()
-            .unwrap()
-            .alloc(layout.size())
-            .expect("oom")
-    };
+    let frame = GFA
+        .lock()
+        .as_mut()
+        .unwrap()
+        .alloc(layout.size())
+        .expect("oom");
 
     // Initialize ptr with the contents of `val`
-    // SAFETY: `frame.ptr` is known to be a valid pointer
+    // SAFETY: `frame.virt()` is known to be a valid pointer
     let ptr = unsafe {
-        let ptr = NonNull::new_unchecked(frame.ptr as *mut T);
+        let ptr = NonNull::new_unchecked(frame.virt() as *mut T);
         ptr.as_ptr().write(val);
         ptr
     };
 
     Cookie {
         ptr,
-        phys: frame.paddr,
+        phys: frame.phys(),
     }
 }
 
@@ -365,21 +362,19 @@ pub fn palloc<T: Sized>(val: T) -> Cookie<T> {
 pub unsafe fn alloc_contiguous(layout: Layout) -> Cookie<[u8]> {
     assert!(layout.align() <= PAGE_SIZE as usize);
 
-    // SAFETY: assuming caller has upheld safety contract
-    let frame = unsafe {
-        GFA.lock()
-            .as_mut()
-            .unwrap()
-            .alloc(layout.size())
-            .expect("oom")
-    };
+    let frame = GFA
+        .lock()
+        .as_mut()
+        .unwrap()
+        .alloc(layout.size())
+        .expect("oom");
 
     // SAFETY: we have just allocated `layout.size()` bytes into `frame`
-    let slice = unsafe { slice::from_raw_parts_mut(frame.ptr as *mut u8, layout.size()) };
+    let slice = unsafe { slice::from_raw_parts_mut(frame.virt() as *mut u8, layout.size()) };
 
     Cookie {
         ptr: NonNull::new(slice).unwrap(),
-        phys: frame.paddr,
+        phys: frame.phys(),
     }
 }
 

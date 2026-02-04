@@ -21,9 +21,24 @@ pub enum AllocatorError {
 #[derive(Debug)]
 pub struct Frame<A> {
     /// The physical address of the frame.
-    pub paddr: A,
+    paddr: A,
     /// The virtual address of the frame.
-    pub ptr: *mut (),
+    ptr: *mut (),
+}
+
+impl<A> Frame<A>
+where
+    A: PhysicalAddress<u64>,
+{
+    /// Returns the physical address of the frame.
+    pub fn phys(&self) -> A {
+        self.paddr
+    }
+
+    /// Returns the virtual address of the frame.
+    pub fn virt(&self) -> *mut () {
+        self.ptr
+    }
 }
 
 /// A trait for page-grained memory allocators.
@@ -33,16 +48,8 @@ where
 {
     /// Allocates a memory section of `count` contiguous pages. If no countiguous section
     /// of the specified size can be allocated, `None` is returned.
-    ///
-    /// # Safety
-    ///
-    /// Low-level memory twiddling doesn't provide safety guarantees.
-    unsafe fn alloc(&mut self, count: usize) -> Option<Frame<A>>;
+    fn alloc(&mut self, count: usize) -> Option<Frame<A>>;
 
     /// Releases the allocated memory starting at the specified address back to the kernel.
-    ///
-    /// # Safety
-    ///
-    /// Low-level memory twiddling doesn't provide safety guarantees.
-    unsafe fn free(&mut self, address: A);
+    fn free(&mut self, frame: Frame<A>);
 }
