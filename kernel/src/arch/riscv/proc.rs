@@ -1,14 +1,10 @@
 use crate::{
-    arch::{
-        RiscvLoader, phys_to_virt,
-        riscv::{
-            instructions::{fence_i, sfence_vma},
-            mmu,
-            registers::{Satp, Sepc, Sscratch, Sstatus, SstatusFlags},
-        },
+    arch::riscv::{
+        instructions::fence_i,
+        mmu,
+        registers::{Sepc, Sscratch, Sstatus, SstatusFlags},
     },
     mm::addr::{PhysAddr, VirtAddr},
-    proc::{Process, ProcessMemory},
 };
 
 /// Switches running process to the one specified.

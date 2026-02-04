@@ -6,7 +6,6 @@
 use crate::arch::riscv::registers::{SiFlags, Sie, Sip, Sstatus, SstatusFlags};
 
 pub use irq::{local_irq_disable, local_irq_enable};
-pub use mm::elf::RiscvLoader;
 pub use mm::{alloc_contiguous, alloc_contiguous_zeroed, iomap, palloc, phys_to_virt};
 pub use proc::switch_to_process;
 pub use uaccess::with_user_access;
@@ -29,6 +28,8 @@ pub mod time; // TODO: should really be private, or at least properly abstracted
 
 /// The page layout used by the RISC-V architecture.
 pub type PageLayout = mmu::RiscvPageLayout;
+/// The architecture-specific ELF loader implementation.
+pub type ArchLoaderImpl = mm::elf::RiscvLoader;
 
 /// Halts execution on the current hart forever.
 pub fn halt() -> ! {
