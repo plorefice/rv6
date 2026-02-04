@@ -12,7 +12,10 @@ use crate::{
         Driver, DriverError,
         virtio::{InterruptStatus, VirtioBlkDev, VirtioDev, VirtioDriver, Virtq},
     },
-    mm::mmio::Regmap,
+    mm::{
+        addr::{MemoryAddress, PhysAddr},
+        mmio::Regmap,
+    },
 };
 
 use super::Status;
@@ -34,7 +37,7 @@ impl Driver for VirtioMmio {
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
 
         // SAFETY: assuming the node contains a valid regmap
-        let regmap = unsafe { Regmap::new(base, size) };
+        let regmap = unsafe { Regmap::new(PhysAddr::new(base as usize), size as usize) };
 
         let dev = VirtioMmioDev { regmap };
 

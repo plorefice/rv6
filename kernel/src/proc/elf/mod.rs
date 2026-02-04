@@ -4,7 +4,10 @@ use core::fmt;
 
 use elf::Elf64;
 
-use crate::mm::Align;
+use crate::mm::{
+    Align,
+    addr::{MemoryAddress, PhysAddr, VirtAddr},
+};
 
 /// Trait defining the architecture-specific interface for loading processes.
 /// The core process loader will call these methods to set up the process's address space and load
@@ -26,8 +29,8 @@ pub trait ArchLoader {
     fn choose_pie_base(
         &mut self,
         aspace: &mut Self::AddrSpace,
-        image_min_vaddr: usize,
-        image_max_vaddr: usize,
+        image_min_vaddr: VirtAddr,
+        image_max_vaddr: VirtAddr,
         align: usize,
         hint: usize,
     ) -> Result<usize, Self::Error>;
@@ -36,7 +39,7 @@ pub trait ArchLoader {
     fn validate_user_range(
         &self,
         aspace: &Self::AddrSpace,
-        vaddr: usize,
+        vaddr: VirtAddr,
         len: usize,
     ) -> Result<(), Self::Error>;
 
@@ -45,7 +48,7 @@ pub trait ArchLoader {
     fn map_anonymous(
         &mut self,
         aspace: &mut Self::AddrSpace,
-        vaddr: usize,
+        vaddr: VirtAddr,
         len: usize,
         flags: SegmentFlags,
     ) -> Result<(), Self::Error>;
@@ -54,7 +57,7 @@ pub trait ArchLoader {
     fn protect_range(
         &mut self,
         aspace: &mut Self::AddrSpace,
-        vaddr: usize,
+        vaddr: VirtAddr,
         len: usize,
         flags: SegmentFlags,
     ) -> Result<(), Self::Error>;
@@ -63,7 +66,7 @@ pub trait ArchLoader {
     fn copy_to_user(
         &mut self,
         aspace: &mut Self::AddrSpace,
-        dst_vaddr: usize,
+        dst_vaddr: VirtAddr,
         src: &[u8],
     ) -> Result<(), Self::Error>;
 
@@ -71,7 +74,7 @@ pub trait ArchLoader {
     fn zero_user(
         &mut self,
         aspace: &mut Self::AddrSpace,
-        dst_vaddr: usize,
+        dst_vaddr: VirtAddr,
         len: usize,
     ) -> Result<(), Self::Error>;
 
@@ -79,7 +82,7 @@ pub trait ArchLoader {
     fn finalize_image(
         &mut self,
         aspace: &mut Self::AddrSpace,
-        mapped_exec_ranges: &[(usize, usize)],
+        mapped_exec_ranges: &[(VirtAddr, VirtAddr)],
     ) -> Result<(), Self::Error>;
 
     /// Performs an operation with the given address space active, allowing the arch loader to safely
@@ -99,11 +102,11 @@ pub trait ArchLoader {
     }
 
     /// Provides page size / alignment constraints (core uses to round).
-    fn page_size(&self) -> u64;
+    fn page_size(&self) -> usize;
 
     /// TODO: remove me!
-    fn rpt_pa(&self) -> u64 {
-        0
+    fn rpt_pa(&self) -> PhysAddr {
+        PhysAddr::new(0)
     }
 }
 
@@ -114,7 +117,7 @@ pub trait ArchLoader {
 #[derive(Debug, Clone, Copy)]
 pub struct LoadPlan<'a> {
     /// Entry point VA (including PIE base if applicable)
-    pub entry: usize,
+    pub entry: VirtAddr,
     /// caller-provided buffer filled by core
     pub segments: &'a [LoadSegment<'a>],
 }
@@ -123,7 +126,7 @@ pub struct LoadPlan<'a> {
 #[derive(Default, Debug, Clone, Copy)]
 pub struct LoadSegment<'a> {
     /// Final VA (already includes base for PIE if applied by core)
-    pub vaddr: usize,
+    pub vaddr: VirtAddr,
     /// Size in memory
     pub mem_size: usize,
     /// Data to copy from the file
@@ -188,7 +191,7 @@ fn build_load_plan<'a>(
 
         let file_data = elf.segment_data(&ph)?;
         let mem_size = ph.memsz() as usize;
-        let vaddr = ph.vaddr() as usize;
+        let vaddr = VirtAddr::new(ph.vaddr() as usize);
         let file_off = ph.offset() as usize;
         let align = ph.align() as usize;
 
@@ -210,7 +213,7 @@ fn build_load_plan<'a>(
         if align == 0 || !align.is_power_of_two() {
             return Err(ElfLoadError::Misaligned);
         }
-        if !vaddr.is_aligned(align as u64) {
+        if !vaddr.is_aligned(align) {
             return Err(ElfLoadError::Misaligned);
         }
         if mem_size < file_data.len() {
@@ -228,7 +231,7 @@ fn build_load_plan<'a>(
     }
 
     Ok(LoadPlan {
-        entry: elf.header().entry() as usize,
+        entry: VirtAddr::new(elf.header().entry() as usize),
         segments: &ph_buf[..elf.program_headers().count()],
     })
 }
@@ -258,14 +261,19 @@ pub fn load_elf_into<'a, A: ArchLoader>(
         let map_start = seg.vaddr.align_down(page);
         let map_end = (seg.vaddr + seg.mem_size).align_up(page);
 
-        arch.validate_user_range(aspace, map_start, map_end - map_start)
+        arch.validate_user_range(aspace, map_start, (map_end - map_start).as_usize())
             .map_err(|_| ElfLoadError::AddressNotAllowed)?;
 
         // map pages with RW for loading (even if final flags are different, we'll fixup later)
         let load_flags = seg.flags | SegmentFlags::W;
 
-        arch.map_anonymous(aspace, map_start, map_end - map_start, load_flags)
-            .map_err(|_| ElfLoadError::MapFailed)?;
+        arch.map_anonymous(
+            aspace,
+            map_start,
+            (map_end - map_start).as_usize(),
+            load_flags,
+        )
+        .map_err(|_| ElfLoadError::MapFailed)?;
 
         // copy file bytes
         arch.copy_to_user(aspace, seg.vaddr, seg.file_data)
@@ -281,8 +289,13 @@ pub fn load_elf_into<'a, A: ArchLoader>(
 
         // drop write permission if not in original flags
         if seg.flags != load_flags {
-            arch.protect_range(aspace, map_start, map_end - map_start, seg.flags)
-                .map_err(|_| ElfLoadError::MapFailed)?;
+            arch.protect_range(
+                aspace,
+                map_start,
+                (map_end - map_start).as_usize(),
+                seg.flags,
+            )
+            .map_err(|_| ElfLoadError::MapFailed)?;
         }
     }
 
@@ -309,7 +322,7 @@ pub fn exec<A: ArchLoader>(
 
     arch.map_anonymous(
         aspace,
-        STACK_BOTTOM,
+        VirtAddr::new(STACK_BOTTOM),
         STACK_SIZE,
         SegmentFlags::R | SegmentFlags::W,
     )?;
@@ -317,7 +330,7 @@ pub fn exec<A: ArchLoader>(
     // Start process execution
     // SAFETY: memory has been initialized right above.
     unsafe {
-        crate::arch::switch_to_process(arch.rpt_pa(), plan.entry, STACK_TOP);
+        crate::arch::switch_to_process(arch.rpt_pa(), plan.entry, VirtAddr::new(STACK_TOP));
     }
 }
 

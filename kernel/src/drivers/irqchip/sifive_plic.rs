@@ -6,7 +6,10 @@ use crate::{
         Driver, DriverError,
         irqchip::{self, InterruptController},
     },
-    mm::mmio::Regmap,
+    mm::{
+        addr::{MemoryAddress, PhysAddr},
+        mmio::Regmap,
+    },
 };
 
 driver_info! {
@@ -29,7 +32,7 @@ impl Driver for SifivePlic {
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
 
         // SAFETY: assuming the node contains a valid regmap
-        let regmap = unsafe { Regmap::new(base, len) };
+        let regmap = unsafe { Regmap::new(PhysAddr::new(base as usize), len as usize) };
 
         kprintln!("PLIC: {:#x} - {:#x}", base, base + len);
 

@@ -8,12 +8,13 @@ use core::{
 use crate::{
     arch::{self, PAGE_SIZE},
     drivers::virtio::VirtioDev,
+    mm::addr::PhysAddr,
 };
 
 pub struct Virtq {
     idx: u32,
     size: u16,
-    phys: u64,
+    phys: PhysAddr,
 
     descr: &'static mut [VirtqDescriptor],
     avail: &'static mut VirtqAvailable,
@@ -41,9 +42,7 @@ impl Virtq {
 
         // SAFETY: layout is valid
         let vq_mem = unsafe {
-            arch::alloc_contiguous_zeroed(
-                Layout::from_size_align(vq_total_sz, PAGE_SIZE as usize).unwrap(),
-            )
+            arch::alloc_contiguous_zeroed(Layout::from_size_align(vq_total_sz, PAGE_SIZE).unwrap())
         };
 
         // SAFETY: lots of pointer arithmetics down below, if my calculations are correct
@@ -75,7 +74,7 @@ impl Virtq {
             Self {
                 idx,
                 size: size as u16,
-                phys: vq_mem.phys_addr().into(),
+                phys: vq_mem.phys_addr(),
 
                 descr,
                 avail,
@@ -91,7 +90,7 @@ impl Virtq {
     }
 
     pub fn pfn(&self) -> u32 {
-        (self.phys / PAGE_SIZE) as u32
+        (self.phys.as_usize() / PAGE_SIZE) as u32
     }
 
     pub fn submit<'a, D, I>(&mut self, dev: &D, buffers: I)
@@ -161,13 +160,13 @@ impl Virtq {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VirtqBuffer {
-    Readable { addr: u64, len: usize },
-    Writeable { addr: u64, len: usize },
+    Readable { addr: PhysAddr, len: usize },
+    Writeable { addr: PhysAddr, len: usize },
 }
 
 #[repr(C, packed)]
 pub struct VirtqDescriptor {
-    addr: u64,
+    addr: PhysAddr,
     len: u32,
     flags: u16,
     next: u16,

@@ -5,7 +5,10 @@ use fdt::{Fdt, Node, PropEncodedArray};
 use crate::{
     driver_info,
     drivers::{Driver, DriverError, syscon},
-    mm::mmio::Regmap,
+    mm::{
+        addr::{MemoryAddress, PhysAddr},
+        mmio::Regmap,
+    },
 };
 
 driver_info! {
@@ -35,7 +38,7 @@ impl Driver for GenericSyscon {
         let (base, len) = regs.next().expect("empty reg property");
 
         // SAFETY: assuming the node contains a valid regmap
-        let regmap = unsafe { Regmap::new(base, len) };
+        let regmap = unsafe { Regmap::new(PhysAddr::new(base as usize), len as usize) };
 
         let mut slf = Self {
             regmap,

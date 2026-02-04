@@ -4,7 +4,14 @@ use core::{fmt::Write, hint};
 
 use fdt::Node;
 
-use crate::{driver_info, drivers::Driver, mm::mmio::Regmap};
+use crate::{
+    driver_info,
+    drivers::Driver,
+    mm::{
+        addr::{MemoryAddress, PhysAddr},
+        mmio::Regmap,
+    },
+};
 
 use super::DriverError;
 
@@ -25,7 +32,7 @@ impl Driver for Ns16550 {
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
 
         // SAFETY: assuming the node contains a valid regmap
-        let regmap = unsafe { Regmap::new(base, size) };
+        let regmap = unsafe { Regmap::new(PhysAddr::new(base as usize), size as usize) };
 
         let mut slf = Self { regmap };
 

@@ -1,9 +1,11 @@
+//! Functions and types for dealing with memory-mapped I/O.
+
 use core::{
     cell::UnsafeCell,
     mem::{self, align_of},
 };
 
-use crate::{arch, mm::PhysicalAddress};
+use crate::{arch, mm::addr::PhysAddr};
 
 /// Read-only register.
 #[repr(transparent)]
@@ -116,13 +118,13 @@ impl Regmap {
     /// # Safety
     ///
     /// The caller must ensure that `base` is a valid MMIO address.
-    pub unsafe fn new<A: PhysicalAddress<u64>>(base: A, len: u64) -> Self {
+    pub unsafe fn new(base: PhysAddr, len: usize) -> Self {
         // SAFETY: assuming caller has upheld the safety contract
         let ptr = unsafe { arch::iomap(base, len) };
 
         Self {
             base: ptr as usize,
-            len: len as usize,
+            len,
         }
     }
 

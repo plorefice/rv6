@@ -13,12 +13,16 @@ use crate::{
     arch::{
         phys_to_virt,
         riscv::{
-            addr::{PAGE_SHIFT, PAGE_SIZE, PhysAddr, VirtAddr},
+            addr::{PAGE_SHIFT, PAGE_SIZE, PhysAddrExt, VirtAddrExt},
             instructions::sfence_vma,
             registers::Satp,
         },
     },
-    mm::{Align, allocator::FrameAllocator},
+    mm::{
+        Align,
+        addr::{MemoryAddress, PhysAddr, VirtAddr},
+        allocator::FrameAllocator,
+    },
     proc::elf::SegmentFlags,
 };
 
@@ -255,15 +259,15 @@ impl Entry {
     }
 
     /// Returns the PPN portion of this entry.
-    pub fn get_ppn(&self) -> u64 {
-        (self.inner.bits() >> PTE_PPN_OFFSET) & PTE_PPN_MASK
+    pub fn get_ppn(&self) -> usize {
+        ((self.inner.bits() >> PTE_PPN_OFFSET) & PTE_PPN_MASK) as usize
     }
 
     /// Sets the PPN portion of this entry to the provided value.
-    pub fn set_ppn(&mut self, ppn: u64) {
+    pub fn set_ppn(&mut self, ppn: usize) {
         let mut v = self.inner.bits();
         v &= !(PTE_PPN_MASK << PTE_PPN_OFFSET);
-        v |= (ppn & PTE_PPN_MASK) << PTE_PPN_OFFSET;
+        v |= (ppn as u64 & PTE_PPN_MASK) << PTE_PPN_OFFSET;
         self.inner = EntryFlags::from_bits_retain(v);
     }
 }
@@ -323,7 +327,7 @@ impl PageSize {
     }
 
     /// Returns the number of bytes contained in a page of this size.
-    pub const fn size(self) -> u64 {
+    pub const fn size(self) -> usize {
         match self {
             PageSize::Kb => 0x1000,
             PageSize::Mb => 0x200000,
@@ -386,7 +390,7 @@ impl<'a> PageTableWalker<'a> {
         paddr: PhysAddr,
         page_size: PageSize,
         mut flags: EntryFlags,
-        allocator: &mut impl FrameAllocator<PhysAddr, PAGE_SIZE>,
+        allocator: &mut impl FrameAllocator<PAGE_SIZE>,
     ) -> Result<(), MapError> {
         #[cfg(feature = "sv39")]
         let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2()];
@@ -450,12 +454,12 @@ impl<'a> PageTableWalker<'a> {
         phys: Range<PhysAddr>,
         page_size: PageSize,
         flags: EntryFlags,
-        allocator: &mut impl FrameAllocator<PhysAddr, PAGE_SIZE>,
+        allocator: &mut impl FrameAllocator<PAGE_SIZE>,
     ) -> Result<(), MapError> {
         let start = phys.start;
         let end = phys.end;
 
-        let sz = (end - start).data();
+        let sz = (end - start).as_usize();
         let n_pages = sz.div_ceil(page_size.size());
 
         for i in 0..n_pages {
@@ -463,13 +467,7 @@ impl<'a> PageTableWalker<'a> {
 
             // SAFETY: assuming caller has upheld the safety contract
             unsafe {
-                self.map(
-                    vaddr + offset as usize,
-                    start + offset,
-                    page_size,
-                    flags,
-                    allocator,
-                )?;
+                self.map(vaddr + offset, start + offset, page_size, flags, allocator)?;
             }
         }
 
@@ -487,12 +485,12 @@ impl<'a> PageTableWalker<'a> {
         start: PhysAddr,
         end: PhysAddr,
         flags: EntryFlags,
-        allocator: &mut impl FrameAllocator<PhysAddr, PAGE_SIZE>,
+        allocator: &mut impl FrameAllocator<PAGE_SIZE>,
     ) -> Result<(), MapError> {
         let start = start.align_down(PAGE_SIZE);
         let end = end.align_up(PAGE_SIZE);
 
-        let num_pages = u64::from(end - start) >> PAGE_SHIFT;
+        let num_pages = (end - start).as_usize() >> PAGE_SHIFT;
 
         for i in 0..num_pages {
             let addr = start + (i << PAGE_SHIFT);
@@ -500,7 +498,7 @@ impl<'a> PageTableWalker<'a> {
             // SAFETY: assuming caller has upheld the safety contract
             unsafe {
                 self.map(
-                    VirtAddr::new(u64::from(addr) as usize),
+                    VirtAddr::new(addr.as_usize()),
                     addr,
                     PageSize::Kb,
                     flags,
@@ -525,10 +523,10 @@ impl<'a> PageTableWalker<'a> {
         len: usize,
         flags: EntryFlags,
     ) -> Result<(), MapError> {
-        let start = vaddr.align_down(PAGE_SIZE as usize);
-        let end = (vaddr + len).align_up(PAGE_SIZE as usize);
+        let start = vaddr.align_down(PAGE_SIZE);
+        let end = (vaddr + len).align_up(PAGE_SIZE);
 
-        let num_pages = usize::from(end - start) >> PAGE_SHIFT;
+        let num_pages = (end - start).as_usize() >> PAGE_SHIFT;
 
         for i in 0..num_pages {
             let addr = start + (i << PAGE_SHIFT);
@@ -591,7 +589,7 @@ impl<'a> PageTableWalker<'a> {
             // SAFETY: assumes the page table tree is well-formed: valid non-leaf PTEs point to
             //         PageTable pages in direct-map.
             let table_ptr: *mut PageTable =
-                unsafe { phys_to_virt(table_paddr) }.as_mut_ptr::<PageTable>();
+                unsafe { phys_to_virt(table_paddr).as_mut_ptr::<PageTable>() };
 
             // Compute the next PTE pointer within that table (raw).
             // SAFETY: the resulting pointer points to properly initialized memory,
@@ -616,7 +614,7 @@ impl<'a> PageTableWalker<'a> {
     pub unsafe fn copy_kernel_mappings(
         &mut self,
         kernel_pt: &PageTable,
-        allocator: &mut impl FrameAllocator<PhysAddr, PAGE_SIZE>,
+        allocator: &mut impl FrameAllocator<PAGE_SIZE>,
     ) -> Result<(), MapError> {
         // Start recursive copy from the top level
         // SAFETY: assuming caller has upheld the safety contract
@@ -640,14 +638,14 @@ impl<'a> PageTableWalker<'a> {
         kernel_table: &PageTable,
         base_vaddr: VirtAddr,
         level: usize,
-        allocator: &mut impl FrameAllocator<PhysAddr, PAGE_SIZE>,
+        allocator: &mut impl FrameAllocator<PAGE_SIZE>,
     ) -> Result<(), MapError> {
         for (i, entry) in kernel_table
             .iter()
             .enumerate()
             .filter(|(_, e)| e.is_valid() && !e.is_user())
         {
-            let vaddr = base_vaddr + (i << (9 * level + PAGE_SHIFT as usize));
+            let vaddr = base_vaddr + (i << (9 * level + PAGE_SHIFT));
 
             if entry.is_leaf() {
                 // This is a leaf entry - map it directly at the appropriate page size
@@ -690,17 +688,17 @@ impl<'a> PageTableWalker<'a> {
     pub fn virt_to_phys(&self, vaddr: VirtAddr) -> Option<PhysAddr> {
         #[cfg(feature = "sv39")]
         let vpn = [
-            (vaddr.data() >> 12) & 0x1ff,
-            (vaddr.data() >> 21) & 0x1ff,
-            (vaddr.data() >> 30) & 0x1ff,
+            (vaddr.as_usize() >> 12) & 0x1ff,
+            (vaddr.as_usize() >> 21) & 0x1ff,
+            (vaddr.as_usize() >> 30) & 0x1ff,
         ];
 
         #[cfg(feature = "sv48")]
         let vpn = [
-            (vaddr.data() >> 12) & 0x1ff,
-            (vaddr.data() >> 21) & 0x1ff,
-            (vaddr.data() >> 30) & 0x1ff,
-            (vaddr.data() >> 39) & 0x1ff,
+            (vaddr.as_usize() >> 12) & 0x1ff,
+            (vaddr.as_usize() >> 21) & 0x1ff,
+            (vaddr.as_usize() >> 30) & 0x1ff,
+            (vaddr.as_usize() >> 39) & 0x1ff,
         ];
 
         let mut table = &*self.rpt;
@@ -717,10 +715,10 @@ impl<'a> PageTableWalker<'a> {
 
                 // For i > 0, the lower bits of PPN are taken from the virtual address
                 for (lvl, vpn) in vpn.iter().enumerate().take(i) {
-                    ppn |= (vpn << (lvl * 9)) as u64;
+                    ppn |= vpn << (lvl * 9);
                 }
 
-                return Some(PhysAddr::new(ppn << PAGE_SHIFT) + vaddr.page_offset() as u64);
+                return Some(PhysAddr::new(ppn << PAGE_SHIFT) + vaddr.page_offset());
             }
 
             // SAFETY: if this PTE is valid then the PPN points to valid memory
@@ -749,9 +747,9 @@ pub unsafe fn switch_page_table(pa: PhysAddr) -> PhysAddr {
     // SAFETY: assuming caller has upheld the safety contract
     unsafe {
         let prev = Satp::read_ppn();
-        Satp::write_ppn(pa.page_index());
+        Satp::write_ppn(pa.page_index() as u64);
         sfence_vma();
-        PhysAddr::from_ppn(prev)
+        PhysAddr::from_ppn(prev as usize)
     }
 }
 
@@ -762,7 +760,8 @@ pub fn dump_active_root_page_table() {
     // SAFETY: we are reading the currently active page table, which if we are executing
     //         code means it is valid
     let pt = unsafe {
-        &*phys_to_virt(PhysAddr::new(Satp::read_ppn() << PAGE_SHIFT)).as_ptr::<PageTable>()
+        &*phys_to_virt(PhysAddr::new((Satp::read_ppn() << PAGE_SHIFT) as usize))
+            .as_ptr::<PageTable>()
     };
 
     kprintln!("Active memory mappings:");
@@ -782,20 +781,20 @@ fn _dump_page_table(
     level: usize,
     mut mapping: Option<MemoryMappingInfo>,
 ) -> Option<MemoryMappingInfo> {
-    let base = VirtAddr::new(base.data() << 9);
+    let base = VirtAddr::new(base.as_usize() << 9);
 
     for (i, entry) in pt.entries.iter().enumerate().filter(|(_, e)| e.is_valid()) {
         let vaddr = base + i;
 
         if entry.is_leaf() {
-            let virt = VirtAddr::new(vaddr.data() << (9 * level) << PAGE_SHIFT);
+            let virt = VirtAddr::new(vaddr.as_usize() << (9 * level) << PAGE_SHIFT);
             let phys = PhysAddr::from_ppn(entry.get_ppn());
             let size = PageSize::from_table_level(level).unwrap().size();
             let flags = entry.flags();
 
             // Check if this mapping can be merged with the current chunk...
             if let Some(ref mut mapping) = mapping {
-                if virt == mapping.virt + mapping.size as usize
+                if virt == mapping.virt + mapping.size
                     && phys == mapping.phys + mapping.size
                     && mapping.flags == flags
                 {
@@ -833,7 +832,7 @@ fn _dump_page_table(
 struct MemoryMappingInfo {
     virt: VirtAddr,
     phys: PhysAddr,
-    size: u64,
+    size: usize,
     flags: EntryFlags,
 }
 

@@ -11,13 +11,14 @@ use core::{
 
 use crate::{
     arch::riscv::{
-        addr::{PAGE_SIZE, PhysAddr, VirtAddr},
+        addr::{PAGE_SIZE, PhysAddrExt, VirtAddrExt},
         instructions::sfence_vma,
         mmu::{self, EntryFlags, PageSize, PageTable},
         registers::Satp,
     },
     mm::{
-        Align, PhysicalAddress,
+        Align,
+        addr::{MemoryAddress, PhysAddr, VirtAddr},
         allocator::{BumpAllocator, BumpFrameAllocator, FrameAllocator},
     },
     proc::{Process, ProcessMemory},
@@ -33,16 +34,20 @@ mod init;
 pub static PHYS_MEM_OFFSET: AtomicU64 = AtomicU64::new(0);
 
 /// Virtual offset at which physical memory is mapped.
-pub const PHYS_TO_VIRT_OFFSET: VirtAddr = VirtAddr::new_truncated(0x20_0000_0000);
+// SAFETY: constant
+pub const PHYS_TO_VIRT_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0x20_0000_0000) };
 
 /// Base address for the kernel heap.
-const HEAP_MEM_OFFSET: VirtAddr = VirtAddr::new_truncated(0xffff_ffc0_0000_0000);
+// SAFETY: constant
+const HEAP_MEM_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffc0_0000_0000) };
 
 /// Base address for the memory-mapper I/O region.
-const IOMAP_MEM_OFFSET: VirtAddr = VirtAddr::new_truncated(0xffff_ffe0_0000_0000);
+// SAFETY: constant
+const IOMAP_MEM_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffe0_0000_0000) };
 
 /// Virtual address at which the kernel is loaded.
-const LOAD_OFFSET: VirtAddr = VirtAddr::new_truncated(0xffff_ffff_8000_0000);
+// SAFETY: constant
+const LOAD_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffff_8000_0000) };
 
 // Defined in linker script
 unsafe extern "C" {
@@ -65,15 +70,17 @@ unsafe extern "C" {
 }
 
 /// Global frame allocator.
-static GFA: Mutex<Option<BumpFrameAllocator<PAGE_SIZE, PhysAddr>>> = Mutex::new(None);
+static GFA: Mutex<Option<BumpFrameAllocator<PAGE_SIZE>>> = Mutex::new(None);
 
 /// Global heap allocator.
 /// TODO: remove hard-coded constants.
 #[global_allocator]
-static HEAP: BumpAllocator = BumpAllocator::new(HEAP_MEM_OFFSET.data(), IOMAP_MEM_OFFSET.data());
+static HEAP: BumpAllocator =
+    BumpAllocator::new(HEAP_MEM_OFFSET.as_usize(), IOMAP_MEM_OFFSET.as_usize());
 
 /// I/O virtual memory allocator.
-static IOMAP: BumpAllocator = BumpAllocator::new(IOMAP_MEM_OFFSET.data(), LOAD_OFFSET.data());
+static IOMAP: BumpAllocator =
+    BumpAllocator::new(IOMAP_MEM_OFFSET.as_usize(), LOAD_OFFSET.as_usize());
 
 /// Kernel global page mapper.
 static MAPPER: Mutex<Option<PageTableWalker<'static>>> = Mutex::new(None);
@@ -128,9 +135,11 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
         .next()
         .unwrap();
 
+    let mem_size = mem_size as usize;
+
     // Save the base address of the physical memory for quicker translations
     PHYS_MEM_OFFSET.store(mem_base, Ordering::Relaxed);
-    let mem_base = PhysAddr::new(mem_base);
+    let mem_base = PhysAddr::new(mem_base as usize);
 
     // Set up a frame allocator for the unused physical memory
     setup_frame_allocator(&early_kernel_mapper, mem_base, mem_size);
@@ -184,10 +193,10 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     const HEAP_PREALLOC_SIZE: usize = 1024 * 1024;
 
     let map_size = PageSize::Kb;
-    assert_eq!(HEAP_PREALLOC_SIZE % map_size.size() as usize, 0);
+    assert_eq!(HEAP_PREALLOC_SIZE % map_size.size(), 0);
 
     let heap_prealloc_base = IOMAP_MEM_OFFSET - HEAP_PREALLOC_SIZE;
-    let n_pages = HEAP_PREALLOC_SIZE / map_size.size() as usize;
+    let n_pages = HEAP_PREALLOC_SIZE / map_size.size();
 
     let frame = gfa.alloc(n_pages).expect("oom for heap allocation");
 
@@ -196,7 +205,7 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
         mapper
             .map_range(
                 heap_prealloc_base,
-                frame.phys()..frame.phys() + HEAP_PREALLOC_SIZE as u64,
+                frame.phys()..frame.phys() + HEAP_PREALLOC_SIZE,
                 map_size,
                 EntryFlags::KERNEL,
                 gfa,
@@ -207,7 +216,7 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     // Swap page tables
     // SAFETY: Jesus take the wheel!
     unsafe {
-        Satp::write_ppn(rpt_pa.page_index());
+        Satp::write_ppn(rpt_pa.page_index() as u64);
         sfence_vma();
     }
 
@@ -218,11 +227,11 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     *MAPPER.lock() = Some(mapper);
 }
 
-fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: u64) {
+fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: usize) {
     // SAFETY: populated by the linker script
     let kernel_end = unsafe { VirtAddr::new(&_end as *const _ as usize) };
 
-    let virt_base = kernel_end.align_up(PAGE_SIZE as usize);
+    let virt_base = kernel_end.align_up(PAGE_SIZE);
     let phys_base = ptw.virt_to_phys(virt_base).unwrap();
     let phys_end = base + len;
 
@@ -241,8 +250,8 @@ fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: u64) {
 ///
 /// For performance reasons, no checks are performed on `pa`. It is assumed that the caller
 /// upholds the condition `phys_mem_start <= pa < phys_mem_end`.
-pub unsafe fn phys_to_virt(pa: impl PhysicalAddress<u64>) -> VirtAddr {
-    PHYS_TO_VIRT_OFFSET + (pa.into() - PHYS_MEM_OFFSET.load(Ordering::Relaxed)) as usize
+pub unsafe fn phys_to_virt(pa: PhysAddr) -> VirtAddr {
+    PHYS_TO_VIRT_OFFSET + (pa - PHYS_MEM_OFFSET.load(Ordering::Relaxed) as usize).as_usize()
 }
 
 /// Maps the physical IO region `base..base+len` to virtual memory and returns its address.
@@ -250,18 +259,18 @@ pub unsafe fn phys_to_virt(pa: impl PhysicalAddress<u64>) -> VirtAddr {
 /// # Safety
 ///
 /// See various `map` functions.
-pub unsafe fn iomap(base: impl PhysicalAddress<u64>, len: u64) -> *mut u8 {
+pub unsafe fn iomap(base: PhysAddr, len: usize) -> *mut u8 {
     // iomap entire pages only
     let len = len.align_up(PAGE_SIZE);
 
     // TODO: should we take an alignment requirement from the caller?
-    let layout = Layout::from_size_align(len as usize, mem::align_of::<u64>())
-        .expect("invalid memory layout");
+    let layout =
+        Layout::from_size_align(len, mem::align_of::<u64>()).expect("invalid memory layout");
 
     // SAFETY: the layout is valid
     let ptr = unsafe { IOMAP.alloc(layout) };
 
-    let start = PhysAddr::new(base.into());
+    let start = base;
     let end = start + len;
 
     // SAFETY: all checks are in place
@@ -292,7 +301,7 @@ pub struct Cookie<T: ?Sized> {
 
 impl<T: ?Sized> Cookie<T> {
     /// Returns the physical address of the allocated object.
-    pub fn phys_addr(&self) -> impl PhysicalAddress<u64> {
+    pub fn phys_addr(&self) -> PhysAddr {
         self.phys
     }
 }
@@ -360,7 +369,7 @@ pub fn palloc<T: Sized>(val: T) -> Cookie<T> {
 ///
 /// `layout` must have non-zero size. The returned memory is unitialized.
 pub unsafe fn alloc_contiguous(layout: Layout) -> Cookie<[u8]> {
-    assert!(layout.align() <= PAGE_SIZE as usize);
+    assert!(layout.align() <= PAGE_SIZE);
 
     let frame = GFA
         .lock()

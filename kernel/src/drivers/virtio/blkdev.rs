@@ -9,7 +9,7 @@ use crate::{
         InterruptStatus, Status, VirtioDev, VirtioDriver,
         virtq::{Virtq, VirtqBuffer},
     },
-    mm::PhysicalAddress,
+    mm::addr::PhysAddr,
 };
 
 /// A virtio block device.
@@ -116,13 +116,7 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
         id.to_str().ok().map(String::from)
     }
 
-    fn transfer(
-        &mut self,
-        kind: VirtioBlkReqType,
-        sector: u64,
-        data: impl PhysicalAddress<u64>,
-        len: usize,
-    ) {
+    fn transfer(&mut self, kind: VirtioBlkReqType, sector: u64, data: PhysAddr, len: usize) {
         use VirtioBlkReqType::*;
         use VirtqBuffer::*;
 
@@ -135,27 +129,23 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
 
         // TODO: validate data size according to kinds
         let data_buf = match kind {
-            In | GetId => Some(Writeable {
-                addr: data.into(),
-                len,
-            }),
+            In | GetId => Some(Writeable { addr: data, len }),
             Flush => None,
-            Out | GetLifetime | Discard | WriteZeroes | SecureErase => Some(Readable {
-                addr: data.into(),
-                len,
-            }),
+            Out | GetLifetime | Discard | WriteZeroes | SecureErase => {
+                Some(Readable { addr: data, len })
+            }
         };
 
         self.virtq.submit(
             &self.dev,
             [
                 Some(VirtqBuffer::Readable {
-                    addr: blk_req.phys_addr().into(),
+                    addr: blk_req.phys_addr(),
                     len: VirtioBlkReq::HEADER_SIZE,
                 }),
                 data_buf,
                 Some(VirtqBuffer::Writeable {
-                    addr: blk_req.phys_addr().into() + VirtioBlkReq::HEADER_SIZE as u64,
+                    addr: blk_req.phys_addr() + VirtioBlkReq::HEADER_SIZE,
                     len: VirtioBlkReq::TRAILER_SIZE,
                 }),
             ]

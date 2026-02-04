@@ -4,7 +4,10 @@ use core::fmt;
 
 use fdt::Fdt;
 
-use crate::arch;
+use crate::{
+    arch,
+    mm::addr::{MemoryAddress, PhysAddr},
+};
 
 /// Represents an initial ramdisk.
 pub struct Initrd {
@@ -33,28 +36,30 @@ pub fn load_from_fdt(fdt: &Fdt) -> Result<Initrd, InitrdError> {
         .as_ref()
         .and_then(|node| {
             node.property::<(u32, u32)>("linux,initrd-start")
-                .map(|(hi, lo)| ((hi as u64) << 32) | (lo as u64))
+                .map(|(hi, lo)| PhysAddr::new(((hi as usize) << 32) | (lo as usize)))
         })
         .ok_or(InitrdError::NotFound)?;
 
     let end = chosen
         .and_then(|node| {
             node.property::<(u32, u32)>("linux,initrd-end")
-                .map(|(hi, lo)| ((hi as u64) << 32) | (lo as u64))
+                .map(|(hi, lo)| PhysAddr::new(((hi as usize) << 32) | (lo as usize)))
         })
         .ok_or(InitrdError::NotFound)?;
+
+    let len = (end - start).as_usize();
 
     kprintln!(
         "Initrd found in FDT: start=0x{:x}, end=0x{:x}, size={} bytes",
         start,
         end,
-        end - start
+        len
     );
 
     // SAFETY: we trust the FDT to provide us with valid physical addresses for the initrd
     let initrd_data = unsafe {
         let ptr = arch::phys_to_virt(start).as_ptr::<u8>();
-        core::slice::from_raw_parts(ptr, (end - start) as usize)
+        core::slice::from_raw_parts(ptr, len)
     };
 
     Ok(Initrd::new(initrd_data))

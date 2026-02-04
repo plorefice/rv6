@@ -6,11 +6,14 @@ use fdt::{Fdt, PropEncodedArray};
 
 use crate::{
     arch::riscv::{
-        addr::{PhysAddr, VirtAddr},
+        addr::{PhysAddrExt, VirtAddrExt},
         mm::{LOAD_OFFSET, PHYS_TO_VIRT_OFFSET},
         mmu::{EntryFlags, PageSize, PageTable},
     },
-    mm::Align,
+    mm::{
+        Align,
+        addr::{MemoryAddress, PhysAddr, VirtAddr},
+    },
 };
 
 // Apparently if I perform this conversion to raw pointer and back into a string, it uses
@@ -85,12 +88,12 @@ unsafe extern "C" fn setup_early_vm(fdt_ptr: *const u8) -> FfiPair {
     };
 
     // Early mapping function
-    let mut early_map_range = |pa: PhysAddr, va: VirtAddr, size: u64| {
+    let mut early_map_range = |pa: PhysAddr, va: VirtAddr, size: usize| {
         let n_pages = size.div_ceil(MAPPING_SIZE.size());
 
         // Make sure that both the virtual and physical addresses are aligned to the page size
         assert!(pa.is_aligned(MAPPING_SIZE.size()));
-        assert!(va.is_aligned(MAPPING_SIZE.size() as usize));
+        assert!(va.is_aligned(MAPPING_SIZE.size()));
 
         // SAFETY: these mappings are unique since they are the only one existing at this point
         unsafe {
@@ -99,7 +102,7 @@ unsafe extern "C" fn setup_early_vm(fdt_ptr: *const u8) -> FfiPair {
 
                 create_l1_page_mapping(
                     kernel_rpt,
-                    va + offset as usize,
+                    va + offset,
                     pa + offset,
                     EntryFlags::KERNEL,
                     &mut l1_page_allocator,
@@ -109,22 +112,22 @@ unsafe extern "C" fn setup_early_vm(fdt_ptr: *const u8) -> FfiPair {
     };
 
     // Map the kernel text and data in the virtual address space
-    let load_pa = PhysAddr::new(_start as *const u64 as u64);
-    let load_sz = (PhysAddr::new(_end as *const u64 as u64) - load_pa).data();
+    let load_pa = PhysAddr::new(_start as *const usize as usize);
+    let load_sz = (PhysAddr::new(_end as *const usize as usize) - load_pa).as_usize();
     early_map_range(load_pa, LOAD_OFFSET, load_sz);
 
     // Temporarily map the physical memory as well, so that we can finish setup a frame allocator
     // later on and replace these early mappings
     early_map_range(
-        PhysAddr::new(phys_mem_offset),
+        PhysAddr::new(phys_mem_offset as usize),
         PHYS_TO_VIRT_OFFSET,
-        phys_mem_size,
+        phys_mem_size as usize,
     );
 
     FfiPair {
         a: kernel_rpt as *const _ as u64,
         // SAFETY: the above mapping makes this pointer valid
-        b: unsafe { fdt_ptr.add(PHYS_TO_VIRT_OFFSET.data() - phys_mem_offset as usize) },
+        b: unsafe { fdt_ptr.add(PHYS_TO_VIRT_OFFSET.as_usize() - phys_mem_offset as usize) },
     }
 }
 
@@ -139,13 +142,13 @@ unsafe fn create_l1_page_mapping<const N: usize>(
 
     let l1_page = if !l1_pte.is_valid() {
         let l1_page = allocator.next().expect("out of early page tables");
-        l1_pte.set_ppn(PhysAddr::new(l1_page as *const _ as u64).page_index());
+        l1_pte.set_ppn(PhysAddr::new(l1_page as *const _ as usize).page_index());
         l1_pte.set_flags(EntryFlags::VALID);
         l1_page
     } else {
         // SAFETY: `l1_pte` is valid and thus points to a valid page table.
         //         Also, this is the only reference to it.
-        unsafe { &mut *(PhysAddr::from_ppn(l1_pte.get_ppn()).data() as *mut PageTable) }
+        unsafe { &mut *(PhysAddr::from_ppn(l1_pte.get_ppn()).as_usize() as *mut PageTable) }
     };
 
     let entry = l1_page.get_entry_mut(va.vpn1()).unwrap();

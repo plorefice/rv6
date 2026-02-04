@@ -1,6 +1,5 @@
 use core::{
     alloc::{GlobalAlloc, Layout},
-    marker::PhantomData,
     ptr::null_mut,
 };
 
@@ -9,7 +8,7 @@ use spin::Mutex;
 use crate::{
     arch::phys_to_virt,
     mm::{
-        PhysicalAddress,
+        addr::{MemoryAddress, PhysAddr},
         allocator::{Frame, FrameAllocator},
     },
 };
@@ -86,15 +85,11 @@ unsafe impl GlobalAlloc for BumpAllocator {
 }
 
 /// A bump allocator for physical memory. Deallocation is not supported.
-pub struct BumpFrameAllocator<const N: u64, A> {
+pub struct BumpFrameAllocator<const N: usize> {
     inner: BumpImpl,
-    _marker: PhantomData<A>,
 }
 
-impl<const N: u64, A> BumpFrameAllocator<N, A>
-where
-    A: PhysicalAddress<u64>,
-{
+impl<const N: usize> BumpFrameAllocator<N> {
     /// Creates a new bump allocator.
     ///
     /// # Safety
@@ -105,33 +100,29 @@ where
     /// # Panics
     ///
     /// Panics if `start > end`.
-    pub unsafe fn new(start: A, end: A) -> Self {
+    pub unsafe fn new(start: PhysAddr, end: PhysAddr) -> Self {
         assert!(start <= end);
         Self {
             inner: BumpImpl {
-                start: start.into() as usize,
-                end: end.into() as usize,
-                ptr: start.into() as usize,
+                start: start.as_usize(),
+                end: end.as_usize(),
+                ptr: start.as_usize(),
                 allocated: 0,
             },
-            _marker: Default::default(),
         }
     }
 }
 
-impl<const N: u64, A> FrameAllocator<A, N> for BumpFrameAllocator<N, A>
-where
-    A: PhysicalAddress<u64>,
-{
-    fn alloc(&mut self, count: usize) -> Option<Frame<A>> {
+impl<const N: usize> FrameAllocator<N> for BumpFrameAllocator<N> {
+    fn alloc(&mut self, count: usize) -> Option<Frame> {
         let bump = &mut self.inner;
 
-        let next = bump.ptr.checked_add(count * N as usize)?;
+        let next = bump.ptr.checked_add(count * N)?;
         if next > bump.end {
             return None;
         }
 
-        let paddr = A::try_from(bump.ptr as u64).ok()?;
+        let paddr = PhysAddr::try_new(bump.ptr).ok()?;
         let frame = Frame {
             // SAFETY: safe as long as Self::new was called with physical addresses
             ptr: unsafe { phys_to_virt(paddr).as_mut_ptr() },
@@ -144,5 +135,5 @@ where
         Some(frame)
     }
 
-    fn free(&mut self, _frame: Frame<A>) {}
+    fn free(&mut self, _frame: Frame) {}
 }

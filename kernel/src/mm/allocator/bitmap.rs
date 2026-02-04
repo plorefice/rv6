@@ -17,7 +17,8 @@ use core::{mem::size_of, ptr, slice};
 use bitflags::bitflags;
 
 use crate::mm::{
-    PhysicalAddress,
+    Align,
+    addr::PhysAddr,
     allocator::{AllocatorError, Frame, FrameAllocator},
 };
 
@@ -38,16 +39,13 @@ struct PageDescriptor {
 
 /// A frame allocator storing page state as a bitmap of page descriptors.
 #[derive(Debug)]
-pub struct BitmapAllocator<A, const N: u64> {
+pub struct BitmapAllocator<const N: usize> {
     descriptors: &'static mut [PageDescriptor],
-    base_addr: A,
-    num_pages: u64,
+    base_addr: PhysAddr,
+    num_pages: usize,
 }
 
-impl<A, const N: u64> BitmapAllocator<A, N>
-where
-    A: PhysicalAddress<u64>,
-{
+impl<const N: usize> BitmapAllocator<N> {
     /// Creates a new bitmap allocator taking ownership of the memory delimited by addresses
     /// `start` and `end`, and allocating pages of size `page_size`.
     ///
@@ -59,7 +57,7 @@ where
     ///
     /// There can be no guarantee that the memory being passed to the allocator isn't already in
     /// use by the system, so tread carefully here.
-    pub unsafe fn init(start: A, end: A) -> Result<Self, AllocatorError> {
+    pub unsafe fn init(start: PhysAddr, end: PhysAddr) -> Result<Self, AllocatorError> {
         if N == 0 || !N.is_power_of_two() {
             return Err(AllocatorError::InvalidPageSize);
         }
@@ -67,22 +65,19 @@ where
             return Err(AllocatorError::UnalignedAddress);
         }
 
-        let total_mem_size: u64 = (end - start).into();
+        let total_mem_size = (end - start).as_usize();
         let total_num_pages = total_mem_size / N;
 
         // A portion of memory starting from `start` will be reserved to hold page descriptors.
         // Memory available for allocation starts after this reserved memory.
-        let reserved_mem = total_num_pages * size_of::<PageDescriptor>() as u64;
+        let reserved_mem = total_num_pages * size_of::<PageDescriptor>();
         let avail_mem_start = (start + reserved_mem).align_up(N);
         let avail_mem_size = end - avail_mem_start;
-        let avail_pages: u64 = avail_mem_size.into() / N;
+        let avail_pages = avail_mem_size.as_usize() / N;
 
         // SAFETY: `start` is aligned and must point to a valid memory region.
         let descriptors = unsafe {
-            slice::from_raw_parts_mut(
-                <A as Into<u64>>::into(start) as *mut PageDescriptor,
-                avail_pages as usize,
-            )
+            slice::from_raw_parts_mut(start.as_usize() as *mut PageDescriptor, avail_pages)
         };
 
         // Initially mark all pages as free
@@ -100,14 +95,11 @@ where
     }
 }
 
-impl<A, const N: u64> FrameAllocator<A, N> for BitmapAllocator<A, N>
-where
-    A: PhysicalAddress<u64>,
-{
-    fn alloc(&mut self, count: usize) -> Option<Frame<A>> {
+impl<const N: usize> FrameAllocator<N> for BitmapAllocator<N> {
+    fn alloc(&mut self, count: usize) -> Option<Frame> {
         let mut i: usize = 0;
 
-        'outer: while i < self.num_pages as usize {
+        'outer: while i < self.num_pages {
             let descr = &mut self.descriptors[i];
 
             // Page already taken => keep going.
@@ -117,7 +109,7 @@ where
             }
 
             // Not enough pages left => abort.
-            if self.num_pages as usize - i < count {
+            if self.num_pages - i < count {
                 return None;
             }
 
@@ -143,7 +135,7 @@ where
             }
 
             return Some(Frame {
-                paddr: self.base_addr + i as u64 * N,
+                paddr: self.base_addr + i * N,
                 ptr: ptr::null_mut(),
             });
         }
@@ -151,11 +143,11 @@ where
         None
     }
 
-    fn free(&mut self, frame: Frame<A>) {
-        let offset: u64 = (frame.phys() - self.base_addr).into() / N;
+    fn free(&mut self, frame: Frame) {
+        let offset = (frame.phys() - self.base_addr).as_usize() / N;
 
         for i in offset..self.num_pages {
-            let flags = &mut self.descriptors[i as usize].flags;
+            let flags = &mut self.descriptors[i].flags;
 
             let is_last = flags.contains(PageFlags::LAST);
 
@@ -176,25 +168,23 @@ where
 
 #[cfg(test)]
 mod tests {
-    use std::alloc::Layout;
+    use alloc::alloc::Layout;
 
     use lazy_static::lazy_static;
 
-    use crate::{AddressOps, Align};
-
     use super::*;
 
-    const PAGE_SIZE: u64 = 4096;
-    const NUM_PAGES: u64 = 32;
-    const MEM_SIZE: u64 = NUM_PAGES * PAGE_SIZE;
+    const PAGE_SIZE: usize = 4096;
+    const NUM_PAGES: usize = 32;
+    const MEM_SIZE: usize = NUM_PAGES * PAGE_SIZE;
 
     #[test]
     fn construction() {
         let (base, allocator) = create_allocator();
 
         assert_eq!(allocator.num_pages, NUM_PAGES - 1);
-        assert_eq!(allocator.descriptors.as_ptr() as u64, base);
-        assert_eq!(allocator.base_addr, base + PAGE_SIZE,);
+        assert_eq!(allocator.descriptors.as_ptr() as usize, base);
+        assert_eq!(allocator.base_addr.data(), base + PAGE_SIZE);
 
         for i in 0..NUM_PAGES - 1 {
             assert_eq!(
@@ -215,7 +205,10 @@ mod tests {
         ] {
             unsafe {
                 assert!(matches!(
-                    BitmapAllocator::<_, PAGE_SIZE>::init(t.0, t.1),
+                    BitmapAllocator::<_, PAGE_SIZE>::init(
+                        PhysAddr::new_unchecked(t.0),
+                        PhysAddr::new_unchecked(t.1)
+                    ),
                     Err(AllocatorError::UnalignedAddress)
                 ));
             }
@@ -225,27 +218,52 @@ mod tests {
     #[test]
     fn invalid_page_size() {
         assert!(matches!(
-            unsafe { BitmapAllocator::<_, 0>::init(0, PAGE_SIZE) },
+            unsafe {
+                BitmapAllocator::<_, 0>::init(
+                    PhysAddr::new_unchecked(0),
+                    PhysAddr::new_unchecked(PAGE_SIZE),
+                )
+            },
             Err(AllocatorError::InvalidPageSize)
         ));
 
         assert!(matches!(
-            unsafe { BitmapAllocator::<_, 3>::init(0, PAGE_SIZE) },
+            unsafe {
+                BitmapAllocator::<_, 3>::init(
+                    PhysAddr::new_unchecked(0),
+                    PhysAddr::new_unchecked(PAGE_SIZE),
+                )
+            },
             Err(AllocatorError::InvalidPageSize)
         ));
 
         assert!(matches!(
-            unsafe { BitmapAllocator::<_, 24>::init(0, PAGE_SIZE) },
+            unsafe {
+                BitmapAllocator::<_, 24>::init(
+                    PhysAddr::new_unchecked(0),
+                    PhysAddr::new_unchecked(PAGE_SIZE),
+                )
+            },
             Err(AllocatorError::InvalidPageSize)
         ));
 
         assert!(matches!(
-            unsafe { BitmapAllocator::<_, { PAGE_SIZE - 1 }>::init(0, PAGE_SIZE) },
+            unsafe {
+                BitmapAllocator::<_, { PAGE_SIZE - 1 }>::init(
+                    PhysAddr::new_unchecked(0),
+                    PhysAddr::new_unchecked(PAGE_SIZE),
+                )
+            },
             Err(AllocatorError::InvalidPageSize)
         ));
 
         assert!(matches!(
-            unsafe { BitmapAllocator::<_, { PAGE_SIZE + 2 }>::init(0, PAGE_SIZE) },
+            unsafe {
+                BitmapAllocator::<_, { PAGE_SIZE + 1 }>::init(
+                    PhysAddr::new_unchecked(0),
+                    PhysAddr::new_unchecked(PAGE_SIZE),
+                )
+            },
             Err(AllocatorError::InvalidPageSize)
         ));
     }
@@ -348,10 +366,6 @@ mod tests {
 
     // --- Test types and utilities ---
 
-    impl PhysicalAddress<u64> for u64 {}
-
-    impl AddressOps<u64> for u64 {}
-
     impl Align<u64> for u64 {
         fn align_up(&self, align: u64) -> Self {
             (self + align - 1) & !(align - 1)
@@ -368,27 +382,31 @@ mod tests {
 
     lazy_static! {
         // Page-aligned chunk of memory
-        static ref CHUNK: u64 = unsafe {
-            std::alloc::alloc(
+        static ref CHUNK: usize = unsafe {
+            alloc::alloc::alloc(
                 Layout::from_size_align(MEM_SIZE as usize, PAGE_SIZE as usize).unwrap(),
             )
-        } as u64;
+        } as usize;
     }
 
     /// Creates a new allocator and returns both the base address and the allocator itself.
-    fn create_allocator() -> (u64, BitmapAllocator<u64, PAGE_SIZE>) {
+    fn create_allocator() -> (usize, BitmapAllocator<PAGE_SIZE>) {
         unsafe {
             (
                 *CHUNK,
-                BitmapAllocator::init(*CHUNK, *CHUNK + MEM_SIZE).unwrap(),
+                BitmapAllocator::init(
+                    PhysAddr::new_unchecked(*CHUNK),
+                    PhysAddr::new_unchecked(*CHUNK + MEM_SIZE),
+                )
+                .unwrap(),
             )
         }
     }
 
-    fn assert_allocated<const N: u64>(
-        allocator: &mut BitmapAllocator<u64, N>,
-        start: u64,
-        count: u64,
+    fn assert_allocated<const N: usize>(
+        allocator: &mut BitmapAllocator<N>,
+        start: usize,
+        count: usize,
     ) {
         for i in start..start + count - 1 {
             assert_eq!(
@@ -407,7 +425,7 @@ mod tests {
         );
     }
 
-    fn assert_free<const N: u64>(allocator: &mut BitmapAllocator<u64, N>, start: u64, count: u64) {
+    fn assert_free<const N: usize>(allocator: &mut BitmapAllocator<N>, start: usize, count: usize) {
         for i in start..start + count {
             assert_eq!(
                 allocator.descriptors[i as usize],

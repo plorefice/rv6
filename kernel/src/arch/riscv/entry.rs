@@ -2,7 +2,7 @@
 
 use fdt::Fdt;
 
-use crate::arch::riscv::addr::VirtAddr;
+use crate::mm::addr::{MemoryAddress, VirtAddr};
 
 use super::{mm, sbi, time, trap};
 
