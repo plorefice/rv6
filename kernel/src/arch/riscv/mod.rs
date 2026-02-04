@@ -5,7 +5,6 @@
 
 use crate::arch::riscv::registers::{SiFlags, Sie, Sip, Sstatus, SstatusFlags};
 
-pub use irq::{local_irq_disable, local_irq_enable};
 pub use mm::{alloc_contiguous, alloc_contiguous_zeroed, iomap, palloc, phys_to_virt};
 pub use proc::switch_to_process;
 pub use uaccess::with_user_access;
@@ -34,7 +33,7 @@ pub type ArchLoaderImpl = mm::elf::RiscvLoader;
 /// Halts execution on the current hart forever.
 pub fn halt() -> ! {
     // Disable all interrupts
-    local_irq_disable();
+    irq::local_irq_disable();
     Sie::clear(SiFlags::SSIE | SiFlags::STIE | SiFlags::SEIE);
     Sip::write_raw(0);
 
