@@ -6,13 +6,10 @@ use core::{
     ops::{Add, Sub},
 };
 
-use crate::mm::addr::{InvalidAddrError, MemoryAddress, PhysAddr, VirtAddr};
-
-/// Number of bits that an address needs to be shifted to the left to obtain its page number.
-pub const PAGE_SHIFT: usize = 12;
-
-/// Size of a page in bytes.
-pub const PAGE_SIZE: usize = 1 << 12;
+use crate::{
+    arch::riscv::mmu::PAGE_SHIFT,
+    mm::addr::{InvalidAddrError, MemoryAddress, PhysAddr, VirtAddr},
+};
 
 /// Physical memory address.
 impl MemoryAddress for PhysAddr {

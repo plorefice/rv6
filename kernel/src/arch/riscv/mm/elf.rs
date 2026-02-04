@@ -2,12 +2,13 @@
 
 use crate::{
     arch::{
-        self, PAGE_SIZE,
+        self,
         riscv::{
             addr::VirtAddrExt,
             mm::{GFA, MAPPER},
             mmu::{
-                self, EntryFlags, PageSize, PageTable, PageTableWalker, dump_active_root_page_table,
+                self, EntryFlags, PAGE_SIZE, PageSize, PageTable, PageTableWalker,
+                dump_active_root_page_table,
             },
         },
     },

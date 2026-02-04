@@ -5,7 +5,6 @@
 
 use crate::arch::riscv::registers::{SiFlags, Sie, Sip, Sstatus, SstatusFlags};
 
-pub use addr::PAGE_SIZE;
 pub use irq::{local_irq_disable, local_irq_enable};
 pub use mm::elf::RiscvLoader;
 pub use mm::{alloc_contiguous, alloc_contiguous_zeroed, iomap, palloc, phys_to_virt};
@@ -27,6 +26,9 @@ mod uaccess;
 
 pub mod earlycon;
 pub mod time; // TODO: should really be private, or at least properly abstracted
+
+/// The page layout used by the RISC-V architecture.
+pub type PageLayout = mmu::RiscvPageLayout;
 
 /// Halts execution on the current hart forever.
 pub fn halt() -> ! {

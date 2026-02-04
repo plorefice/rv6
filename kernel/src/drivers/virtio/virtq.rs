@@ -6,9 +6,9 @@ use core::{
 };
 
 use crate::{
-    arch::{self, PAGE_SIZE},
+    arch::{self, PageLayout},
     drivers::virtio::VirtioDev,
-    mm::addr::PhysAddr,
+    mm::{ArchPageLayout, addr::PhysAddr},
 };
 
 pub struct Virtq {
@@ -42,7 +42,9 @@ impl Virtq {
 
         // SAFETY: layout is valid
         let vq_mem = unsafe {
-            arch::alloc_contiguous_zeroed(Layout::from_size_align(vq_total_sz, PAGE_SIZE).unwrap())
+            arch::alloc_contiguous_zeroed(
+                Layout::from_size_align(vq_total_sz, PageLayout::SIZE).unwrap(),
+            )
         };
 
         // SAFETY: lots of pointer arithmetics down below, if my calculations are correct
@@ -90,7 +92,7 @@ impl Virtq {
     }
 
     pub fn pfn(&self) -> u32 {
-        (self.phys.as_usize() / PAGE_SIZE) as u32
+        (self.phys.as_usize() / PageLayout::SIZE) as u32
     }
 
     pub fn submit<'a, D, I>(&mut self, dev: &D, buffers: I)

@@ -11,9 +11,9 @@ use core::{
 
 use crate::{
     arch::riscv::{
-        addr::{PAGE_SIZE, PhysAddrExt, VirtAddrExt},
+        addr::{PhysAddrExt, VirtAddrExt},
         instructions::sfence_vma,
-        mmu::{self, EntryFlags, PageSize, PageTable},
+        mmu::{self, EntryFlags, PAGE_SIZE, PageSize, PageTable},
         registers::Satp,
     },
     mm::{

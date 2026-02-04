@@ -6,13 +6,14 @@ use alloc::boxed::Box;
 use fdt::Node;
 
 use crate::{
-    arch::{self, PAGE_SIZE},
+    arch::PageLayout,
     driver_info,
     drivers::{
         Driver, DriverError,
         virtio::{InterruptStatus, VirtioBlkDev, VirtioDev, VirtioDriver, Virtq},
     },
     mm::{
+        ArchPageLayout,
         addr::{MemoryAddress, PhysAddr},
         mmio::Regmap,
     },
@@ -57,7 +58,7 @@ impl Driver for VirtioMmio {
         }
 
         // Device initialization
-        dev.set_guest_page_size(arch::PAGE_SIZE as u32);
+        dev.set_guest_page_size(PageLayout::SIZE as u32);
 
         let _driver = match dev_id {
             2 => Box::new(VirtioBlkDev::new(dev)),
@@ -168,7 +169,8 @@ impl VirtioDev for VirtioMmioDev {
         let vq = Virtq::new(index, vq_num_max as u16);
 
         self.regmap.write(Self::QUEUE_NUM, vq_num_max);
-        self.regmap.write(Self::QUEUE_ALIGN, PAGE_SIZE as u32);
+        self.regmap
+            .write(Self::QUEUE_ALIGN, PageLayout::SIZE as u32);
         self.regmap.write(Self::QUEUE_PFN, vq.pfn());
 
         vq

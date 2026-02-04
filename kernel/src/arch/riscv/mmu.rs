@@ -13,13 +13,13 @@ use crate::{
     arch::{
         phys_to_virt,
         riscv::{
-            addr::{PAGE_SHIFT, PAGE_SIZE, PhysAddrExt, VirtAddrExt},
+            addr::{PhysAddrExt, VirtAddrExt},
             instructions::sfence_vma,
             registers::Satp,
         },
     },
     mm::{
-        Align,
+        Align, ArchPageLayout,
         addr::{MemoryAddress, PhysAddr, VirtAddr},
         allocator::FrameAllocator,
     },
@@ -40,6 +40,17 @@ const PTE_PPN_OFFSET: u64 = 10;
 const PAGE_LEVELS: usize = 3;
 #[cfg(feature = "sv48")]
 const PAGE_LEVELS: usize = 4;
+
+/// The page layout used by the RISC-V MMU.
+pub struct RiscvPageLayout;
+
+impl ArchPageLayout for RiscvPageLayout {
+    const SHIFT: usize = 12;
+}
+
+// Utility constants for page size and shift amount
+pub const PAGE_SHIFT: usize = RiscvPageLayout::SHIFT;
+pub const PAGE_SIZE: usize = 1 << RiscvPageLayout::SHIFT;
 
 bitflags! {
     /// Bitfields of a page table entry.

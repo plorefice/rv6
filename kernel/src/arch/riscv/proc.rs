@@ -1,6 +1,6 @@
 use crate::{
     arch::{
-        PAGE_SIZE, RiscvLoader, phys_to_virt,
+        RiscvLoader, phys_to_virt,
         riscv::{
             instructions::{fence_i, sfence_vma},
             mmu,
