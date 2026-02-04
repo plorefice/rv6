@@ -18,6 +18,7 @@ use crate::{
         },
     },
     mm::{Align, allocator::FrameAllocator},
+    proc::elf::SegmentFlags,
 };
 
 #[cfg(all(feature = "sv39", feature = "sv48"))]
@@ -83,11 +84,24 @@ bitflags! {
         const KERNEL = Self::RWX.bits() | Self::ACCESS.bits() | Self::DIRTY.bits() | Self::GLOBAL.bits();
         /// PTE flags for MMIO mappings
         const MMIO = Self::RW.bits() | Self::ACCESS.bits() | Self::DIRTY.bits() | Self::GLOBAL.bits();
+    }
+}
 
-        /// PTE flags for user text mappings
-        const USER_RX = Self::RX.bits() | Self::USER.bits() | Self::ACCESS.bits();
-        /// PTE flags for user read-write data mappings
-        const USER_RW = Self::RW.bits() | Self::USER.bits() | Self::ACCESS.bits() | Self::DIRTY.bits();
+impl EntryFlags {
+    pub fn from_segment_flags(seg_flags: SegmentFlags) -> Self {
+        let mut flags = EntryFlags::empty();
+
+        if seg_flags.contains(SegmentFlags::R) {
+            flags |= EntryFlags::READ;
+        }
+        if seg_flags.contains(SegmentFlags::W) {
+            flags |= EntryFlags::WRITE;
+        }
+        if seg_flags.contains(SegmentFlags::X) {
+            flags |= EntryFlags::EXEC;
+        }
+
+        flags
     }
 }
 
@@ -231,6 +245,11 @@ impl Entry {
 
     /// Sets this entry's flags.
     pub fn set_flags(&mut self, flags: EntryFlags) {
+        self.inner |= flags;
+    }
+
+    pub fn write_flags(&mut self, flags: EntryFlags) {
+        self.inner.remove(EntryFlags::RWXUG);
         self.inner |= flags;
     }
 
@@ -493,6 +512,70 @@ impl<'a> PageTableWalker<'a> {
         Ok(())
     }
 
+    /// Updates PTE flags for each entry in the provided range.
+    pub unsafe fn update_mapping(
+        &mut self,
+        vaddr: VirtAddr,
+        len: usize,
+        flags: EntryFlags,
+    ) -> Result<(), MapError> {
+        let start = vaddr.align_down(PAGE_SIZE as usize);
+        let end = (vaddr + len).align_up(PAGE_SIZE as usize);
+
+        let num_pages = usize::from(end - start) >> PAGE_SHIFT;
+
+        for i in 0..num_pages {
+            let addr = start + (i << PAGE_SHIFT);
+
+            // SAFETY: assuming caller has upheld the safety contract
+            unsafe {
+                let pte = self.get_pte(addr).ok_or(MapError::CorruptedPageTable)?;
+                if !pte.is_valid() {
+                    return Err(MapError::CorruptedPageTable);
+                }
+
+                pte.write_flags(flags);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Returns a mutable reference to the page table entry corresponding to `vaddr`, or `None` if the
+    /// page table is corrupted or not properly set up.
+    pub fn get_pte(&mut self, vaddr: VirtAddr) -> Option<&mut Entry> {
+        #[cfg(feature = "sv39")]
+        let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2()];
+
+        #[cfg(feature = "sv48")]
+        let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2(), vaddr.vpn3()];
+
+        let mut pte = self.rpt.get_entry_mut(vpn[PAGE_LEVELS - 1]).unwrap();
+
+        for i in (0..PAGE_LEVELS - 1).rev() {
+            // If the entry is not valid, we cannot proceed
+            if !pte.is_valid() {
+                return None;
+            }
+
+            // We found the page for this virtual address, return it
+            if pte.is_leaf() {
+                return Some(pte);
+            }
+
+            // Entry is valid and not a leaf, we can traverse to the next level
+            let table_paddr = PhysAddr::new(pte.get_ppn() << PAGE_SHIFT);
+
+            // SAFETY: the resulting pointer points to properly initialized memory
+            let table = unsafe { &mut *phys_to_virt(table_paddr).as_mut_ptr::<PageTable>() };
+
+            pte = table.get_entry_mut(vpn[i]).unwrap();
+        }
+
+        // We have traversed all levels, so if this is a valid leaf entry we can return it
+        pte.is_valid().then_some(pte)
+    }
+
     /// Copy kernel mappings to this page table. User mappings are ignored.
     ///
     /// # Safety
@@ -644,12 +727,14 @@ pub unsafe fn switch_page_table(pa: PhysAddr) -> PhysAddr {
 /// Dumps the current page mappings to the kernel console.
 ///
 /// Useful to debug the state of virtual memory.
-///
-/// # Safety
-///
-/// It is assumed that `pt` points to the root page table. If not, this function might perform
-/// invalid memory accesses.
-pub unsafe fn dump_root_page_table(pt: &PageTable) {
+pub fn dump_active_root_page_table() {
+    // SAFETY: we are reading the currently active page table, which if we are executing
+    //         code means it is valid
+    let pt = unsafe {
+        &*phys_to_virt(PhysAddr::new(Satp::read_ppn() << PAGE_SHIFT)).as_ptr::<PageTable>()
+    };
+
+    kprintln!("Active memory mappings:");
     kprintln!("  vaddr            paddr            size             attr   ");
     kprintln!("  ---------------- ---------------- ---------------- -------");
     if let Some(mapping) = _dump_page_table(pt, VirtAddr::new_truncated(0), PAGE_LEVELS - 1, None) {

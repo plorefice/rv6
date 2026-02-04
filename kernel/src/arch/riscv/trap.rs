@@ -3,7 +3,7 @@
 use stackframe::unwind_stack_frame;
 
 use crate::{
-    arch::riscv::registers::Stvec,
+    arch::riscv::{mmu::dump_active_root_page_table, registers::Stvec},
     syscalls::{self, UserPtr},
 };
 
@@ -157,7 +157,14 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &mut T
 
         match ExceptionCause::from(irq) {
             InstrPageFault | LoadPageFault | StorePageFault => {
-                kprintln!("=> Page fault trying to access {:016x}", tval)
+                let kind = match ExceptionCause::from(irq) {
+                    InstrPageFault => "Instruction fetch",
+                    LoadPageFault => "Load",
+                    StorePageFault => "Store",
+                    _ => unreachable!(),
+                };
+
+                kprintln!("=> {} page fault trying to access {:016x}", kind, tval)
             }
             EnvCallFromU => {
                 match tf.a7 {
@@ -181,6 +188,7 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &mut T
 
         // Debug facilities
         tf.dump(epc);
+        mmu::dump_active_root_page_table();
         unwind_stack_frame();
 
         // Halt the hart. This will change when exceptions are handled.

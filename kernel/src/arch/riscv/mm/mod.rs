@@ -26,8 +26,8 @@ use fdt::{Fdt, PropEncodedArray};
 use mmu::PageTableWalker;
 use spin::Mutex;
 
+pub mod elf;
 mod init;
-pub mod proc;
 
 /// Base address for the physical address space.
 pub static PHYS_MEM_OFFSET: AtomicU64 = AtomicU64::new(0);
@@ -213,10 +213,7 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     }
 
     // SAFETY: `mapper.page_table()` is the root page directory
-    unsafe {
-        kprintln!("Active memory mappings:");
-        mmu::dump_root_page_table(mapper.page_table())
-    };
+    unsafe { mmu::dump_active_root_page_table() };
 
     // Everything went well, configure this mapper as global
     *MAPPER.lock() = Some(mapper);

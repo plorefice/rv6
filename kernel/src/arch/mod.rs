@@ -6,6 +6,9 @@ pub mod riscv;
 #[cfg(target_arch = "riscv64")]
 pub use self::riscv::*;
 
+#[cfg(target_arch = "riscv64")]
+pub use riscv::RiscvLoader as ArchLoaderImpl;
+
 /// Halt stub used in testing.
 ///
 /// # Safety

@@ -7,10 +7,8 @@ use crate::arch::riscv::registers::{SiFlags, Sie, Sip, Sstatus, SstatusFlags};
 
 pub use addr::PAGE_SIZE;
 pub use irq::{local_irq_disable, local_irq_enable};
-pub use mm::{
-    alloc_contiguous, alloc_contiguous_zeroed, iomap, palloc, phys_to_virt,
-    proc::alloc_process_memory,
-};
+pub use mm::elf::RiscvLoader;
+pub use mm::{alloc_contiguous, alloc_contiguous_zeroed, iomap, palloc, phys_to_virt};
 pub use proc::switch_to_process;
 pub use uaccess::with_user_access;
 

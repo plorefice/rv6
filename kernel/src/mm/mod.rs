@@ -62,3 +62,20 @@ impl Align<u64> for u64 {
         (*self & (align - 1)) == 0
     }
 }
+
+impl Align<u64> for usize {
+    fn align_up(&self, align: u64) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        (*self + (align - 1) as usize) & !((align - 1) as usize)
+    }
+
+    fn align_down(&self, align: u64) -> Self {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        *self & !((align - 1) as usize)
+    }
+
+    fn is_aligned(&self, align: u64) -> bool {
+        assert!(align.is_power_of_two(), "Alignment must be a power of two");
+        (*self & ((align - 1) as usize)) == 0
+    }
+}

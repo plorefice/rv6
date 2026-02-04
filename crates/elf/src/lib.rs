@@ -22,31 +22,31 @@ pub enum ElfError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Elf64Header {
-    pub e_type: u16,
-    pub e_machine: u16,
-    pub e_version: u32,
-    pub e_entry: u64,
-    pub e_phoff: u64,
-    pub e_shoff: u64,
-    pub e_flags: u32,
-    pub e_ehsize: u16,
-    pub e_phentsize: u16,
-    pub e_phnum: u16,
-    pub e_shentsize: u16,
-    pub e_shnum: u16,
-    pub e_shstrndx: u16,
+    e_type: u16,
+    e_machine: u16,
+    e_version: u32,
+    e_entry: u64,
+    e_phoff: u64,
+    e_shoff: u64,
+    e_flags: u32,
+    e_ehsize: u16,
+    e_phentsize: u16,
+    e_phnum: u16,
+    e_shentsize: u16,
+    e_shnum: u16,
+    e_shstrndx: u16,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Elf64Phdr {
-    pub p_type: u32,
-    pub p_flags: u32,
-    pub p_offset: u64,
-    pub p_vaddr: u64,
-    pub p_paddr: u64,
-    pub p_filesz: u64,
-    pub p_memsz: u64,
-    pub p_align: u64,
+    p_type: u32,
+    p_flags: u32,
+    p_offset: u64,
+    p_vaddr: u64,
+    p_paddr: u64,
+    p_filesz: u64,
+    p_memsz: u64,
+    p_align: u64,
 }
 
 /// ELF identification constants.
@@ -174,6 +174,10 @@ impl Elf64Header {
     pub fn is_executable(&self) -> bool {
         self.e_type == abi::ET_EXEC
     }
+
+    pub fn entry(&self) -> u64 {
+        self.e_entry
+    }
 }
 
 impl Elf64Phdr {
@@ -191,6 +195,22 @@ impl Elf64Phdr {
 
     pub fn is_executable(&self) -> bool {
         (self.p_flags & abi::PF_X) != 0
+    }
+
+    pub fn vaddr(&self) -> u64 {
+        self.p_vaddr
+    }
+
+    pub fn memsz(&self) -> u64 {
+        self.p_memsz
+    }
+
+    pub fn offset(&self) -> u64 {
+        self.p_offset
+    }
+
+    pub fn align(&self) -> u64 {
+        self.p_align
     }
 }
 

@@ -69,13 +69,9 @@ $(CRT0_OBJ) $(LIB_A):
 	$(MAKE) -C $(USERLAND_DIR) lib
 
 # Link app ELF (crt0 first, then app objs, then lib)
-$(OUTDIR)/$(APP).elf: $(OBJS) $(CRT0_OBJ) $(LIB_A) $(LDSCRIPT) | dirs
+$(OUTDIR)/$(APP): $(OBJS) $(CRT0_OBJ) $(LIB_A) $(LDSCRIPT) | dirs
 	$(CC) $(LDFLAGS) -Wl,-T,$(LDSCRIPT) -o $@ \
 	  $(CRT0_OBJ) $(OBJS) $(LIB_A) $(LDLIBS)
-
-# Flat binary
-$(OUTDIR)/$(APP): $(OUTDIR)/$(APP).elf | dirs
-	$(OBJCOPY) -O binary $< $@
 
 install: $(OUTDIR)/$(APP)
 	@dest="$(DESTDIR)$(PREFIX)$(INSTALL_SUBDIR)"; \

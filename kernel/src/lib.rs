@@ -16,7 +16,7 @@
 use alloc::{boxed::Box, string::String};
 use fdt::Fdt;
 
-use crate::drivers::irqchip;
+use crate::drivers::{irqchip, syscon};
 
 #[macro_use]
 extern crate alloc;
@@ -75,8 +75,10 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     // Run init code
     let init_code = initrd.find_file("init").expect("init not found");
     kprintln!("Found init program in initrd, size {}", init_code.len());
-    proc::spawn_init_process(init_code);
+    proc::execve(init_code).expect("failed to load init process");
 
-    // syscon::poweroff();
-    // arch::halt();
+    // We should never reach this point
+    kprintln!("Init process terminated unexpectedly, shutting down");
+    syscon::poweroff();
+    arch::halt();
 }

@@ -1,6 +1,6 @@
 use crate::{
     arch::{
-        PAGE_SIZE,
+        PAGE_SIZE, RiscvLoader, phys_to_virt,
         riscv::{
             addr::PhysAddr,
             instructions::{fence_i, sfence_vma},
@@ -17,7 +17,7 @@ use crate::{
 ///
 /// It is assumed that [`Process`] and [`ProcessMemory`] have been properly initialized,
 /// its memory correctly allocated and page table prepared.
-pub unsafe fn switch_to_process(pcb: &Process, procmem: &ProcessMemory) -> ! {
+pub unsafe fn switch_to_process(rpt_pa: u64, entry: usize, stack_top: usize) -> ! {
     kprintln!("Switching to userspace...");
 
     // // Set the supervisor trapframe to point to the process's trap frame
@@ -26,17 +26,15 @@ pub unsafe fn switch_to_process(pcb: &Process, procmem: &ProcessMemory) -> ! {
     // Swap page tables
     // SAFETY: assuming `pcb` has been properly init'd and `rpt_pa` is a valid page address.
     unsafe {
-        mmu::switch_page_table(PhysAddr::new(pcb.rpt_pa));
+        mmu::switch_page_table(PhysAddr::new(rpt_pa));
     }
 
     // Configure s-registers for user mode switch
     // SAFETY: assuming memory has been properly mapped and loaded
     unsafe {
-        let user_sp = procmem.stack_top_va as u64;
-
         // Prepare user PC and SP
-        Sepc::write(procmem.text_start_va as u64);
-        Sscratch::write(user_sp);
+        Sepc::write(entry as u64);
+        Sscratch::write(stack_top as u64);
 
         // Prepare switch to U-mode
         Sstatus::update(|f| {
@@ -53,7 +51,7 @@ pub unsafe fn switch_to_process(pcb: &Process, procmem: &ProcessMemory) -> ! {
     // SAFETY: everything is properly set up for user mode.
     unsafe {
         core::arch::asm!(
-            // sp <- user sp, sscrath <- kernel sp
+            // sp <- user sp, sscratch <- kernel sp
             "csrrw sp, sscratch, sp",
             // sret to user mode
             "sret",

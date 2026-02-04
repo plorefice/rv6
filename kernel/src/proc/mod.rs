@@ -1,6 +1,11 @@
 //! Process management module.
 
-use crate::arch::{self, phys_to_virt};
+use crate::{
+    arch::ArchLoaderImpl,
+    proc::elf::{ArchLoader, ElfLoadError, LoadSegment},
+};
+
+pub mod elf;
 
 /// Process control block.
 pub struct Process {
@@ -35,26 +40,47 @@ impl Process {
     }
 }
 
-/// Spawns a sample init process.
-pub fn spawn_init_process(text: &[u8]) -> ! {
-    let mut pcb = Process::new();
+/// Loads an executable file as a new process and starts its execution.
+pub fn execve(bytes: &[u8]) -> Result<(), ProcessLoadError> {
+    // Create architecture-specific loader and address space
+    let loader = &mut ArchLoaderImpl::default();
+    let aspace = &mut loader
+        .new_user_addr_space()
+        .map_err(|_| ProcessLoadError::ArchError)?;
 
-    // Allocate user memory
-    let procmem = crate::arch::alloc_process_memory(&mut pcb);
+    let mut seg_buf = [LoadSegment::default(); 16];
 
-    // Copy user code into place
-    // SAFETY: `code_frame` was just allocated and mapped.
-    unsafe {
-        core::ptr::copy_nonoverlapping(
-            text.as_ptr(),
-            phys_to_virt(procmem.text_frame).as_mut_ptr(),
-            text.len(),
-        );
-    }
+    // Load ELF into the new address space
+    let plan = elf::load_elf_into(
+        loader,
+        aspace,
+        bytes,
+        elf::LoadPolicy {
+            allow_wx: false,
+            pie_base_hint: 0,
+            max_segments: seg_buf.len(),
+        },
+        &mut seg_buf,
+    )?;
 
-    // Start process execution
-    // SAFETY: memory has been initialized right above.
-    unsafe {
-        arch::switch_to_process(&pcb, &procmem);
+    // Start execution of the new process
+    elf::exec(loader, aspace, &plan).map_err(|_| ProcessLoadError::ArchError)?;
+
+    // exec should not return
+    panic!("execve returned unexpectedly");
+}
+
+/// Possible errors when loading a process.
+#[derive(Debug, Clone, Copy)]
+pub enum ProcessLoadError {
+    /// Architecture-specific loading error.
+    ArchError,
+    /// ELF loading error.
+    ElfLoadError(ElfLoadError),
+}
+
+impl From<ElfLoadError> for ProcessLoadError {
+    fn from(e: ElfLoadError) -> Self {
+        ProcessLoadError::ElfLoadError(e)
     }
 }

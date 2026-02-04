@@ -1,24 +1,21 @@
+/* Linker script for RISC-V RV64 userland programs */
+
+PAGE_SIZE = 0x1000;
+
 ENTRY(_start)
 
 SECTIONS {
-    . = 0x40000000;
+    . = 0x40000000; /* Userland base address */
 
-    .text : {
-        *(.text*)
-    }
+    . = ALIGN(PAGE_SIZE);
+    .text : { *(.text .text.*) }
 
-    .rodata : {
-        *(.rodata*)
-    }
+    . = ALIGN(PAGE_SIZE);
+    .rodata : { *(.rodata .rodata.*) }
 
-    . = 0x40001000;
+    . = ALIGN(PAGE_SIZE);
+    .data : { *(.data .data.*) }
 
-    .data : {
-        *(.data*)
-    }
-
-    .bss : {
-        *(.bss*)
-        *(COMMON)
-    }
+    . = ALIGN(PAGE_SIZE);
+    .bss : { *(.bss .bss.* COMMON) }
 }
