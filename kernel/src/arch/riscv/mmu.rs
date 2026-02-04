@@ -3,6 +3,7 @@
 use core::{
     fmt,
     ops::Range,
+    ptr::NonNull,
     slice::{Iter, IterMut},
 };
 
@@ -352,15 +353,7 @@ pub struct PageTableWalker<'a> {
 
 impl<'a> PageTableWalker<'a> {
     /// Creates a new page mapper.
-    ///
-    /// # Safety
-    ///
-    /// It is assumed that a physical-to-virtual address translation is possible for all physical
-    /// memory addresses using the [`pa_to_va`] function. This is required because the mapper must
-    /// access page tables, which are not mapped to virtual memory by default.
-    ///
-    /// The caller must also guarantee that `rpt` points to a valid root page table.
-    pub unsafe fn new(rpt: &'a mut PageTable) -> Self {
+    pub fn new(rpt: &'a mut PageTable) -> Self {
         Self { rpt }
     }
 
@@ -379,6 +372,14 @@ impl<'a> PageTableWalker<'a> {
     ///
     /// It is up to the caller to guarantee that no undefined behavior or memory violations can occur
     /// through the new mapping.
+    ///
+    /// Some concrete invariants that must be upheld by the caller include:
+    /// - `vaddr` must be properly aligned to `page_size`
+    /// - `paddr` must be properly aligned to `page_size`
+    /// - the VA range covered by the new mapping must not be currently used for live Rust
+    ///   references
+    /// - when remapping, the caller must ensure that all the references to the old mapping are no longer live
+    /// - the page table is accessible via `phys_to_virt` and properly initialized
     pub unsafe fn map(
         &mut self,
         vaddr: VirtAddr,
@@ -431,7 +432,7 @@ impl<'a> PageTableWalker<'a> {
         }
 
         // Fill in leaf PTE
-        pte.set_flags(flags);
+        pte.write_flags(flags);
         pte.set_ppn(paddr.page_index());
 
         Ok(())
@@ -512,6 +513,12 @@ impl<'a> PageTableWalker<'a> {
     }
 
     /// Updates PTE flags for each entry in the provided range.
+    ///
+    /// # Safety
+    ///
+    /// This operation is unsafe for the same reasons as [`map`], since it can change the permissions of
+    /// existing mappings. The caller must ensure that no memory safety violations can occur through the
+    /// new flags.
     pub unsafe fn update_mapping(
         &mut self,
         vaddr: VirtAddr,
@@ -526,32 +533,47 @@ impl<'a> PageTableWalker<'a> {
         for i in 0..num_pages {
             let addr = start + (i << PAGE_SHIFT);
 
-            // SAFETY: assuming caller has upheld the safety contract
-            unsafe {
-                let pte = self.get_pte(addr).ok_or(MapError::CorruptedPageTable)?;
-                if !pte.is_valid() {
-                    return Err(MapError::CorruptedPageTable);
-                }
+            let mut pte_ptr = self.get_pte_ptr(addr).ok_or(MapError::CorruptedPageTable)?;
 
-                pte.write_flags(flags);
+            // SAFETY: caller must ensure that `pte` is the only mutable reference to this page
+            //         table entry, and that the page table is not concurrently accessed.
+            let pte = unsafe { pte_ptr.as_mut() };
+            if !pte.is_valid() {
+                return Err(MapError::CorruptedPageTable);
             }
+
+            pte.write_flags(flags);
         }
 
         Ok(())
     }
 
-    /// Returns a mutable reference to the page table entry corresponding to `vaddr`, or `None` if the
+    /// Returns a pointer to the page table entry corresponding to `vaddr`, or `None` if the
     /// page table is corrupted or not properly set up.
-    pub fn get_pte(&mut self, vaddr: VirtAddr) -> Option<&mut Entry> {
+    ///
+    /// This function does **not** create `&mut` references to page tables discovered by walking
+    /// physical memory; it only computes raw pointers.
+    ///
+    /// Note: the returned pointer may refer either to `self.rpt` (the root table) or to a
+    /// lower-level page table reached via `phys_to_virt`.
+    pub fn get_pte_ptr(&mut self, vaddr: VirtAddr) -> Option<NonNull<Entry>> {
         #[cfg(feature = "sv39")]
         let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2()];
 
         #[cfg(feature = "sv48")]
         let vpn = [vaddr.vpn0(), vaddr.vpn1(), vaddr.vpn2(), vaddr.vpn3()];
 
-        let mut pte = self.rpt.get_entry_mut(vpn[PAGE_LEVELS - 1]).unwrap();
+        // Start from the root page table entry for the top-level VPN.
+        // We can take a raw pointer into `self.rpt` without creating &mut aliasing issues.
+        let mut pte_ptr: *mut Entry =
+            core::ptr::addr_of_mut!(self.rpt.entries[vpn[PAGE_LEVELS - 1]]);
 
         for i in (0..PAGE_LEVELS - 1).rev() {
+            // SAFETY: `pte_ptr` always points into a PageTable we previously derived from either:
+            // - `self.rpt` (a valid reference), or
+            // - `phys_to_virt` of a page table PPN (assumed well-formed by the page table invariants).
+            let pte = unsafe { &*pte_ptr };
+
             // If the entry is not valid, we cannot proceed
             if !pte.is_valid() {
                 return None;
@@ -559,28 +581,38 @@ impl<'a> PageTableWalker<'a> {
 
             // We found the page for this virtual address, return it
             if pte.is_leaf() {
-                return Some(pte);
+                return NonNull::new(pte_ptr);
             }
 
-            // Entry is valid and not a leaf, we can traverse to the next level
+            // Non-leaf entry => points to the next-level page table.
             let table_paddr = PhysAddr::new(pte.get_ppn() << PAGE_SHIFT);
 
-            // SAFETY: the resulting pointer points to properly initialized memory
-            let table = unsafe { &mut *phys_to_virt(table_paddr).as_mut_ptr::<PageTable>() };
+            // Compute the next table pointer (raw).
+            // SAFETY: assumes the page table tree is well-formed: valid non-leaf PTEs point to
+            //         PageTable pages in direct-map.
+            let table_ptr: *mut PageTable =
+                unsafe { phys_to_virt(table_paddr) }.as_mut_ptr::<PageTable>();
 
-            pte = table.get_entry_mut(vpn[i]).unwrap();
+            // Compute the next PTE pointer within that table (raw).
+            // SAFETY: the resulting pointer points to properly initialized memory,
+            //         and the use addr_of_mut avoids creating &mut references.
+            pte_ptr = unsafe { core::ptr::addr_of_mut!((*table_ptr).entries[vpn[i]]) };
         }
 
-        // We have traversed all levels, so if this is a valid leaf entry we can return it
-        pte.is_valid().then_some(pte)
+        // Final level: return the last PTE if it is valid.
+        // SAFETY: same reasoning as above for the final PTE pointer.
+        let pte = unsafe { &*pte_ptr };
+        pte.is_valid().then(|| NonNull::new(pte_ptr).unwrap())
     }
 
     /// Copy kernel mappings to this page table. User mappings are ignored.
     ///
     /// # Safety
     ///
-    /// It is assumed that `kernel_pt` points to a valid root page table. If not, this function
-    /// might perform invalid memory accesses.
+    /// - All non-leaf valid PTEs in kernel_pt point to physical pages that contain properly
+    ///   initialized PageTable objects.
+    /// - Those physical pages are accessible via the direct-map.
+    /// - No concurrent modification of kernel_pt while copying.
     pub unsafe fn copy_kernel_mappings(
         &mut self,
         kernel_pt: &PageTable,
@@ -602,7 +634,7 @@ impl<'a> PageTableWalker<'a> {
     ///
     /// # Safety
     ///
-    /// Assumes that both page table arguments are valid and the allocator is properly initialized.
+    /// See [`copy_kernel_mappings`] for safety considerations.
     unsafe fn _copy_kernel_mappings_recursive(
         &mut self,
         kernel_table: &PageTable,

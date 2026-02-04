@@ -14,9 +14,7 @@ use crate::{
 /// Switches running process to the one specified.
 ///
 /// # Safety
-///
-/// It is assumed that [`Process`] and [`ProcessMemory`] have been properly initialized,
-/// its memory correctly allocated and page table prepared.
+/// - `rpt_pa` must be the physical address of a valid root page table containing the process's memory mappings.
 pub unsafe fn switch_to_process(rpt_pa: u64, entry: usize, stack_top: usize) -> ! {
     kprintln!("Switching to userspace...");
 

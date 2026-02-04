@@ -26,9 +26,8 @@ impl<T> UserPtr<T> {
 /// Copies `dst.len()` bytes from the user-space buffer `src` to the kernel-space buffer `dst`.
 ///
 /// # Safety
-///
-/// This function assumes that `src` is a valid user-space pointer and that the memory region
-/// it points to is accessible. The caller must ensure these conditions are met.
+/// - `src` must be a valid user-space pointer and the memory region it points to must be accessible.
+///   The caller must ensure these conditions are met.
 pub unsafe fn copy_from_user(dst: &mut [u8], src: UserPtr<u8>) {
     arch::with_user_access(|| unsafe {
         // SAFETY: TODO: validate user pointer
