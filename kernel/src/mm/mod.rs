@@ -2,6 +2,7 @@
 
 pub mod addr;
 pub mod allocator;
+pub mod dma;
 pub mod mmio;
 
 /// A trait to be implemented by architecture-specific code to provide information about

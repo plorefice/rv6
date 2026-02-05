@@ -26,6 +26,7 @@ use fdt::{Fdt, PropEncodedArray};
 use mmu::PageTableWalker;
 use spin::Mutex;
 
+pub mod dma;
 pub mod elf;
 mod init;
 

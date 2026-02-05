@@ -4,12 +4,11 @@ use alloc::string::String;
 use bitflags::bitflags;
 
 use crate::{
-    arch::palloc,
     drivers::virtio::{
         InterruptStatus, Status, VirtioDev, VirtioDriver,
         virtq::{Virtq, VirtqBuffer},
     },
-    mm::addr::PhysAddr,
+    mm::addr::DmaAddr,
 };
 
 /// A virtio block device.
@@ -104,11 +103,14 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
     }
 
     fn read_device_id(&mut self) -> Option<String> {
-        let buf = palloc([0_u8; 20]);
+        let buf = self.dev.allocate_guest_mem([0_u8; 20]).expect("oom");
 
-        self.transfer(VirtioBlkReqType::GetId, 0, buf.phys_addr(), 20);
+        // SAFETY: buf has just been allocated and this is the only reference to it
+        let buf_ref = unsafe { buf.as_ptr().as_ref().unwrap() };
 
-        let id = CStr::from_bytes_until_nul(buf.as_ref()).ok()?;
+        self.transfer(VirtioBlkReqType::GetId, 0, buf.dma_addr(), 20);
+
+        let id = CStr::from_bytes_until_nul(buf_ref).ok()?;
         if id.is_empty() {
             return None;
         }
@@ -116,16 +118,19 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
         id.to_str().ok().map(String::from)
     }
 
-    fn transfer(&mut self, kind: VirtioBlkReqType, sector: u64, data: PhysAddr, len: usize) {
+    fn transfer(&mut self, kind: VirtioBlkReqType, sector: u64, data: DmaAddr, len: usize) {
         use VirtioBlkReqType::*;
         use VirtqBuffer::*;
 
-        let blk_req = palloc(VirtioBlkReq {
-            kind,
-            rsvd: 0,
-            sector,
-            status: 0,
-        });
+        let blk_req = self
+            .dev
+            .allocate_guest_mem(VirtioBlkReq {
+                kind,
+                rsvd: 0,
+                sector,
+                status: 0,
+            })
+            .expect("oom");
 
         // TODO: validate data size according to kinds
         let data_buf = match kind {
@@ -140,12 +145,12 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
             &self.dev,
             [
                 Some(VirtqBuffer::Readable {
-                    addr: blk_req.phys_addr(),
+                    addr: blk_req.dma_addr(),
                     len: VirtioBlkReq::HEADER_SIZE,
                 }),
                 data_buf,
                 Some(VirtqBuffer::Writeable {
-                    addr: blk_req.phys_addr() + VirtioBlkReq::HEADER_SIZE,
+                    addr: blk_req.dma_addr() + VirtioBlkReq::HEADER_SIZE,
                     len: VirtioBlkReq::TRAILER_SIZE,
                 }),
             ]

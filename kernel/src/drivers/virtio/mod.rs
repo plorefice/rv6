@@ -4,7 +4,10 @@ use bitflags::bitflags;
 pub use blkdev::*;
 pub use mmio::*;
 
-use crate::drivers::virtio::virtq::Virtq;
+use crate::{
+    drivers::virtio::virtq::Virtq,
+    mm::dma::{DmaAllocError, DmaObject, DmaSafe},
+};
 
 mod blkdev;
 mod mmio;
@@ -34,6 +37,9 @@ pub trait VirtioDev {
     ///
     /// The offset is expressed in bytes.
     fn read_config<T: PartialEq>(&self, offset: u32) -> T;
+
+    /// Allocates guest memory suitable for DMA operations.
+    fn allocate_guest_mem<T: DmaSafe>(&self, val: T) -> Result<DmaObject<T>, DmaAllocError>;
 
     /// Allocates and configures the specified virtqueue.
     fn allocate_virtq(&self, index: u32) -> Virtq;

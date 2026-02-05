@@ -6,15 +6,15 @@ use core::{
 };
 
 use crate::{
-    arch::{self, PageLayout},
+    arch::PageLayout,
     drivers::virtio::VirtioDev,
-    mm::{ArchPageLayout, addr::PhysAddr},
+    mm::{ArchPageLayout, addr::DmaAddr, dma::DmaAllocator},
 };
 
 pub struct Virtq {
     idx: u32,
     size: u16,
-    phys: PhysAddr,
+    phys: DmaAddr,
 
     descr: &'static mut [VirtqDescriptor],
     avail: &'static mut VirtqAvailable,
@@ -28,7 +28,7 @@ pub struct Virtq {
 }
 
 impl Virtq {
-    pub fn new(idx: u32, size: u16) -> Self {
+    pub fn new(dma_alloc: &dyn DmaAllocator, idx: u32, size: u16) -> Self {
         let size = size as usize;
 
         let vq_desc_sz = size_of::<VirtqDescriptor>() * size;
@@ -40,17 +40,14 @@ impl Virtq {
         let vq_avail_pad = (vq_desc_sz + vq_avail_sz + 3) & !3;
         let vq_total_sz = vq_desc_sz + vq_avail_sz + vq_used_sz + vq_avail_pad;
 
-        // SAFETY: layout is valid
-        let vq_mem = unsafe {
-            arch::alloc_contiguous_zeroed(
-                Layout::from_size_align(vq_total_sz, PageLayout::SIZE).unwrap(),
-            )
-        };
+        let vq_mem = dma_alloc
+            .alloc_raw_zeroed(Layout::from_size_align(vq_total_sz, PageLayout::SIZE).unwrap())
+            .expect("dma allocation failed");
 
         // SAFETY: lots of pointer arithmetics down below, if my calculations are correct
         //         this should be safe
         unsafe {
-            let vq_ptr = vq_mem.as_ptr() as *mut u8;
+            let vq_ptr = vq_mem.as_ptr();
 
             let vq_avail_off = vq_desc_sz;
             let vq_used_off = vq_avail_off + vq_avail_sz + vq_avail_pad;
@@ -76,7 +73,7 @@ impl Virtq {
             Self {
                 idx,
                 size: size as u16,
-                phys: vq_mem.phys_addr(),
+                phys: vq_mem.dma_addr(),
 
                 descr,
                 avail,
@@ -162,13 +159,13 @@ impl Virtq {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VirtqBuffer {
-    Readable { addr: PhysAddr, len: usize },
-    Writeable { addr: PhysAddr, len: usize },
+    Readable { addr: DmaAddr, len: usize },
+    Writeable { addr: DmaAddr, len: usize },
 }
 
 #[repr(C, packed)]
 pub struct VirtqDescriptor {
-    addr: PhysAddr,
+    addr: DmaAddr,
     len: u32,
     flags: u16,
     next: u16,

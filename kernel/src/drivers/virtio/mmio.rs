@@ -2,7 +2,7 @@
 
 use core::mem::size_of;
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, sync::Arc};
 use fdt::Node;
 
 use crate::{
@@ -15,6 +15,7 @@ use crate::{
     mm::{
         ArchPageLayout,
         addr::{MemoryAddress, PhysAddr},
+        dma::{DmaAllocError, DmaAllocator, DmaAllocatorExt, DmaObject, DmaSafe},
         mmio::Regmap,
     },
 };
@@ -40,7 +41,10 @@ impl Driver for VirtioMmio {
         // SAFETY: assuming the node contains a valid regmap
         let regmap = unsafe { Regmap::new(PhysAddr::new(base as usize), size as usize) };
 
-        let dev = VirtioMmioDev { regmap };
+        let dev = VirtioMmioDev {
+            regmap,
+            dma_alloc: Arc::new(crate::arch::ArchDmaAllocator {}), // TODO: pass it from outside
+        };
 
         if &dev.magic().to_le_bytes() != b"virt" {
             return Err(DriverError::UnexpectedError("invalid virtio-mmio magic"));
@@ -75,6 +79,7 @@ impl Driver for VirtioMmio {
 
 struct VirtioMmioDev {
     regmap: Regmap,
+    dma_alloc: Arc<dyn DmaAllocator>,
 }
 
 #[allow(unused)]
@@ -157,6 +162,10 @@ impl VirtioDev for VirtioMmioDev {
         old
     }
 
+    fn allocate_guest_mem<T: DmaSafe>(&self, val: T) -> Result<DmaObject<T>, DmaAllocError> {
+        self.dma_alloc.alloc::<T>(val)
+    }
+
     fn allocate_virtq(&self, index: u32) -> Virtq {
         self.regmap.write(Self::QUEUE_SEL, index);
 
@@ -166,7 +175,7 @@ impl VirtioDev for VirtioMmioDev {
 
         let vq_num_max = self.regmap.read::<u32>(Self::QUEUE_NUM_MAX);
 
-        let vq = Virtq::new(index, vq_num_max as u16);
+        let vq = Virtq::new(&*self.dma_alloc, index, vq_num_max as u16);
 
         self.regmap.write(Self::QUEUE_NUM, vq_num_max);
         self.regmap

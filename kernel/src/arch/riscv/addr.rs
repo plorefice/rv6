@@ -8,7 +8,7 @@ use core::{
 
 use crate::{
     arch::riscv::mmu::PAGE_SHIFT,
-    mm::addr::{InvalidAddrError, MemoryAddress, PhysAddr, VirtAddr},
+    mm::addr::{DmaAddr, InvalidAddrError, MemoryAddress, PhysAddr, VirtAddr},
 };
 
 /// Physical memory address.
@@ -29,7 +29,10 @@ impl MemoryAddress for PhysAddr {
 }
 
 /// RISC-V specific extensions to the `PhysAddr` type.
-pub trait PhysAddrExt {
+pub trait PhysAddrExt: Sized {
+    /// Converts this physical address to a DMA-capable address.
+    fn to_dma_addr(self) -> DmaAddr;
+
     /// Creates a new physical address from a physical page index.
     ///
     /// # Panics
@@ -63,6 +66,11 @@ pub trait PhysAddrExt {
 }
 
 impl PhysAddrExt for PhysAddr {
+    fn to_dma_addr(self) -> DmaAddr {
+        // SAFETY: PhysAddr guarantees upper bits are clear
+        unsafe { DmaAddr::new_unchecked(self.as_usize()) }
+    }
+
     fn from_ppn(ppn: usize) -> Self {
         Self::try_new(ppn << PAGE_SHIFT)
             .expect("index passed to PhysAddr::from_ppn is not a valid page number")
@@ -216,5 +224,31 @@ impl VirtAddrExt for VirtAddr {
     #[cfg(feature = "sv48")]
     const fn vpn3(self) -> usize {
         (self.as_usize() >> 39) & 0x1ff
+    }
+}
+
+/// DMA-capable physical address.
+impl MemoryAddress for DmaAddr {
+    fn new(addr: usize) -> Self {
+        Self::try_new(addr)
+            .expect("address passed to DmaAddr::new must not contain any data in bits 56 to 63")
+    }
+
+    fn try_new(addr: usize) -> Result<Self, InvalidAddrError> {
+        // SAFETY: upper bits are checked
+        PhysAddr::try_new(addr).map(|pa| unsafe { DmaAddr::new_unchecked(pa.as_usize()) })
+    }
+}
+
+/// RISC-V specific extensions to the `DmaAddr` type.
+pub trait DmaAddrExt {
+    /// Converts this DMA address to a physical address.
+    fn to_phys_addr(self) -> PhysAddr;
+}
+
+impl DmaAddrExt for DmaAddr {
+    fn to_phys_addr(self) -> PhysAddr {
+        // SAFETY: DmaAddr guarantees upper bits are clear
+        unsafe { PhysAddr::new_unchecked(self.as_usize()) }
     }
 }

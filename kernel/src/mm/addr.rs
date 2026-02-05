@@ -20,9 +20,11 @@ use core::{
     ops::{Add, Sub},
 };
 
+pub use dma::*;
 pub use phys::*;
 pub use virt::*;
 
+mod dma;
 mod phys;
 mod virt;
 
