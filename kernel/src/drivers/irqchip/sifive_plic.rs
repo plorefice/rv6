@@ -5,7 +5,7 @@ use fdt::Node;
 use crate::{
     driver_info,
     drivers::{
-        Driver, DriverError,
+        Driver, DriverCtx, DriverError,
         irqchip::{self, InterruptController},
     },
     mm::{
@@ -25,10 +25,7 @@ pub struct SifivePlic {
 }
 
 impl Driver for SifivePlic {
-    fn init<'d, 'fdt: 'd>(
-        iomapper: &dyn IoMapper,
-        node: Node<'d, 'fdt>,
-    ) -> Result<(), DriverError<'d>>
+    fn init<'d, 'fdt: 'd>(ctx: &DriverCtx, node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>>
     where
         Self: Sized,
     {
@@ -40,7 +37,7 @@ impl Driver for SifivePlic {
         let size =
             NonZeroUsize::new(len as usize).ok_or(DriverError::InvalidPropertyValue("reg"))?;
 
-        let regmap = iomapper.iomap(pa_base, size).unwrap();
+        let regmap = ctx.arch.io.iomap(pa_base, size).unwrap();
 
         kprintln!("PLIC: {:#x} - {:#x}", base, base + len);
 

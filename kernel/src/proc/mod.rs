@@ -1,49 +1,50 @@
 //! Process management module.
 
 use crate::{
-    arch::ArchLoaderImpl,
-    proc::elf::{ElfLoadError, ElfLoader, LoadSegment},
+    mm::addr::{MemoryAddress, VirtAddr},
+    proc::elf::{ElfLoadError, ElfLoader, LoadSegment, SegmentFlags},
 };
 
 pub mod elf;
 
-/// Process control block.
-pub struct Process {
-    /// Root page table physical address
-    pub rpt_pa: u64,
-}
+/// Trait for executing user processes on the current architecture.
+pub trait UserProcessExecutor {
+    /// The type representing the process's address space.
+    /// This is typically the same as the `AddrSpace` associated type from `ElfLoader`.
+    type AddrSpace;
 
-/// Memory frames and mappings recorded at creation time.
-pub struct ProcessMemory {
-    /// Physical address of the start of the .text section
-    pub text_frame: u64,
-    /// Physical address of the start of the .data section
-    pub data_frame: u64,
-    /// Physical address of the start of the .stack section
-    pub stack_frame: u64,
-    /// Virtual address at which .text is mapped
-    pub text_start_va: usize,
-    /// Virtual address of the top of the stack
-    pub stack_top_va: usize,
-}
+    /// Enters user mode for the specified address space, starting execution of the
+    /// process at the given entry point and stack pointer.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the address space is properly set up for user execution,
+    /// and that the entry point and stack pointer are valid for the user process.
+    unsafe fn enter_user(&self, aspace: &Self::AddrSpace, entry: VirtAddr, sp: VirtAddr) -> !;
 
-impl Default for Process {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Process {
-    /// Creates a new empty process control block.
-    pub fn new() -> Self {
-        Process { rpt_pa: 0 }
-    }
+    /// Resumes execution of a user process in the specified address space.
+    ///
+    /// # Safety
+    ///
+    /// See [`enter_user`].
+    unsafe fn resume_user(&self, aspace: &Self::AddrSpace) -> !;
 }
 
 /// Loads an executable file as a new process and starts its execution.
-pub fn execve(bytes: &[u8]) -> Result<(), ProcessLoadError> {
-    // Create architecture-specific loader and address space
-    let loader = &mut ArchLoaderImpl::default();
+pub fn execve<L, E, A>(loader: &L, executor: &E, bytes: &[u8]) -> Result<(), ProcessLoadError>
+where
+    L: ElfLoader<AddrSpace = A>,
+    E: UserProcessExecutor<AddrSpace = A>,
+{
+    // Virtual address of the last valid user address.
+    const USER_END: usize = 0x0000_003f_ffff_f000;
+
+    // Set up user stack at the top of the user address space
+    const STACK_TOP: usize = USER_END;
+    const STACK_SIZE: usize = 8 * 1024 * 1024; // 8 MiB
+    const STACK_BOTTOM: usize = STACK_TOP - STACK_SIZE;
+
+    // Create a new user address space
     let aspace = &mut loader
         .new_user_addr_space()
         .map_err(|_| ProcessLoadError::ArchError)?;
@@ -63,11 +64,19 @@ pub fn execve(bytes: &[u8]) -> Result<(), ProcessLoadError> {
         &mut seg_buf,
     )?;
 
-    // Start execution of the new process
-    elf::exec(loader, aspace, &plan).map_err(|_| ProcessLoadError::ArchError)?;
+    // Set up user stack
+    loader
+        .map_anonymous(
+            aspace,
+            VirtAddr::new(STACK_BOTTOM),
+            STACK_SIZE,
+            SegmentFlags::R | SegmentFlags::W,
+        )
+        .map_err(|_| ProcessLoadError::ArchError)?;
 
-    // exec should not return
-    panic!("execve returned unexpectedly");
+    // Start execution of the new process
+    // SAFETY: we have just created and loaded the address space for this process
+    unsafe { executor.enter_user(aspace, plan.entry, VirtAddr::new(STACK_TOP)) };
 }
 
 /// Possible errors when loading a process.

@@ -2,14 +2,14 @@
 
 use core::{mem::size_of, num::NonZeroUsize};
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::boxed::Box;
 use fdt::Node;
 
 use crate::{
     arch::ArchPageLayout,
     driver_info,
     drivers::{
-        Driver, DriverError,
+        Driver, DriverCtx, DriverError,
         virtio::{InterruptStatus, VirtioBlkDev, VirtioDev, VirtioDriver, Virtq},
     },
     mm::{
@@ -33,7 +33,7 @@ pub struct VirtioMmio {
 }
 
 impl Driver for VirtioMmio {
-    fn init<'d, 'fdt: 'd>(iomapper: &dyn IoMapper, node: Node) -> Result<(), DriverError<'d>> {
+    fn init<'d, 'fdt: 'd>(ctx: &DriverCtx, node: Node) -> Result<(), DriverError<'d>> {
         let (base, size) = node
             .property::<(u64, u64)>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
@@ -42,11 +42,11 @@ impl Driver for VirtioMmio {
         let size =
             NonZeroUsize::new(size as usize).ok_or(DriverError::InvalidPropertyValue("reg"))?;
 
-        let regmap = iomapper.iomap(pa_base, size).unwrap();
+        let regmap = ctx.arch.io.iomap(pa_base, size).unwrap();
 
         let dev = VirtioMmioDev {
             regmap,
-            dma_alloc: Arc::new(crate::arch::ArchDmaAllocator {}), // TODO: pass it from outside
+            dma_alloc: &ctx.arch.dma,
         };
 
         if &dev.magic().to_le_bytes() != b"virt" {
@@ -82,7 +82,7 @@ impl Driver for VirtioMmio {
 
 struct VirtioMmioDev {
     regmap: IoMapping,
-    dma_alloc: Arc<dyn DmaAllocator>,
+    dma_alloc: &'static dyn DmaAllocator,
 }
 
 #[allow(unused)]
@@ -178,7 +178,7 @@ impl VirtioDev for VirtioMmioDev {
 
         let vq_num_max = self.regmap.read::<u32>(Self::QUEUE_NUM_MAX);
 
-        let vq = Virtq::new(&*self.dma_alloc, index, vq_num_max as u16);
+        let vq = Virtq::new(self.dma_alloc, index, vq_num_max as u16);
 
         self.regmap.write(Self::QUEUE_NUM, vq_num_max);
         self.regmap

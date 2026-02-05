@@ -15,7 +15,15 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct RiscvIoMapper;
+pub struct RiscvIoMapper {
+    _private: (),
+}
+
+impl RiscvIoMapper {
+    pub(in crate::arch::riscv) const fn new() -> Self {
+        Self { _private: () }
+    }
+}
 
 impl IoMapper for RiscvIoMapper {
     fn iomap(&self, base: PhysAddr, len: NonZeroUsize) -> Result<IoMapping, IoMapError> {

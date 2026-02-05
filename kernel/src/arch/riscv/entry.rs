@@ -3,7 +3,7 @@
 use fdt::Fdt;
 
 use crate::{
-    arch::riscv::earlycon,
+    arch::{self, ArchServices, riscv::earlycon},
     mm::addr::{MemoryAddress, VirtAddr},
 };
 
@@ -28,4 +28,14 @@ pub unsafe extern "C" fn arch_init(fdt_data: *const u8, kernel_rpt_va: usize) {
     sbi::show_info();
     trap::init();
     mm::setup_late(&fdt, VirtAddr::new(kernel_rpt_va));
+
+    // Initialize arch services
+    arch::set_arch_services(ArchServices {
+        page_layout: arch::ArchPageLayout::new(),
+        dma: arch::ArchDmaAllocator::new(),
+        io: arch::ArchIoMapper::new(),
+        loader: arch::ArchLoaderImpl::new(),
+        uexec: arch::ArchUserExecutor::new(),
+        halt: arch::halt,
+    });
 }

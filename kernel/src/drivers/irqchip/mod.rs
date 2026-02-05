@@ -7,10 +7,7 @@ use fdt::{Fdt, StringList};
 pub use sifive_plic::*;
 use spin::Mutex;
 
-use crate::{
-    drivers::{DriverError, DynDriverInfo},
-    mm::mmio::IoMapper,
-};
+use crate::drivers::{DriverCtx, DriverError, DynDriverInfo};
 
 mod sifive_plic;
 
@@ -21,7 +18,7 @@ pub trait InterruptController: Sync + Send {}
 static PLIC: Mutex<Option<Box<dyn InterruptController>>> = Mutex::new(None);
 
 /// Initializes the platform IRQ chip(s).
-pub fn init<'d>(iomapper: &dyn IoMapper, fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
+pub fn init<'d>(ctx: &DriverCtx, fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
     // TODO: global vector with dynamic registration maybe?
     let infos: &[&dyn DynDriverInfo] = &[&SifivePlicDriverInfo];
 
@@ -37,7 +34,7 @@ pub fn init<'d>(iomapper: &dyn IoMapper, fdt: &'d Fdt<'d>) -> Result<(), DriverE
         if let Some(modinfo) = infos
             .iter()
             .find(|i| compatibles.clone().any(|c| i.of_match().contains(&c)))
-            && let Err(e) = modinfo.init(iomapper, node)
+            && let Err(e) = modinfo.init(ctx, node)
         {
             kprintln!("Error: Failed to init IRQ chip: {:?}", e);
         };

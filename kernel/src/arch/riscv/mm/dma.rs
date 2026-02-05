@@ -17,7 +17,15 @@ use crate::{
 
 /// RISC-V DMA allocator.
 #[derive(Debug)]
-pub struct RiscvDmaAllocator;
+pub struct RiscvDmaAllocator {
+    _private: (),
+}
+
+impl RiscvDmaAllocator {
+    pub(in crate::arch::riscv) const fn new() -> Self {
+        Self { _private: () }
+    }
+}
 
 impl DmaAllocator for RiscvDmaAllocator {
     fn alloc_raw(&self, layout: Layout) -> Result<DmaBuf, DmaAllocError> {

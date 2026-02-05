@@ -4,7 +4,7 @@ use core::fmt;
 
 use elf::Elf64;
 
-use crate::mm::addr::{Align, MemoryAddress, PhysAddr, VirtAddr};
+use crate::mm::addr::{Align, MemoryAddress, VirtAddr};
 
 /// Trait defining the architecture-specific interface for loading processes.
 /// The core process loader will call these methods to set up the process's address space and load
@@ -19,12 +19,12 @@ pub trait ElfLoader {
     type Error: fmt::Debug;
 
     /// Creates a new user address space and return its handle.
-    fn new_user_addr_space(&mut self) -> Result<Self::AddrSpace, Self::Error>;
+    fn new_user_addr_space(&self) -> Result<Self::AddrSpace, Self::Error>;
 
     /// Choose a base for PIE within your user VA layout constraints.
     /// Core can call this when it detects ET_DYN.
     fn choose_pie_base(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         image_min_vaddr: VirtAddr,
         image_max_vaddr: VirtAddr,
@@ -43,7 +43,7 @@ pub trait ElfLoader {
     /// Maps anonymous pages for [vaddr, vaddr+len) with flags.
     /// Core will do page rounding; arch can assume page-aligned.
     fn map_anonymous(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         vaddr: VirtAddr,
         len: usize,
@@ -52,7 +52,7 @@ pub trait ElfLoader {
 
     /// Updates the permissions of an already-mapped range.
     fn protect_range(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         vaddr: VirtAddr,
         len: usize,
@@ -61,7 +61,7 @@ pub trait ElfLoader {
 
     /// Copies bytes into an already-mapped region.
     fn copy_to_user(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         dst_vaddr: VirtAddr,
         src: &[u8],
@@ -69,7 +69,7 @@ pub trait ElfLoader {
 
     /// Zero fills an already-mapped region.
     fn zero_user(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         dst_vaddr: VirtAddr,
         len: usize,
@@ -77,34 +77,13 @@ pub trait ElfLoader {
 
     /// Optional but common: after mapping code, ensures instruction cache coherency.
     fn finalize_image(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         mapped_exec_ranges: &[(VirtAddr, VirtAddr)],
     ) -> Result<(), Self::Error>;
 
-    /// Performs an operation with the given address space active, allowing the arch loader to safely
-    /// access user memory if needed. This is necessary for architectures where the kernel cannot
-    /// directly access user memory without switching to the process's address space.
-    fn with_addr_space<F, R>(
-        &mut self,
-        _aspace: &mut Self::AddrSpace,
-        f: F,
-    ) -> Result<R, Self::Error>
-    where
-        F: FnOnce() -> R,
-    {
-        // By default, just call the closure directly.
-        // Architectures that require special handling can override this.
-        Ok(f())
-    }
-
     /// Provides page size / alignment constraints (core uses to round).
     fn page_size(&self) -> usize;
-
-    /// TODO: remove me!
-    fn rpt_pa(&self) -> PhysAddr {
-        PhysAddr::new(0)
-    }
 }
 
 /// Instruction for the core loader on how to load an ELF image.
@@ -235,7 +214,7 @@ fn build_load_plan<'a>(
 
 /// Loads an ELF binary into the given address space using the provided architecture loader.
 pub fn load_elf_into<'a, A: ElfLoader>(
-    arch: &mut A,
+    loader: &A,
     aspace: &mut A::AddrSpace,
     elf: &'a [u8],
     policy: LoadPolicy,
@@ -243,7 +222,7 @@ pub fn load_elf_into<'a, A: ElfLoader>(
 ) -> Result<LoadPlan<'a>, ElfLoadError> {
     let plan = build_load_plan(elf, policy, seg_buf)?;
 
-    let page = arch.page_size();
+    let page = loader.page_size();
 
     for seg in plan.segments.iter() {
         // enforce W^X if configured
@@ -258,77 +237,55 @@ pub fn load_elf_into<'a, A: ElfLoader>(
         let map_start = seg.vaddr.align_down(page);
         let map_end = (seg.vaddr + seg.mem_size).align_up(page);
 
-        arch.validate_user_range(aspace, map_start, (map_end - map_start).as_usize())
+        loader
+            .validate_user_range(aspace, map_start, (map_end - map_start).as_usize())
             .map_err(|_| ElfLoadError::AddressNotAllowed)?;
 
         // map pages with RW for loading (even if final flags are different, we'll fixup later)
         let load_flags = seg.flags | SegmentFlags::W;
 
-        arch.map_anonymous(
-            aspace,
-            map_start,
-            (map_end - map_start).as_usize(),
-            load_flags,
-        )
-        .map_err(|_| ElfLoadError::MapFailed)?;
+        loader
+            .map_anonymous(
+                aspace,
+                map_start,
+                (map_end - map_start).as_usize(),
+                load_flags,
+            )
+            .map_err(|_| ElfLoadError::MapFailed)?;
 
         // copy file bytes
-        arch.copy_to_user(aspace, seg.vaddr, seg.file_data)
+        loader
+            .copy_to_user(aspace, seg.vaddr, seg.file_data)
             .map_err(|_| ElfLoadError::CopyFailed)?;
 
         // zero .bss tail
         if seg.file_data.len() < seg.mem_size {
             let z_start = seg.vaddr + seg.file_data.len();
             let z_len = seg.mem_size - seg.file_data.len();
-            arch.zero_user(aspace, z_start, z_len)
+            loader
+                .zero_user(aspace, z_start, z_len)
                 .map_err(|_| ElfLoadError::ZeroFailed)?;
         }
 
         // drop write permission if not in original flags
         if seg.flags != load_flags {
-            arch.protect_range(
-                aspace,
-                map_start,
-                (map_end - map_start).as_usize(),
-                seg.flags,
-            )
-            .map_err(|_| ElfLoadError::MapFailed)?;
+            loader
+                .protect_range(
+                    aspace,
+                    map_start,
+                    (map_end - map_start).as_usize(),
+                    seg.flags,
+                )
+                .map_err(|_| ElfLoadError::MapFailed)?;
         }
     }
 
     // finalize (icache/tlb discipline, etc.)
-    arch.finalize_image(aspace, &[])
+    loader
+        .finalize_image(aspace, &[])
         .map_err(|_| ElfLoadError::Unsupported)?;
 
     Ok(plan)
-}
-
-/// Starts execution of a loaded process given its load plan.
-pub fn exec<A: ElfLoader>(
-    arch: &mut A,
-    aspace: &mut A::AddrSpace,
-    plan: &LoadPlan,
-) -> Result<(), A::Error> {
-    // Virtual address of the last valid user address.
-    const USER_END: usize = 0x0000_003f_ffff_f000;
-
-    // Set up user stack at the top of the user address space
-    const STACK_TOP: usize = USER_END;
-    const STACK_SIZE: usize = 8 * 1024 * 1024; // 8 MiB
-    const STACK_BOTTOM: usize = STACK_TOP - STACK_SIZE;
-
-    arch.map_anonymous(
-        aspace,
-        VirtAddr::new(STACK_BOTTOM),
-        STACK_SIZE,
-        SegmentFlags::R | SegmentFlags::W,
-    )?;
-
-    // Start process execution
-    // SAFETY: memory has been initialized right above.
-    unsafe {
-        crate::arch::switch_to_process(arch.rpt_pa(), plan.entry, VirtAddr::new(STACK_TOP));
-    }
 }
 
 /// Errors that can occur during ELF loading.

@@ -5,7 +5,7 @@ use core::iter::{self, FromIterator};
 use alloc::collections::VecDeque;
 use fdt::{Fdt, FdtParseError, Node, StringList};
 
-use crate::mm::mmio::IoMapper;
+use crate::arch::ArchServices;
 
 pub mod earlycon;
 pub mod irqchip;
@@ -13,13 +13,16 @@ pub mod ns16550;
 pub mod syscon;
 pub mod virtio;
 
+/// Context passed to drivers during initialization.
+pub struct DriverCtx {
+    /// Architecture-specific services.
+    pub arch: &'static ArchServices,
+}
+
 /// A device driver with FDT bindings.
 pub trait Driver {
     /// Initializes this driver according to the provided FDT node.
-    fn init<'d, 'fdt: 'd>(
-        iomapper: &dyn IoMapper,
-        node: Node<'d, 'fdt>,
-    ) -> Result<(), DriverError<'d>>
+    fn init<'d, 'fdt: 'd>(ctx: &DriverCtx, node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>>
     where
         Self: Sized;
 }
@@ -35,11 +38,8 @@ pub trait DriverInfo {
     /// Calls the `Self::Driver::init` function passing on the FDT node.
     ///
     /// Implementation is provided, so no need to override it.
-    fn _init<'d, 'fdt: 'd>(
-        iomapper: &dyn IoMapper,
-        node: Node<'d, 'fdt>,
-    ) -> Result<(), DriverError<'d>> {
-        Self::Driver::init(iomapper, node)
+    fn _init<'d, 'fdt: 'd>(ctx: &DriverCtx, node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>> {
+        Self::Driver::init(ctx, node)
     }
 }
 
@@ -48,7 +48,7 @@ trait DynDriverInfo {
     fn of_match(&self) -> &'static [&'static str];
     fn init<'d, 'fdt: 'd>(
         &self,
-        iomapper: &dyn IoMapper,
+        ctx: &DriverCtx,
         node: Node<'d, 'fdt>,
     ) -> Result<(), DriverError<'d>>;
 }
@@ -64,10 +64,10 @@ where
 
     fn init<'d, 'fdt: 'd>(
         &self,
-        iomapper: &dyn IoMapper,
+        ctx: &DriverCtx,
         node: Node<'d, 'fdt>,
     ) -> Result<(), DriverError<'d>> {
-        T::Driver::init(iomapper, node)
+        T::Driver::init(ctx, node)
     }
 }
 
@@ -93,7 +93,7 @@ macro_rules! driver_info {
 }
 
 /// Entry point of the initialization of kernel drivers.
-pub fn init<'d>(iomapper: &dyn IoMapper, fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
+pub fn init<'d>(ctx: &DriverCtx, fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
     // TODO: global vector with dynamic registration maybe?
     let infos: &[&dyn DynDriverInfo] = &[
         &syscon::GenericSysconDriverInfo,
@@ -114,7 +114,7 @@ pub fn init<'d>(iomapper: &dyn IoMapper, fdt: &'d Fdt<'d>) -> Result<(), DriverE
             .iter()
             .find(|i| compatibles.clone().any(|c| i.of_match().contains(&c)))
         {
-            match modinfo.init(iomapper, node) {
+            match modinfo.init(ctx, node) {
                 Ok(_) | Err(DriverError::DeviceNotFound) => (),
                 Err(e) => return Err(e),
             }

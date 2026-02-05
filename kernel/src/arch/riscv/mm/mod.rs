@@ -20,7 +20,6 @@ use crate::{
         addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
         allocator::{BumpAllocator, BumpFrameAllocator, FrameAllocator},
     },
-    proc::{Process, ProcessMemory},
 };
 use fdt::{Fdt, PropEncodedArray};
 use mmu::PageTableWalker;

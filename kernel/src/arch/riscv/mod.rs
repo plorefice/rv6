@@ -6,7 +6,6 @@
 use crate::arch::riscv::registers::{SiFlags, Sie, Sip, Sstatus, SstatusFlags};
 
 pub use mm::phys_to_virt;
-pub use proc::switch_to_process;
 pub use uaccess::with_user_access;
 
 mod addr;
@@ -36,6 +35,9 @@ pub type ArchIoMapper = mm::mmio::RiscvIoMapper;
 
 /// The architecture-specific ELF loader implementation.
 pub type ArchLoaderImpl = mm::elf::RiscvLoader;
+
+/// The architecture-specific user process executor.
+pub type ArchUserExecutor = proc::RiscvUserProcessExecutor;
 
 /// Halts execution on the current hart forever.
 pub fn halt() -> ! {

@@ -42,7 +42,15 @@ const PAGE_LEVELS: usize = 3;
 const PAGE_LEVELS: usize = 4;
 
 /// The page layout used by the RISC-V MMU.
-pub struct RiscvPageLayout;
+pub struct RiscvPageLayout {
+    _private: (),
+}
+
+impl RiscvPageLayout {
+    pub(in crate::arch::riscv) fn new() -> Self {
+        Self { _private: () }
+    }
+}
 
 impl PageLayout for RiscvPageLayout {
     const SHIFT: usize = 12;

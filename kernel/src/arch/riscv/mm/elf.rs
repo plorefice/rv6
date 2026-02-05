@@ -16,31 +16,26 @@ use crate::{
         addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
         allocator::FrameAllocator,
     },
-    proc::{
-        Process, ProcessMemory,
-        elf::{self, ElfLoader},
-    },
+    proc::elf::{self, ElfLoader},
 };
 
 /// RISC-V implementation of the ArchLoader trait for loading ELF binaries into user processes.
 #[derive(Debug)]
 pub struct RiscvLoader {
-    rpt_pa: PhysAddr, // Physical address of the root page table
+    _private: (),
 }
 
-impl Default for RiscvLoader {
-    fn default() -> Self {
-        Self {
-            rpt_pa: PhysAddr::new(0),
-        }
+impl RiscvLoader {
+    pub(in crate::arch::riscv) const fn new() -> Self {
+        Self { _private: () }
     }
 }
 
 impl ElfLoader for RiscvLoader {
-    type AddrSpace = PageTableWalker<'static>;
+    type AddrSpace = RiscvAddrSpace;
     type Error = mmu::MapError;
 
-    fn new_user_addr_space(&mut self) -> Result<Self::AddrSpace, Self::Error> {
+    fn new_user_addr_space(&self) -> Result<Self::AddrSpace, Self::Error> {
         let mut gfa = GFA.lock();
         let gfa = gfa.as_mut().expect("GFA not initialized");
 
@@ -67,13 +62,14 @@ impl ElfLoader for RiscvLoader {
             user_mapper.copy_kernel_mappings(kernel_rpt, gfa)?;
         }
 
-        self.rpt_pa = user_rpt_pa;
-
-        Ok(user_mapper)
+        Ok(RiscvAddrSpace {
+            rpt_pa: user_rpt_pa,
+            pt_walker: user_mapper,
+        })
     }
 
     fn choose_pie_base(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         image_min_vaddr: VirtAddr,
         image_max_vaddr: VirtAddr,
@@ -94,7 +90,7 @@ impl ElfLoader for RiscvLoader {
     }
 
     fn map_anonymous(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         vaddr: VirtAddr,
         len: usize,
@@ -123,7 +119,7 @@ impl ElfLoader for RiscvLoader {
             // Map each page
             // SAFETY: caller must ensure that vaddr and len are page-aligned and valid.
             unsafe {
-                aspace.map(
+                aspace.pt_walker.map(
                     va,
                     pa,
                     PageSize::Kb,
@@ -137,7 +133,7 @@ impl ElfLoader for RiscvLoader {
     }
 
     fn protect_range(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         vaddr: VirtAddr,
         len: usize,
@@ -151,7 +147,7 @@ impl ElfLoader for RiscvLoader {
         // Change permissions of already mapped pages
         // SAFETY: caller must ensure that vaddr and len are page-aligned and valid
         unsafe {
-            aspace.update_mapping(
+            aspace.pt_walker.update_mapping(
                 vaddr,
                 len,
                 EntryFlags::from_segment_flags(flags) | EntryFlags::USER | EntryFlags::ACCESS,
@@ -162,73 +158,86 @@ impl ElfLoader for RiscvLoader {
     }
 
     fn copy_to_user(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         dst_vaddr: VirtAddr,
         src: &[u8],
     ) -> Result<(), Self::Error> {
-        self.with_addr_space(aspace, || {
-            // Copy user code into place
-            // SAFETY: caller must ensure that dst_vaddr is valid and mapped
-            arch::with_user_access(|| unsafe {
-                core::ptr::copy_nonoverlapping(src.as_ptr(), dst_vaddr.as_mut_ptr(), src.len());
+        // SAFETY: caller must ensure that dst_vaddr is valid and mapped
+        unsafe {
+            aspace.with_addr_space(|| {
+                // Copy user code into place
+                // SAFETY: caller must ensure that dst_vaddr is valid and mapped
+                arch::with_user_access(|| unsafe {
+                    core::ptr::copy_nonoverlapping(src.as_ptr(), dst_vaddr.as_mut_ptr(), src.len());
+                });
             });
-        });
+        }
 
         Ok(())
     }
 
     fn zero_user(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         dst_vaddr: VirtAddr,
         len: usize,
     ) -> Result<(), Self::Error> {
-        self.with_addr_space(aspace, || {
-            // Zero user data/bss
-            // SAFETY: caller must ensure that dst_vaddr is valid and mapped
-            arch::with_user_access(|| unsafe {
-                core::ptr::write_bytes(dst_vaddr.as_mut_ptr::<u8>(), 0, len);
+        // SAFETY: caller must ensure that dst_vaddr is valid and mapped
+        unsafe {
+            aspace.with_addr_space(|| {
+                // Zero user data/bss
+                // SAFETY: caller must ensure that dst_vaddr is valid and mapped
+                arch::with_user_access(|| unsafe {
+                    core::ptr::write_bytes(dst_vaddr.as_mut_ptr::<u8>(), 0, len);
+                });
             });
-        });
+        }
 
         Ok(())
     }
 
     fn finalize_image(
-        &mut self,
+        &self,
         aspace: &mut Self::AddrSpace,
         mapped_exec_ranges: &[(VirtAddr, VirtAddr)],
     ) -> Result<(), Self::Error> {
         Ok(())
     }
 
-    fn with_addr_space<F, R>(
-        &mut self,
-        aspace: &mut Self::AddrSpace,
-        f: F,
-    ) -> Result<R, Self::Error>
-    where
-        F: FnOnce() -> R,
-    {
-        unsafe {
-            // SAFETY: caller must ensure that `aspace` is valid and properly set up.
-            let prev = mmu::switch_page_table(self.rpt_pa);
-
-            let ret = f();
-
-            // SAFETY: we are restoring the kernel page table, which is always valid.
-            mmu::switch_page_table(prev);
-
-            Ok(ret)
-        }
-    }
-
     fn page_size(&self) -> usize {
         PAGE_SIZE
     }
+}
 
-    fn rpt_pa(&self) -> PhysAddr {
+/// RISC-V user address space implementation for ELF loading.
+pub struct RiscvAddrSpace {
+    rpt_pa: PhysAddr,
+    pt_walker: PageTableWalker<'static>,
+}
+
+impl RiscvAddrSpace {
+    /// Returns the physical address of the root page table for this address space.
+    pub fn root_page_table_pa(&self) -> PhysAddr {
         self.rpt_pa
+    }
+
+    /// Temporarily switches to this address space, runs the given closure, and then switches back.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the address space is valid and properly set up before calling this function.
+    pub unsafe fn with_addr_space<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        // SAFETY: caller must ensure that `aspace` is valid and properly set up.
+        let prev = unsafe { mmu::switch_page_table(self.rpt_pa) };
+
+        let ret = f();
+
+        // SAFETY: we are restoring the kernel page table, which is always valid.
+        unsafe { mmu::switch_page_table(prev) };
+        ret
     }
 }
