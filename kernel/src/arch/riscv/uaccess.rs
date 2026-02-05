@@ -1,3 +1,5 @@
+//! RISC-V user mode memory access interface.
+
 use crate::arch::riscv::registers::{Sstatus, SstatusFlags};
 
 /// Executes the given closure with user memory access enabled.

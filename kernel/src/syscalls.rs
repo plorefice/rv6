@@ -1,7 +1,7 @@
 //! Syscalls implementation.
 
 use crate::{
-    arch,
+    arch::hal,
     drivers::earlycon::{self, EarlyCon},
 };
 
@@ -32,7 +32,7 @@ impl<T> UserPtr<T> {
 /// - `src` must be a valid user-space pointer and the memory region it points to must be accessible.
 ///   The caller must ensure these conditions are met.
 pub unsafe fn copy_from_user(dst: &mut [u8], src: UserPtr<u8>) {
-    arch::with_user_access(|| unsafe {
+    hal::mm::with_user_access(|| unsafe {
         // SAFETY: TODO: validate user pointer
         let mut p = src.addr as *const u8;
         for b in dst.iter_mut() {
@@ -54,7 +54,7 @@ pub fn sys_write(fd: usize, buf: UserPtr<u8>, len: usize) -> isize {
     }
 
     // Print each byte to the early console
-    arch::with_user_access(|| {
+    hal::mm::with_user_access(|| {
         let mut p = buf.addr as *const u8;
         for _ in 0..len {
             // SAFETY: TODO: validate user pointer

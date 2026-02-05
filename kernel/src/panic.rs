@@ -10,7 +10,7 @@ fn panic(info: &PanicInfo) -> ! {
 
     kprintln!("Halting!");
 
-    crate::arch::halt();
+    crate::arch::hal::cpu::halt()
 }
 
 #[cfg(test)]

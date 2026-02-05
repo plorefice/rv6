@@ -2,6 +2,8 @@
 
 use core::fmt;
 
+use crate::arch::hal;
+
 /// Prints to the kernel console (UART0).
 ///
 /// Equivalent to the [`kprintln!`] macro except that a newline is not printed
@@ -70,11 +72,9 @@ pub(crate) fn _print(args: fmt::Arguments) {
 
 #[doc(hidden)]
 pub(crate) fn _print_timestamp() {
-    use crate::arch::time;
-
-    let cy = time::get_cycles();
-    let sec = cy / time::CLINT_TIMEBASE;
-    let subsec = (cy % time::CLINT_TIMEBASE) / 10;
+    let cy = hal::cpu::get_cycles();
+    let sec = cy / hal::cpu::cycles_per_sec();
+    let subsec = (cy % hal::cpu::cycles_per_sec()) / 10;
 
     _print(format_args!("[{sec:5}.{subsec:06}] "));
 }

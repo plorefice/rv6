@@ -5,7 +5,7 @@ use core::fmt;
 use fdt::Fdt;
 
 use crate::{
-    arch,
+    arch::hal,
     mm::addr::{MemoryAddress, PhysAddr},
 };
 
@@ -58,7 +58,7 @@ pub fn load_from_fdt(fdt: &Fdt) -> Result<Initrd, InitrdError> {
 
     // SAFETY: we trust the FDT to provide us with valid physical addresses for the initrd
     let initrd_data = unsafe {
-        let ptr = arch::phys_to_virt(start).as_ptr::<u8>();
+        let ptr = hal::mm::phys_to_virt(start).as_ptr::<u8>();
         core::slice::from_raw_parts(ptr, len)
     };
 

@@ -10,7 +10,7 @@ use crate::{
     },
     mm::{
         addr::{MemoryAddress, PhysAddr},
-        mmio::{IoMapper, IoMapping},
+        mmio::{self, IoMapper, IoMapping},
     },
 };
 
@@ -25,7 +25,7 @@ pub struct SifivePlic {
 }
 
 impl Driver for SifivePlic {
-    fn init<'d, 'fdt: 'd>(ctx: &DriverCtx, node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>>
+    fn init<'d, 'fdt: 'd>(_: &DriverCtx, node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>>
     where
         Self: Sized,
     {
@@ -37,7 +37,7 @@ impl Driver for SifivePlic {
         let size =
             NonZeroUsize::new(len as usize).ok_or(DriverError::InvalidPropertyValue("reg"))?;
 
-        let regmap = ctx.arch.io.iomap(pa_base, size).unwrap();
+        let regmap = mmio::mapper().iomap(pa_base, size).unwrap();
 
         kprintln!("PLIC: {:#x} - {:#x}", base, base + len);
 

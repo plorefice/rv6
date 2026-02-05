@@ -6,9 +6,12 @@ use core::{
 };
 
 use crate::{
-    arch::ArchPageLayout,
     drivers::virtio::VirtioDev,
-    mm::{PageLayout, addr::DmaAddr, dma::DmaAllocator},
+    mm::{
+        self,
+        addr::DmaAddr,
+        dma::{self, DmaAllocator},
+    },
 };
 
 pub struct Virtq {
@@ -28,7 +31,7 @@ pub struct Virtq {
 }
 
 impl Virtq {
-    pub fn new(dma_alloc: &dyn DmaAllocator, idx: u32, size: u16) -> Self {
+    pub fn new(idx: u32, size: u16) -> Self {
         let size = size as usize;
 
         let vq_desc_sz = size_of::<VirtqDescriptor>() * size;
@@ -40,8 +43,8 @@ impl Virtq {
         let vq_avail_pad = (vq_desc_sz + vq_avail_sz + 3) & !3;
         let vq_total_sz = vq_desc_sz + vq_avail_sz + vq_used_sz + vq_avail_pad;
 
-        let vq_mem = dma_alloc
-            .alloc_raw_zeroed(Layout::from_size_align(vq_total_sz, ArchPageLayout::SIZE).unwrap())
+        let vq_mem = dma::allocator()
+            .alloc_raw_zeroed(Layout::from_size_align(vq_total_sz, mm::page_size()).unwrap())
             .expect("dma allocation failed");
 
         // SAFETY: lots of pointer arithmetics down below, if my calculations are correct
@@ -89,7 +92,7 @@ impl Virtq {
     }
 
     pub fn pfn(&self) -> u32 {
-        (self.phys.as_usize() / ArchPageLayout::SIZE) as u32
+        (self.phys.as_usize() / mm::page_size()) as u32
     }
 
     pub fn submit<'a, D, I>(&mut self, dev: &D, buffers: I)

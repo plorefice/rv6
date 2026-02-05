@@ -5,8 +5,6 @@ use core::iter::{self, FromIterator};
 use alloc::collections::VecDeque;
 use fdt::{Fdt, FdtParseError, Node, StringList};
 
-use crate::arch::ArchServices;
-
 pub mod earlycon;
 pub mod irqchip;
 pub mod ns16550;
@@ -15,8 +13,7 @@ pub mod virtio;
 
 /// Context passed to drivers during initialization.
 pub struct DriverCtx {
-    /// Architecture-specific services.
-    pub arch: &'static ArchServices,
+    // TODO: fill me with necessary fields
 }
 
 /// A device driver with FDT bindings.

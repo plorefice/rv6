@@ -4,6 +4,7 @@ use crate::{
     arch::{
         self,
         riscv::{
+            self,
             addr::VirtAddrExt,
             mm::{GFA, MAPPER},
             mmu::{
@@ -20,16 +21,7 @@ use crate::{
 };
 
 /// RISC-V implementation of the ArchLoader trait for loading ELF binaries into user processes.
-#[derive(Debug)]
-pub struct RiscvLoader {
-    _private: (),
-}
-
-impl RiscvLoader {
-    pub(in crate::arch::riscv) const fn new() -> Self {
-        Self { _private: () }
-    }
-}
+pub struct RiscvLoader;
 
 impl ElfLoader for RiscvLoader {
     type AddrSpace = RiscvAddrSpace;
@@ -168,7 +160,7 @@ impl ElfLoader for RiscvLoader {
             aspace.with_addr_space(|| {
                 // Copy user code into place
                 // SAFETY: caller must ensure that dst_vaddr is valid and mapped
-                arch::with_user_access(|| unsafe {
+                riscv::with_user_access(|| unsafe {
                     core::ptr::copy_nonoverlapping(src.as_ptr(), dst_vaddr.as_mut_ptr(), src.len());
                 });
             });
@@ -188,7 +180,7 @@ impl ElfLoader for RiscvLoader {
             aspace.with_addr_space(|| {
                 // Zero user data/bss
                 // SAFETY: caller must ensure that dst_vaddr is valid and mapped
-                arch::with_user_access(|| unsafe {
+                riscv::with_user_access(|| unsafe {
                     core::ptr::write_bytes(dst_vaddr.as_mut_ptr::<u8>(), 0, len);
                 });
             });

@@ -9,7 +9,7 @@ use crate::{
     drivers::{Driver, DriverCtx},
     mm::{
         addr::{MemoryAddress, PhysAddr},
-        mmio::{IoMapper, IoMapping},
+        mmio::{self, IoMapper, IoMapping},
     },
 };
 
@@ -26,7 +26,7 @@ pub struct Ns16550 {
 }
 
 impl Driver for Ns16550 {
-    fn init<'d, 'fdt: 'd>(ctx: &DriverCtx, node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>> {
+    fn init<'d, 'fdt: 'd>(_: &DriverCtx, node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>> {
         let (base, size) = node
             .property::<(u64, u64)>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
@@ -35,7 +35,7 @@ impl Driver for Ns16550 {
         let size =
             NonZeroUsize::new(size as usize).ok_or(DriverError::InvalidPropertyValue("reg"))?;
 
-        let regmap = ctx.arch.io.iomap(pa_base, size).unwrap();
+        let regmap = mmio::mapper().iomap(pa_base, size).unwrap();
 
         let mut slf = Self { regmap };
 

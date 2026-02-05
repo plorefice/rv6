@@ -33,6 +33,15 @@ pub trait IoMapper: Send + Sync {
     unsafe fn iounmap(&self, mapping: IoMapping);
 }
 
+// Token type to ensure that only the HAL code can create allocators.
+pub(crate) struct IoMapperToken(());
+
+/// Returns a reference to the architecture-specific IO mapper.
+#[inline]
+pub fn mapper() -> &'static impl IoMapper {
+    crate::arch::hal::mm::mmio::mapper(IoMapperToken(()))
+}
+
 /// Read-only register.
 #[repr(transparent)]
 pub struct RO<T>

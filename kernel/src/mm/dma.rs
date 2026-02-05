@@ -252,3 +252,12 @@ impl<T: DmaSafe> DmaObject<MaybeUninit<T>> {
         }
     }
 }
+
+// Token type to ensure that only the HAL code can create allocators.
+pub(crate) struct DmaAllocatorToken(());
+
+/// Returns a reference to the architecture-specific DMA allocator.
+#[inline]
+pub fn allocator() -> &'static impl DmaAllocator {
+    crate::arch::hal::mm::dma::allocator(DmaAllocatorToken(()))
+}

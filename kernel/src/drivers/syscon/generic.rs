@@ -9,7 +9,7 @@ use crate::{
     drivers::{Driver, DriverCtx, DriverError, syscon},
     mm::{
         addr::{MemoryAddress, PhysAddr},
-        mmio::{IoMapper, IoMapping},
+        mmio::{self, IoMapper, IoMapping},
     },
 };
 
@@ -32,7 +32,7 @@ struct SysconRegister {
 }
 
 impl Driver for GenericSyscon {
-    fn init<'d, 'fdt: 'd>(ctx: &DriverCtx, node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>> {
+    fn init<'d, 'fdt: 'd>(_: &DriverCtx, node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>> {
         let mut regs = node
             .property::<PropEncodedArray<(u64, u64)>>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
@@ -43,7 +43,7 @@ impl Driver for GenericSyscon {
         let size =
             NonZeroUsize::new(len as usize).ok_or(DriverError::InvalidPropertyValue("reg"))?;
 
-        let regmap = ctx.arch.io.iomap(pa_base, size).unwrap();
+        let regmap = mmio::mapper().iomap(pa_base, size).unwrap();
 
         let mut slf = Self {
             regmap,

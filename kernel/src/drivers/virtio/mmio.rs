@@ -6,17 +6,16 @@ use alloc::boxed::Box;
 use fdt::Node;
 
 use crate::{
-    arch::ArchPageLayout,
     driver_info,
     drivers::{
         Driver, DriverCtx, DriverError,
         virtio::{InterruptStatus, VirtioBlkDev, VirtioDev, VirtioDriver, Virtq},
     },
     mm::{
-        PageLayout,
+        self,
         addr::{MemoryAddress, PhysAddr},
-        dma::{DmaAllocError, DmaAllocator, DmaAllocatorExt, DmaObject, DmaSafe},
-        mmio::{IoMapper, IoMapping},
+        dma::{self, DmaAllocError, DmaAllocatorExt, DmaObject, DmaSafe},
+        mmio::{self, IoMapper, IoMapping},
     },
 };
 
@@ -33,7 +32,7 @@ pub struct VirtioMmio {
 }
 
 impl Driver for VirtioMmio {
-    fn init<'d, 'fdt: 'd>(ctx: &DriverCtx, node: Node) -> Result<(), DriverError<'d>> {
+    fn init<'d, 'fdt: 'd>(_: &DriverCtx, node: Node) -> Result<(), DriverError<'d>> {
         let (base, size) = node
             .property::<(u64, u64)>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
@@ -42,12 +41,9 @@ impl Driver for VirtioMmio {
         let size =
             NonZeroUsize::new(size as usize).ok_or(DriverError::InvalidPropertyValue("reg"))?;
 
-        let regmap = ctx.arch.io.iomap(pa_base, size).unwrap();
+        let regmap = mmio::mapper().iomap(pa_base, size).unwrap();
 
-        let dev = VirtioMmioDev {
-            regmap,
-            dma_alloc: &ctx.arch.dma,
-        };
+        let dev = VirtioMmioDev { regmap };
 
         if &dev.magic().to_le_bytes() != b"virt" {
             return Err(DriverError::UnexpectedError("invalid virtio-mmio magic"));
@@ -65,7 +61,7 @@ impl Driver for VirtioMmio {
         }
 
         // Device initialization
-        dev.set_guest_page_size(ArchPageLayout::SIZE as u32);
+        dev.set_guest_page_size(mm::page_size() as u32);
 
         let _driver = match dev_id {
             2 => Box::new(VirtioBlkDev::new(dev)),
@@ -82,7 +78,6 @@ impl Driver for VirtioMmio {
 
 struct VirtioMmioDev {
     regmap: IoMapping,
-    dma_alloc: &'static dyn DmaAllocator,
 }
 
 #[allow(unused)]
@@ -166,7 +161,7 @@ impl VirtioDev for VirtioMmioDev {
     }
 
     fn allocate_guest_mem<T: DmaSafe>(&self, val: T) -> Result<DmaObject<T>, DmaAllocError> {
-        self.dma_alloc.alloc::<T>(val)
+        dma::allocator().alloc::<T>(val)
     }
 
     fn allocate_virtq(&self, index: u32) -> Virtq {
@@ -178,11 +173,10 @@ impl VirtioDev for VirtioMmioDev {
 
         let vq_num_max = self.regmap.read::<u32>(Self::QUEUE_NUM_MAX);
 
-        let vq = Virtq::new(self.dma_alloc, index, vq_num_max as u16);
+        let vq = Virtq::new(index, vq_num_max as u16);
 
         self.regmap.write(Self::QUEUE_NUM, vq_num_max);
-        self.regmap
-            .write(Self::QUEUE_ALIGN, ArchPageLayout::SIZE as u32);
+        self.regmap.write(Self::QUEUE_ALIGN, mm::page_size() as u32);
         self.regmap.write(Self::QUEUE_PFN, vq.pfn());
 
         vq

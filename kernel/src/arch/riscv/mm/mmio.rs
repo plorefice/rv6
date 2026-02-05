@@ -1,3 +1,5 @@
+//! RISC-V implementation of memory-mapped IO.
+
 use core::{
     alloc::{GlobalAlloc, Layout},
     num::NonZeroUsize,
@@ -14,16 +16,18 @@ use crate::{
     },
 };
 
-#[derive(Debug)]
-pub struct RiscvIoMapper {
-    _private: (),
+// Global MMIO mapper instance
+static IO_MAPPER: RiscvIoMapper = RiscvIoMapper;
+
+/// Returns a reference to the global MMIO mapper.
+#[inline]
+pub const fn mapper() -> &'static RiscvIoMapper {
+    &IO_MAPPER
 }
 
-impl RiscvIoMapper {
-    pub(in crate::arch::riscv) const fn new() -> Self {
-        Self { _private: () }
-    }
-}
+/// RISC-V implementation of the IO memory mapper.
+#[derive(Debug)]
+pub struct RiscvIoMapper;
 
 impl IoMapper for RiscvIoMapper {
     fn iomap(&self, base: PhysAddr, len: NonZeroUsize) -> Result<IoMapping, IoMapError> {

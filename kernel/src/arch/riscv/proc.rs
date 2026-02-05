@@ -1,24 +1,18 @@
+//! RISC-V implementation of process management.
+
 use crate::{
     arch::riscv::{
         instructions::fence_i,
-        mm::elf::RiscvAddrSpace,
+        mm::elf::{RiscvAddrSpace, RiscvLoader},
         mmu,
         registers::{Sepc, Sscratch, Sstatus, SstatusFlags},
     },
     mm::addr::{MemoryAddress, PhysAddr, VirtAddr},
-    proc::{ProcessMemoryLayout, StackSpec, UserProcessExecutor},
+    proc::{ProcessBuilder, ProcessMemoryLayout, StackSpec, UserProcessExecutor},
 };
 
 /// RISC-V implementation of the UserProcessExecutor trait.
-pub struct RiscvUserProcessExecutor {
-    _private: (),
-}
-
-impl RiscvUserProcessExecutor {
-    pub(in crate::arch::riscv) const fn new() -> Self {
-        Self { _private: () }
-    }
-}
+pub struct RiscvUserProcessExecutor;
 
 impl UserProcessExecutor for RiscvUserProcessExecutor {
     type AddrSpace = RiscvAddrSpace;
@@ -70,15 +64,7 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
 }
 
 /// RISC-V implementation of the ProcessMemoryLayout trait.
-pub struct RiscvProcessMemoryLayout {
-    _private: (),
-}
-
-impl RiscvProcessMemoryLayout {
-    pub(in crate::arch::riscv) const fn new() -> Self {
-        Self { _private: () }
-    }
-}
+pub struct RiscvProcessMemoryLayout;
 
 impl ProcessMemoryLayout for RiscvProcessMemoryLayout {
     fn user_end(&self) -> VirtAddr {
@@ -95,5 +81,38 @@ impl ProcessMemoryLayout for RiscvProcessMemoryLayout {
             end,
             initial_sp: end,
         }
+    }
+}
+
+pub struct RiscvProcessBuilder {
+    loader: RiscvLoader,
+    executor: RiscvUserProcessExecutor,
+    memory_layout: RiscvProcessMemoryLayout,
+}
+
+impl ProcessBuilder for RiscvProcessBuilder {
+    type AddrSpace = RiscvAddrSpace;
+    type Loader = RiscvLoader;
+    type Executor = RiscvUserProcessExecutor;
+    type MemoryLayout = RiscvProcessMemoryLayout;
+
+    fn loader(&self) -> &Self::Loader {
+        &self.loader
+    }
+
+    fn executor(&self) -> &Self::Executor {
+        &self.executor
+    }
+
+    fn memory_layout(&self) -> &Self::MemoryLayout {
+        &self.memory_layout
+    }
+}
+
+pub fn process_builder() -> impl ProcessBuilder {
+    RiscvProcessBuilder {
+        loader: RiscvLoader,
+        executor: RiscvUserProcessExecutor,
+        memory_layout: RiscvProcessMemoryLayout,
     }
 }

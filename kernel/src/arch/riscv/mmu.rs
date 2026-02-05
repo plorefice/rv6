@@ -10,16 +10,13 @@ use core::{
 use bitflags::bitflags;
 
 use crate::{
-    arch::{
+    arch::riscv::{
+        addr::{PhysAddrExt, VirtAddrExt},
+        instructions::sfence_vma,
         phys_to_virt,
-        riscv::{
-            addr::{PhysAddrExt, VirtAddrExt},
-            instructions::sfence_vma,
-            registers::Satp,
-        },
+        registers::Satp,
     },
     mm::{
-        PageLayout,
         addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
         allocator::FrameAllocator,
     },
@@ -41,24 +38,11 @@ const PAGE_LEVELS: usize = 3;
 #[cfg(feature = "sv48")]
 const PAGE_LEVELS: usize = 4;
 
-/// The page layout used by the RISC-V MMU.
-pub struct RiscvPageLayout {
-    _private: (),
-}
+/// Page shift constant.
+pub const PAGE_SHIFT: usize = 12;
 
-impl RiscvPageLayout {
-    pub(in crate::arch::riscv) fn new() -> Self {
-        Self { _private: () }
-    }
-}
-
-impl PageLayout for RiscvPageLayout {
-    const SHIFT: usize = 12;
-}
-
-// Utility constants for page size and shift amount
-pub const PAGE_SHIFT: usize = RiscvPageLayout::SHIFT;
-pub const PAGE_SIZE: usize = 1 << RiscvPageLayout::SHIFT;
+/// Page size constant.
+pub const PAGE_SIZE: usize = 1 << PAGE_SHIFT;
 
 bitflags! {
     /// Bitfields of a page table entry.
@@ -112,6 +96,7 @@ bitflags! {
 }
 
 impl EntryFlags {
+    /// Converts `SegmentFlags` to `EntryFlags`.
     pub fn from_segment_flags(seg_flags: SegmentFlags) -> Self {
         let mut flags = EntryFlags::empty();
 
@@ -272,6 +257,7 @@ impl Entry {
         self.inner |= flags;
     }
 
+    /// Overrides the entry's flags with the new provided set.
     pub fn write_flags(&mut self, flags: EntryFlags) {
         self.inner.remove(EntryFlags::RWXUG);
         self.inner |= flags;

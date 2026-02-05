@@ -15,17 +15,18 @@ use crate::{
     },
 };
 
-/// RISC-V DMA allocator.
-#[derive(Debug)]
-pub struct RiscvDmaAllocator {
-    _private: (),
+// Global DMA allocator instance
+static ALLOC: RiscvDmaAllocator = RiscvDmaAllocator;
+
+/// Returns a reference to the global DMA allocator.
+#[inline]
+pub const fn allocator() -> &'static RiscvDmaAllocator {
+    &ALLOC
 }
 
-impl RiscvDmaAllocator {
-    pub(in crate::arch::riscv) const fn new() -> Self {
-        Self { _private: () }
-    }
-}
+/// RISC-V DMA allocator.
+#[derive(Debug)]
+pub struct RiscvDmaAllocator;
 
 impl DmaAllocator for RiscvDmaAllocator {
     fn alloc_raw(&self, layout: Layout) -> Result<DmaBuf, DmaAllocError> {

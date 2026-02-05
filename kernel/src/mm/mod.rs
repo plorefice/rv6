@@ -5,12 +5,8 @@ pub mod allocator;
 pub mod dma;
 pub mod mmio;
 
-/// A trait to be implemented by architecture-specific code to provide information about
-/// the memory layout of the system.
-pub trait PageLayout {
-    /// The shift amount for the page size (e.g., 12 for 4KiB pages).
-    const SHIFT: usize;
-
-    /// The size of a page in bytes.
-    const SIZE: usize = 1 << Self::SHIFT;
+/// Returns the size of a page in bytes.
+#[inline]
+pub const fn page_size() -> usize {
+    crate::arch::hal::mm::page_size()
 }

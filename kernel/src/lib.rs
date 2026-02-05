@@ -16,7 +16,11 @@
 use alloc::{boxed::Box, string::String};
 use fdt::Fdt;
 
-use crate::drivers::{DriverCtx, irqchip, syscon};
+use crate::{
+    arch::hal,
+    drivers::{DriverCtx, irqchip, syscon},
+    proc::ProcessBuilder,
+};
 
 #[macro_use]
 extern crate alloc;
@@ -66,9 +70,7 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     let fdt = unsafe { Fdt::from_raw_ptr(fdt_data) }.expect("invalid fdt data");
 
     // Prepare context for driver initialization
-    let ctx = DriverCtx {
-        arch: arch::get_arch_services(),
-    };
+    let ctx = DriverCtx {};
 
     // Subsystem initialization
     irqchip::init(&ctx, &fdt).expect("irqchip initialization failed");
@@ -80,10 +82,12 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     // Run init code
     let init_code = initrd.find_file("init").expect("init not found");
     kprintln!("Found init program in initrd, size {}", init_code.len());
-    proc::execve(ctx.arch, init_code).expect("failed to load init process");
+    hal::proc::builder()
+        .exec(init_code)
+        .expect("failed to load init process");
 
     // We should never reach this point
     kprintln!("Init process terminated unexpectedly, shutting down");
     syscon::poweroff();
-    arch::halt();
+    hal::cpu::halt();
 }

@@ -6,7 +6,7 @@ use core::{
 use spin::Mutex;
 
 use crate::{
-    arch::phys_to_virt,
+    arch::hal,
     mm::{
         addr::{MemoryAddress, PhysAddr},
         allocator::{Frame, FrameAllocator},
@@ -125,7 +125,7 @@ impl<const N: usize> FrameAllocator<N> for BumpFrameAllocator<N> {
         let paddr = PhysAddr::try_new(bump.ptr).ok()?;
         let frame = Frame {
             // SAFETY: safe as long as Self::new was called with physical addresses
-            ptr: unsafe { phys_to_virt(paddr).as_mut_ptr() },
+            ptr: unsafe { hal::mm::phys_to_virt(paddr).as_mut_ptr() },
             paddr,
         };
 
