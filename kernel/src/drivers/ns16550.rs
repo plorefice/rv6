@@ -1,6 +1,6 @@
 //! Support for 16550 UART IC.
 
-use core::{fmt::Write, hint};
+use core::{fmt::Write, hint, num::NonZeroUsize};
 
 use fdt::Node;
 
@@ -9,7 +9,7 @@ use crate::{
     drivers::Driver,
     mm::{
         addr::{MemoryAddress, PhysAddr},
-        mmio::Regmap,
+        mmio::{IoMapper, IoMapping},
     },
 };
 
@@ -22,17 +22,23 @@ driver_info! {
 
 /// Device driver of the 16550 UART IC.
 pub struct Ns16550 {
-    regmap: Regmap,
+    regmap: IoMapping,
 }
 
 impl Driver for Ns16550 {
-    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>> {
+    fn init<'d, 'fdt: 'd>(
+        io_mapper: &dyn IoMapper,
+        node: Node<'d, 'fdt>,
+    ) -> Result<(), DriverError<'d>> {
         let (base, size) = node
             .property::<(u64, u64)>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
 
-        // SAFETY: assuming the node contains a valid regmap
-        let regmap = unsafe { Regmap::new(PhysAddr::new(base as usize), size as usize) };
+        let pa_base = PhysAddr::new(base as usize);
+        let size =
+            NonZeroUsize::new(size as usize).ok_or(DriverError::InvalidPropertyValue("reg"))?;
+
+        let regmap = io_mapper.iomap(pa_base, size).unwrap();
 
         let mut slf = Self { regmap };
 

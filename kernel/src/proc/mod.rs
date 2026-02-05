@@ -2,7 +2,7 @@
 
 use crate::{
     arch::ArchLoaderImpl,
-    proc::elf::{ArchLoader, ElfLoadError, LoadSegment},
+    proc::elf::{ElfLoadError, ElfLoader, LoadSegment},
 };
 
 pub mod elf;

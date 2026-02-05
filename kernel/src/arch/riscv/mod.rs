@@ -5,7 +5,7 @@
 
 use crate::arch::riscv::registers::{SiFlags, Sie, Sip, Sstatus, SstatusFlags};
 
-pub use mm::{iomap, phys_to_virt};
+pub use mm::phys_to_virt;
 pub use proc::switch_to_process;
 pub use uaccess::with_user_access;
 
@@ -26,13 +26,16 @@ mod uaccess;
 pub mod time; // TODO: should really be private, or at least properly abstracted
 
 /// The page layout used by the RISC-V architecture.
-pub type PageLayout = mmu::RiscvPageLayout;
-
-/// The architecture-specific ELF loader implementation.
-pub type ArchLoaderImpl = mm::elf::RiscvLoader;
+pub type ArchPageLayout = mmu::RiscvPageLayout;
 
 /// The architecture-specific DMA allocator.
 pub type ArchDmaAllocator = mm::dma::RiscvDmaAllocator;
+
+/// The architecture-specific I/O mapper.
+pub type ArchIoMapper = mm::mmio::RiscvIoMapper;
+
+/// The architecture-specific ELF loader implementation.
+pub type ArchLoaderImpl = mm::elf::RiscvLoader;
 
 /// Halts execution on the current hart forever.
 pub fn halt() -> ! {

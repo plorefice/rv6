@@ -1,5 +1,7 @@
 //! Generic system controller.
 
+use core::num::NonZeroUsize;
+
 use fdt::{Fdt, Node, PropEncodedArray};
 
 use crate::{
@@ -7,7 +9,7 @@ use crate::{
     drivers::{Driver, DriverError, syscon},
     mm::{
         addr::{MemoryAddress, PhysAddr},
-        mmio::Regmap,
+        mmio::{IoMapper, IoMapping},
     },
 };
 
@@ -18,7 +20,7 @@ driver_info! {
 
 /// Generic system controller.
 pub struct GenericSyscon {
-    regmap: Regmap,
+    regmap: IoMapping,
     poweroff: Option<SysconRegister>,
     reboot: Option<SysconRegister>,
 }
@@ -30,15 +32,21 @@ struct SysconRegister {
 }
 
 impl Driver for GenericSyscon {
-    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>> {
+    fn init<'d, 'fdt: 'd>(
+        iomapper: &dyn IoMapper,
+        node: Node<'d, 'fdt>,
+    ) -> Result<(), DriverError<'d>> {
         let mut regs = node
             .property::<PropEncodedArray<(u64, u64)>>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
 
         let (base, len) = regs.next().expect("empty reg property");
 
-        // SAFETY: assuming the node contains a valid regmap
-        let regmap = unsafe { Regmap::new(PhysAddr::new(base as usize), len as usize) };
+        let pa_base = PhysAddr::new(base as usize);
+        let size =
+            NonZeroUsize::new(len as usize).ok_or(DriverError::InvalidPropertyValue("reg"))?;
+
+        let regmap = iomapper.iomap(pa_base, size).unwrap();
 
         let mut slf = Self {
             regmap,

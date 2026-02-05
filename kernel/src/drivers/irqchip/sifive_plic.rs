@@ -1,3 +1,5 @@
+use core::num::NonZeroUsize;
+
 use fdt::Node;
 
 use crate::{
@@ -8,7 +10,7 @@ use crate::{
     },
     mm::{
         addr::{MemoryAddress, PhysAddr},
-        mmio::Regmap,
+        mmio::{IoMapper, IoMapping},
     },
 };
 
@@ -19,11 +21,14 @@ driver_info! {
 
 /// SiFive Platform-Level Interrupt Controller (PLIC).
 pub struct SifivePlic {
-    _regmap: Regmap,
+    _regmap: IoMapping,
 }
 
 impl Driver for SifivePlic {
-    fn init<'d, 'fdt: 'd>(node: Node<'d, 'fdt>) -> Result<(), DriverError<'d>>
+    fn init<'d, 'fdt: 'd>(
+        iomapper: &dyn IoMapper,
+        node: Node<'d, 'fdt>,
+    ) -> Result<(), DriverError<'d>>
     where
         Self: Sized,
     {
@@ -31,8 +36,11 @@ impl Driver for SifivePlic {
             .property::<(u64, u64)>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
 
-        // SAFETY: assuming the node contains a valid regmap
-        let regmap = unsafe { Regmap::new(PhysAddr::new(base as usize), len as usize) };
+        let pa_base = PhysAddr::new(base as usize);
+        let size =
+            NonZeroUsize::new(len as usize).ok_or(DriverError::InvalidPropertyValue("reg"))?;
+
+        let regmap = iomapper.iomap(pa_base, size).unwrap();
 
         kprintln!("PLIC: {:#x} - {:#x}", base, base + len);
 

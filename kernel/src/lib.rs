@@ -66,8 +66,8 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     let fdt = unsafe { Fdt::from_raw_ptr(fdt_data) }.expect("invalid fdt data");
 
     // Subsystem initialization
-    irqchip::init(&fdt).expect("irqchip initialization failed");
-    drivers::init(&fdt).expect("driver initialization failed");
+    irqchip::init(&crate::arch::ArchIoMapper {}, &fdt).expect("irqchip initialization failed");
+    drivers::init(&crate::arch::ArchIoMapper {}, &fdt).expect("driver initialization failed");
 
     // Load initrd
     let initrd = initrd::load_from_fdt(&fdt).expect("failed to load initrd");

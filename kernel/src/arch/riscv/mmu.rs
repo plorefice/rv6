@@ -19,7 +19,7 @@ use crate::{
         },
     },
     mm::{
-        ArchPageLayout,
+        PageLayout,
         addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
         allocator::FrameAllocator,
     },
@@ -44,7 +44,7 @@ const PAGE_LEVELS: usize = 4;
 /// The page layout used by the RISC-V MMU.
 pub struct RiscvPageLayout;
 
-impl ArchPageLayout for RiscvPageLayout {
+impl PageLayout for RiscvPageLayout {
     const SHIFT: usize = 12;
 }
 

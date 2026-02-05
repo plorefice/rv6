@@ -18,7 +18,7 @@ use crate::{
     },
     proc::{
         Process, ProcessMemory,
-        elf::{self, ArchLoader},
+        elf::{self, ElfLoader},
     },
 };
 
@@ -36,7 +36,7 @@ impl Default for RiscvLoader {
     }
 }
 
-impl ArchLoader for RiscvLoader {
+impl ElfLoader for RiscvLoader {
     type AddrSpace = PageTableWalker<'static>;
     type Error = mmu::MapError;
 

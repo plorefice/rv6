@@ -1,22 +1,22 @@
 //! VirtIO memory-mapped interface.
 
-use core::mem::size_of;
+use core::{mem::size_of, num::NonZeroUsize};
 
 use alloc::{boxed::Box, sync::Arc};
 use fdt::Node;
 
 use crate::{
-    arch::PageLayout,
+    arch::ArchPageLayout,
     driver_info,
     drivers::{
         Driver, DriverError,
         virtio::{InterruptStatus, VirtioBlkDev, VirtioDev, VirtioDriver, Virtq},
     },
     mm::{
-        ArchPageLayout,
+        PageLayout,
         addr::{MemoryAddress, PhysAddr},
         dma::{DmaAllocError, DmaAllocator, DmaAllocatorExt, DmaObject, DmaSafe},
-        mmio::Regmap,
+        mmio::{IoMapper, IoMapping},
     },
 };
 
@@ -33,13 +33,16 @@ pub struct VirtioMmio {
 }
 
 impl Driver for VirtioMmio {
-    fn init<'d, 'fdt: 'd>(node: Node) -> Result<(), DriverError<'d>> {
+    fn init<'d, 'fdt: 'd>(iomapper: &dyn IoMapper, node: Node) -> Result<(), DriverError<'d>> {
         let (base, size) = node
             .property::<(u64, u64)>("reg")
             .ok_or(DriverError::MissingRequiredProperty("reg"))?;
 
-        // SAFETY: assuming the node contains a valid regmap
-        let regmap = unsafe { Regmap::new(PhysAddr::new(base as usize), size as usize) };
+        let pa_base = PhysAddr::new(base as usize);
+        let size =
+            NonZeroUsize::new(size as usize).ok_or(DriverError::InvalidPropertyValue("reg"))?;
+
+        let regmap = iomapper.iomap(pa_base, size).unwrap();
 
         let dev = VirtioMmioDev {
             regmap,
@@ -62,7 +65,7 @@ impl Driver for VirtioMmio {
         }
 
         // Device initialization
-        dev.set_guest_page_size(PageLayout::SIZE as u32);
+        dev.set_guest_page_size(ArchPageLayout::SIZE as u32);
 
         let _driver = match dev_id {
             2 => Box::new(VirtioBlkDev::new(dev)),
@@ -78,7 +81,7 @@ impl Driver for VirtioMmio {
 }
 
 struct VirtioMmioDev {
-    regmap: Regmap,
+    regmap: IoMapping,
     dma_alloc: Arc<dyn DmaAllocator>,
 }
 
@@ -179,7 +182,7 @@ impl VirtioDev for VirtioMmioDev {
 
         self.regmap.write(Self::QUEUE_NUM, vq_num_max);
         self.regmap
-            .write(Self::QUEUE_ALIGN, PageLayout::SIZE as u32);
+            .write(Self::QUEUE_ALIGN, ArchPageLayout::SIZE as u32);
         self.regmap.write(Self::QUEUE_PFN, vq.pfn());
 
         vq

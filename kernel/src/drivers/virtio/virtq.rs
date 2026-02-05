@@ -6,9 +6,9 @@ use core::{
 };
 
 use crate::{
-    arch::PageLayout,
+    arch::ArchPageLayout,
     drivers::virtio::VirtioDev,
-    mm::{ArchPageLayout, addr::DmaAddr, dma::DmaAllocator},
+    mm::{PageLayout, addr::DmaAddr, dma::DmaAllocator},
 };
 
 pub struct Virtq {
@@ -41,7 +41,7 @@ impl Virtq {
         let vq_total_sz = vq_desc_sz + vq_avail_sz + vq_used_sz + vq_avail_pad;
 
         let vq_mem = dma_alloc
-            .alloc_raw_zeroed(Layout::from_size_align(vq_total_sz, PageLayout::SIZE).unwrap())
+            .alloc_raw_zeroed(Layout::from_size_align(vq_total_sz, ArchPageLayout::SIZE).unwrap())
             .expect("dma allocation failed");
 
         // SAFETY: lots of pointer arithmetics down below, if my calculations are correct
@@ -89,7 +89,7 @@ impl Virtq {
     }
 
     pub fn pfn(&self) -> u32 {
-        (self.phys.as_usize() / PageLayout::SIZE) as u32
+        (self.phys.as_usize() / ArchPageLayout::SIZE) as u32
     }
 
     pub fn submit<'a, D, I>(&mut self, dev: &D, buffers: I)

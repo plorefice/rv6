@@ -10,7 +10,7 @@ use crate::mm::addr::{Align, MemoryAddress, PhysAddr, VirtAddr};
 /// The core process loader will call these methods to set up the process's address space and load
 /// the ELF segments. This allows the core loader logic to be mostly architecture-agnostic,
 /// while still giving the architecture control over how memory is allocated and mapped.
-pub trait ArchLoader {
+pub trait ElfLoader {
     /// An opaque handle representing the process's address space, which the core loader will pass to
     /// the arch loader for memory operations.
     type AddrSpace;
@@ -234,7 +234,7 @@ fn build_load_plan<'a>(
 }
 
 /// Loads an ELF binary into the given address space using the provided architecture loader.
-pub fn load_elf_into<'a, A: ArchLoader>(
+pub fn load_elf_into<'a, A: ElfLoader>(
     arch: &mut A,
     aspace: &mut A::AddrSpace,
     elf: &'a [u8],
@@ -304,7 +304,7 @@ pub fn load_elf_into<'a, A: ArchLoader>(
 }
 
 /// Starts execution of a loaded process given its load plan.
-pub fn exec<A: ArchLoader>(
+pub fn exec<A: ElfLoader>(
     arch: &mut A,
     aspace: &mut A::AddrSpace,
     plan: &LoadPlan,
