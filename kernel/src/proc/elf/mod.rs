@@ -4,10 +4,7 @@ use core::fmt;
 
 use elf::Elf64;
 
-use crate::mm::{
-    Align,
-    addr::{MemoryAddress, PhysAddr, VirtAddr},
-};
+use crate::mm::addr::{Align, MemoryAddress, PhysAddr, VirtAddr};
 
 /// Trait defining the architecture-specific interface for loading processes.
 /// The core process loader will call these methods to set up the process's address space and load

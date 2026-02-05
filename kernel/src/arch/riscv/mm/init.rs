@@ -10,10 +10,7 @@ use crate::{
         mm::{LOAD_OFFSET, PHYS_TO_VIRT_OFFSET},
         mmu::{EntryFlags, PageSize, PageTable},
     },
-    mm::{
-        Align,
-        addr::{MemoryAddress, PhysAddr, VirtAddr},
-    },
+    mm::addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
 };
 
 // Apparently if I perform this conversion to raw pointer and back into a string, it uses

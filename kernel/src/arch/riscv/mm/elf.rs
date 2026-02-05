@@ -13,8 +13,7 @@ use crate::{
         },
     },
     mm::{
-        Align,
-        addr::{MemoryAddress, PhysAddr, VirtAddr},
+        addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
         allocator::FrameAllocator,
     },
     proc::{

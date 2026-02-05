@@ -17,8 +17,7 @@ use crate::{
         registers::Satp,
     },
     mm::{
-        Align,
-        addr::{MemoryAddress, PhysAddr, VirtAddr},
+        addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
         allocator::{BumpAllocator, BumpFrameAllocator, FrameAllocator},
     },
     proc::{Process, ProcessMemory},

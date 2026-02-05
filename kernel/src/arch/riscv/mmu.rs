@@ -19,8 +19,8 @@ use crate::{
         },
     },
     mm::{
-        Align, ArchPageLayout,
-        addr::{MemoryAddress, PhysAddr, VirtAddr},
+        ArchPageLayout,
+        addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
         allocator::FrameAllocator,
     },
     proc::elf::SegmentFlags,

@@ -17,8 +17,7 @@ use core::{mem::size_of, ptr, slice};
 use bitflags::bitflags;
 
 use crate::mm::{
-    Align,
-    addr::PhysAddr,
+    addr::{Align, PhysAddr},
     allocator::{AllocatorError, Frame, FrameAllocator},
 };
 

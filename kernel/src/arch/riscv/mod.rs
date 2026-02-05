@@ -5,7 +5,7 @@
 
 use crate::arch::riscv::registers::{SiFlags, Sie, Sip, Sstatus, SstatusFlags};
 
-pub use mm::{alloc_contiguous, alloc_contiguous_zeroed, iomap, palloc, phys_to_virt};
+pub use mm::{alloc_contiguous_zeroed, iomap, palloc, phys_to_virt};
 pub use proc::switch_to_process;
 pub use uaccess::with_user_access;
 
