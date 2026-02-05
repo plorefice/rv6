@@ -36,6 +36,7 @@ pub unsafe extern "C" fn arch_init(fdt_data: *const u8, kernel_rpt_va: usize) {
         io: arch::ArchIoMapper::new(),
         loader: arch::ArchLoaderImpl::new(),
         uexec: arch::ArchUserExecutor::new(),
+        uml: arch::ArchUserMemoryLayout::new(),
         halt: arch::halt,
     });
 }

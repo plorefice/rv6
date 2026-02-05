@@ -23,6 +23,8 @@ pub struct ArchServices {
     pub loader: ArchLoaderImpl,
     /// The architecture-specific user process executor.
     pub uexec: ArchUserExecutor,
+    /// The architecture-specific user memory layout.
+    pub uml: ArchUserMemoryLayout,
     /// A function to halt the current hart.
     pub halt: fn() -> !,
 }

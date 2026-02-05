@@ -39,6 +39,9 @@ pub type ArchLoaderImpl = mm::elf::RiscvLoader;
 /// The architecture-specific user process executor.
 pub type ArchUserExecutor = proc::RiscvUserProcessExecutor;
 
+/// The architecture-specific user memory layout.
+pub type ArchUserMemoryLayout = proc::RiscvProcessMemoryLayout;
+
 /// Halts execution on the current hart forever.
 pub fn halt() -> ! {
     // Disable all interrupts

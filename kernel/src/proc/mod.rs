@@ -1,7 +1,8 @@
 //! Process management module.
 
 use crate::{
-    mm::addr::{MemoryAddress, VirtAddr},
+    arch::ArchServices,
+    mm::addr::VirtAddr,
     proc::elf::{ElfLoadError, ElfLoader, LoadSegment, SegmentFlags},
 };
 
@@ -30,22 +31,30 @@ pub trait UserProcessExecutor {
     unsafe fn resume_user(&self, aspace: &Self::AddrSpace) -> !;
 }
 
+/// Specification of a user stack layout.
+pub struct StackSpec {
+    /// The start virtual address of the stack (lowest address).
+    pub start: VirtAddr,
+    /// The end virtual address of the stack (highest address).
+    pub end: VirtAddr,
+    /// The initial stack pointer value.
+    pub initial_sp: VirtAddr,
+}
+
+/// Trait defining the default memory layout for user processes on the current architecture.
+pub trait ProcessMemoryLayout {
+    /// Returns the highest valid user virtual address.
+    fn user_end(&self) -> VirtAddr;
+
+    /// Returns the default stack specification for user processes.
+    fn default_stack(&self) -> StackSpec;
+}
+
 /// Loads an executable file as a new process and starts its execution.
-pub fn execve<L, E, A>(loader: &L, executor: &E, bytes: &[u8]) -> Result<(), ProcessLoadError>
-where
-    L: ElfLoader<AddrSpace = A>,
-    E: UserProcessExecutor<AddrSpace = A>,
-{
-    // Virtual address of the last valid user address.
-    const USER_END: usize = 0x0000_003f_ffff_f000;
-
-    // Set up user stack at the top of the user address space
-    const STACK_TOP: usize = USER_END;
-    const STACK_SIZE: usize = 8 * 1024 * 1024; // 8 MiB
-    const STACK_BOTTOM: usize = STACK_TOP - STACK_SIZE;
-
+pub fn execve(arch: &ArchServices, bytes: &[u8]) -> Result<(), ProcessLoadError> {
     // Create a new user address space
-    let aspace = &mut loader
+    let aspace = &mut arch
+        .loader
         .new_user_addr_space()
         .map_err(|_| ProcessLoadError::ArchError)?;
 
@@ -53,7 +62,7 @@ where
 
     // Load ELF into the new address space
     let plan = elf::load_elf_into(
-        loader,
+        &arch.loader,
         aspace,
         bytes,
         elf::LoadPolicy {
@@ -65,18 +74,19 @@ where
     )?;
 
     // Set up user stack
-    loader
+    let stack = arch.uml.default_stack();
+    arch.loader
         .map_anonymous(
             aspace,
-            VirtAddr::new(STACK_BOTTOM),
-            STACK_SIZE,
+            stack.start,
+            (stack.end - stack.start).as_usize(),
             SegmentFlags::R | SegmentFlags::W,
         )
         .map_err(|_| ProcessLoadError::ArchError)?;
 
     // Start execution of the new process
     // SAFETY: we have just created and loaded the address space for this process
-    unsafe { executor.enter_user(aspace, plan.entry, VirtAddr::new(STACK_TOP)) };
+    unsafe { arch.uexec.enter_user(aspace, plan.entry, stack.initial_sp) };
 }
 
 /// Possible errors when loading a process.

@@ -5,8 +5,8 @@ use crate::{
         mmu,
         registers::{Sepc, Sscratch, Sstatus, SstatusFlags},
     },
-    mm::addr::{PhysAddr, VirtAddr},
-    proc::UserProcessExecutor,
+    mm::addr::{MemoryAddress, PhysAddr, VirtAddr},
+    proc::{ProcessMemoryLayout, StackSpec, UserProcessExecutor},
 };
 
 /// RISC-V implementation of the UserProcessExecutor trait.
@@ -66,5 +66,34 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
 
     unsafe fn resume_user(&self, aspace: &Self::AddrSpace) -> ! {
         todo!()
+    }
+}
+
+/// RISC-V implementation of the ProcessMemoryLayout trait.
+pub struct RiscvProcessMemoryLayout {
+    _private: (),
+}
+
+impl RiscvProcessMemoryLayout {
+    pub(in crate::arch::riscv) const fn new() -> Self {
+        Self { _private: () }
+    }
+}
+
+impl ProcessMemoryLayout for RiscvProcessMemoryLayout {
+    fn user_end(&self) -> VirtAddr {
+        VirtAddr::new(0x0000_003f_ffff_f000)
+    }
+
+    fn default_stack(&self) -> StackSpec {
+        let end = self.user_end();
+        let size = 8 * 1024 * 1024; // 8 MiB
+        let start = end - size;
+
+        StackSpec {
+            start,
+            end,
+            initial_sp: end,
+        }
     }
 }
