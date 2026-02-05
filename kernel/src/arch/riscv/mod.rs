@@ -10,6 +10,7 @@ pub use proc::switch_to_process;
 pub use uaccess::with_user_access;
 
 mod addr;
+mod earlycon;
 mod entry;
 mod instructions;
 mod irq;
@@ -22,7 +23,6 @@ mod stackframe;
 mod trap;
 mod uaccess;
 
-pub mod earlycon;
 pub mod time; // TODO: should really be private, or at least properly abstracted
 
 /// The page layout used by the RISC-V architecture.

@@ -5,6 +5,7 @@ use core::iter::{self, FromIterator};
 use alloc::collections::VecDeque;
 use fdt::{Fdt, FdtParseError, Node, StringList};
 
+pub mod earlycon;
 pub mod irqchip;
 pub mod ns16550;
 pub mod syscon;

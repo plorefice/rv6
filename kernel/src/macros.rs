@@ -65,18 +65,7 @@ macro_rules! kdbg {
 pub(crate) fn _print(args: fmt::Arguments) {
     use fmt::Write;
 
-    struct EarlyCon;
-
-    impl Write for EarlyCon {
-        fn write_str(&mut self, s: &str) -> fmt::Result {
-            for c in s.bytes() {
-                crate::arch::earlycon::put(c);
-            }
-            Ok(())
-        }
-    }
-
-    EarlyCon.write_fmt(args).ok();
+    crate::drivers::earlycon::get().write_fmt(args).unwrap();
 }
 
 #[doc(hidden)]

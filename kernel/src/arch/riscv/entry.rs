@@ -2,7 +2,10 @@
 
 use fdt::Fdt;
 
-use crate::mm::addr::{MemoryAddress, VirtAddr};
+use crate::{
+    arch::riscv::earlycon,
+    mm::addr::{MemoryAddress, VirtAddr},
+};
 
 use super::{mm, sbi, time, trap};
 
@@ -21,6 +24,7 @@ pub unsafe extern "C" fn arch_init(fdt_data: *const u8, kernel_rpt_va: usize) {
     let fdt = unsafe { Fdt::from_raw_ptr(fdt_data) }.unwrap();
 
     // Initialize core subsystems
+    earlycon::register();
     sbi::show_info();
     trap::init();
     mm::setup_late(&fdt, VirtAddr::new(kernel_rpt_va));

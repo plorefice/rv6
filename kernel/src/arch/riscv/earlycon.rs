@@ -2,9 +2,18 @@
 //!
 //! On RISC-V, this module uses the legacy console SBI extensions.
 
-use crate::arch::riscv::sbi;
+use crate::{arch::riscv::sbi, drivers::earlycon::EarlyCon};
 
-/// Writes a single byte to the debug console.
-pub fn put(c: u8) {
-    sbi::console::put(c)
+/// The RISC-V early console implementation.
+pub struct RiscvEarlyCon;
+
+impl EarlyCon for RiscvEarlyCon {
+    fn put(&self, byte: u8) {
+        sbi::console::put(byte)
+    }
+}
+
+/// Registers the RISC-V early console.
+pub fn register() {
+    crate::drivers::earlycon::register(&RiscvEarlyCon);
 }

@@ -1,6 +1,9 @@
 //! Syscalls implementation.
 
-use crate::arch;
+use crate::{
+    arch,
+    drivers::earlycon::{self, EarlyCon},
+};
 
 /// A raw pointer to a user-space memory location.
 ///
@@ -60,8 +63,7 @@ pub fn sys_write(fd: usize, buf: UserPtr<u8>, len: usize) -> isize {
                 p = p.add(1);
                 b
             };
-
-            arch::earlycon::put(byte);
+            earlycon::get().put(byte);
         }
     });
 
