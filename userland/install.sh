@@ -6,7 +6,7 @@ set -euo pipefail
 
 # Configure the output directory and build profile
 OUTDIR=../out/rootfs
-PROFILE=debug
+PROFILE=release
 
 # Create the output directory if it doesn't exist
 mkdir -p $OUTDIR

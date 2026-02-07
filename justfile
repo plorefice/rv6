@@ -58,7 +58,7 @@ ksymsgen:
 # ----------------------------
 
 userland:
-	cd userland && cargo build
+	cd userland && cargo build --release
 
 # ----------------------------
 # Initramfs and disk image
