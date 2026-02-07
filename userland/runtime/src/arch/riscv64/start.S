@@ -1,6 +1,5 @@
-/* userland/lib/crt0.S
- *
- * RISC-V Linux-like C runtime startup code.
+/*
+ * RISC-V Linux-like runtime startup code.
  * Sets up the environment and calls main()
  */
 
@@ -25,10 +24,10 @@ _start:
     li      a1, 0
     li      a2, 0
 
-    /* Call main(argc, argv, envp) */
-    call    main
+    /* Call __entry(argc, argv, envp) */
+    call    __entry
 
-    /* On return from main, exit with its return value */
+    /* On return from __entry, exit with its return value */
     mv      a0, a0
     li      a7, SYS_exit
     ecall

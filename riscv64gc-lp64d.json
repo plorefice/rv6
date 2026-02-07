@@ -5,7 +5,7 @@
     "env": "",
     "vendor": "unknown",
     "linker-flavor": "ld.lld",
-    "linker": "riscv64-elf-ld",
+    "linker": "rust-lld",
     "executables": true,
     "disable-redzone": true,
     "panic-strategy": "abort",
@@ -16,5 +16,6 @@
     "llvm-abiname": "lp64d",
     "max-atomic-width": 64,
     "target-pointer-width": 64,
-    "target-endian": "little"
+    "target-endian": "little",
+    "eh-frame-header": false
 }

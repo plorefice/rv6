@@ -1,0 +1,9 @@
+[workspace]
+resolver = "3"
+members = ["apps/*", "runtime"]
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"

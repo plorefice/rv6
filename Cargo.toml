@@ -1,4 +1,4 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "tools/*"]
-exclude = ["kernel"]
+exclude = ["kernel", "userland"]
