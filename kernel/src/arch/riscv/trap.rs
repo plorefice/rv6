@@ -4,7 +4,7 @@ use stackframe::unwind_stack_frame;
 
 use crate::{
     arch::riscv::{mmu::dump_active_root_page_table, registers::Stvec},
-    syscalls::{self, UserPtr},
+    syscall::{self, Errno, SysArgs, SysResult, UserPtr},
 };
 
 use super::*;
@@ -115,6 +115,23 @@ struct TrapFrame {
     t6: usize,
 }
 
+impl From<&TrapFrame> for SysArgs {
+    fn from(value: &TrapFrame) -> Self {
+        let TrapFrame {
+            a0,
+            a1,
+            a2,
+            a3,
+            a4,
+            a5,
+            a6,
+            ..
+        } = value;
+
+        SysArgs::new([*a0, *a1, *a2, *a3, *a4, *a5])
+    }
+}
+
 impl TrapFrame {
     /// Prints the content of the trap frame to the console.
     #[rustfmt::skip]
@@ -167,20 +184,7 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &mut T
                 kprintln!("=> {} page fault trying to access {:016x}", kind, tval)
             }
             EnvCallFromU => {
-                match tf.a7 {
-                    // SYS_write
-                    0 => {
-                        let fd = tf.a0;
-                        let buf = UserPtr::new(tf.a1);
-                        let len = tf.a2;
-                        let ret = syscalls::sys_write(fd, buf, len);
-                        tf.a0 = ret as usize;
-                    }
-                    _ => {
-                        kprintln!("=> Unknown syscall number: {}", tf.a7);
-                    }
-                }
-
+                handle_syscall(tf);
                 return epc + 4;
             }
             ex => kprintln!("=> Unhandled exception: {:?}, tval {:016x}", ex, tval),
@@ -194,6 +198,21 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &mut T
         // Halt the hart. This will change when exceptions are handled.
         halt();
     }
+}
+
+fn handle_syscall(tf: &mut TrapFrame) {
+    let sysno = tf.a7;
+    let args = SysArgs::from(&*tf);
+
+    let res = match sysno {
+        x if x == syscall::Sysno::Write as usize => syscall::sys_write(args),
+        n => {
+            kprintln!("=> Unknown syscall number: {}", n);
+            Err(Errno::ENOSYS)
+        }
+    };
+
+    tf.a0 = syscall::to_ret(res);
 }
 
 /// Configures the trap vector used to handle traps in S-mode.

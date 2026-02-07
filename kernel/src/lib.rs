@@ -35,7 +35,7 @@ pub mod ksyms;
 pub mod mm;
 pub mod panic;
 pub mod proc;
-pub mod syscalls;
+pub mod syscall;
 
 const RV6_ASCII_LOGO: &str = r#"
 ________________________________________/\\\\\_
