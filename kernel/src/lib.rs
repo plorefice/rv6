@@ -18,7 +18,7 @@ use fdt::Fdt;
 
 use crate::{
     arch::hal,
-    drivers::{DriverCtx, irqchip, syscon},
+    drivers::{DriverCtx, irqchip},
     proc::ProcessBuilder,
 };
 
@@ -82,12 +82,5 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     // Run init code
     let init_code = initrd.find_file("init").expect("init not found");
     kprintln!("Found init program in initrd, size {}", init_code.len());
-    hal::proc::builder()
-        .exec(init_code)
-        .expect("failed to load init process");
-
-    // We should never reach this point
-    kprintln!("Init process terminated unexpectedly, shutting down");
-    syscon::poweroff();
-    hal::cpu::halt();
+    hal::proc::builder().exec(init_code);
 }

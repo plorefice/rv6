@@ -34,17 +34,19 @@ pub trait ProcessBuilder {
     ///
     /// The default implementation is fine for most cases. Each implementor can override it
     /// for finer grained control over process execution.
-    fn exec(&self, bytes: &[u8]) -> Result<(), ProcessLoadError> {
+    fn exec(&self, bytes: &[u8]) -> ! {
         // Create a new user address space
-        let mut aspace = self
-            .loader()
-            .new_user_addr_space()
-            .map_err(|_| ProcessLoadError::ArchError)?;
+        let mut aspace = match self.loader().new_user_addr_space() {
+            Ok(aspace) => aspace,
+            Err(e) => {
+                panic!("failed to create user address space: {:?}", e);
+            }
+        };
 
         let mut seg_buf = [LoadSegment::default(); 16];
 
         // Load ELF into the new address space
-        let plan = elf::load_elf_into(
+        let plan = match elf::load_elf_into(
             self.loader(),
             &mut aspace,
             bytes,
@@ -54,18 +56,23 @@ pub trait ProcessBuilder {
                 max_segments: seg_buf.len(),
             },
             &mut seg_buf,
-        )?;
+        ) {
+            Ok(plan) => plan,
+            Err(e) => {
+                panic!("failed to load ELF for process: {:?}", e);
+            }
+        };
 
         // Set up user stack
         let stack = self.memory_layout().default_stack();
-        self.loader()
-            .map_anonymous(
-                &mut aspace,
-                stack.start,
-                (stack.end - stack.start).as_usize(),
-                SegmentFlags::R | SegmentFlags::W,
-            )
-            .map_err(|_| ProcessLoadError::ArchError)?;
+        if let Err(e) = self.loader().map_anonymous(
+            &mut aspace,
+            stack.start,
+            (stack.end - stack.start).as_usize(),
+            SegmentFlags::R | SegmentFlags::W,
+        ) {
+            panic!("failed to set up user stack: {:?}", e);
+        };
 
         // Start execution of the new process
         // SAFETY: we have just created and loaded the address space for this process

@@ -206,6 +206,7 @@ fn handle_syscall(tf: &mut TrapFrame) {
 
     let res = match sysno {
         x if x == syscall::Sysno::Write as usize => syscall::sys_write(args),
+        x if x == syscall::Sysno::Exit as usize => syscall::sys_exit(args),
         n => {
             kprintln!("=> Unknown syscall number: {}", n);
             Err(Errno::ENOSYS)

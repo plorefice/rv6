@@ -2,7 +2,10 @@
 
 use crate::{
     arch::hal,
-    drivers::earlycon::{self, EarlyCon},
+    drivers::{
+        earlycon::{self, EarlyCon},
+        syscon,
+    },
 };
 
 /// Syscall numbers.
@@ -10,6 +13,8 @@ use crate::{
 pub enum Sysno {
     /// Write to a file descriptor.
     Write = 0,
+    /// Exit the current process.
+    Exit = 1,
 }
 
 /// Syscall arguments passed from user space.
@@ -123,4 +128,14 @@ pub fn sys_write(args: SysArgs) -> SysResult<usize> {
     });
 
     Ok(len)
+}
+
+/// Terminates the current process with the given exit code.
+pub fn sys_exit(args: SysArgs) -> SysResult<usize> {
+    let _exit_code = args.get(0);
+
+    // We should never reach this point
+    kprintln!("Init process terminated unexpectedly, shutting down");
+    syscon::poweroff();
+    hal::cpu::halt();
 }
