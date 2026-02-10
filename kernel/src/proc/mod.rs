@@ -2,7 +2,7 @@
 
 use crate::{
     mm::addr::VirtAddr,
-    proc::elf::{ElfLoadError, ElfLoader, LoadSegment, SegmentFlags},
+    proc::elf::{ElfLoadError, ElfLoader, LoadSegment},
 };
 
 pub mod elf;
@@ -29,6 +29,16 @@ pub trait ProcessBuilder {
 
     /// Returns a reference to the memory layout.
     fn memory_layout(&self) -> &Self::MemoryLayout;
+
+    /// Sets up the initial stack memory for the process.
+    ///
+    /// This is called during process execution after the ELF binary has been loaded, and allows the
+    /// builder to set up the user and kernel stacks according to the architecture's requirements.ù
+    /// The returned layout must match the allocated stack memory regions.
+    fn setup_stack_memory(
+        &self,
+        aspace: &mut Self::AddrSpace,
+    ) -> Result<ProcessStackLayout, ElfLoadError>;
 
     /// Loads and executes a process given its ELF representation.
     ///
@@ -63,22 +73,19 @@ pub trait ProcessBuilder {
             }
         };
 
-        // Set up user stack
-        let stack = self.memory_layout().default_stack();
-        if let Err(e) = self.loader().map_anonymous(
-            &mut aspace,
-            stack.start,
-            (stack.end - stack.start).as_usize(),
-            SegmentFlags::R | SegmentFlags::W,
-        ) {
-            panic!("failed to set up user stack: {:?}", e);
+        // Setup initial stack
+        let stack_layout = match self.setup_stack_memory(&mut aspace) {
+            Ok(layout) => layout,
+            Err(e) => {
+                panic!("failed to set up stack memory: {:?}", e);
+            }
         };
 
         // Start execution of the new process
         // SAFETY: we have just created and loaded the address space for this process
         unsafe {
             self.executor()
-                .enter_user(&aspace, plan.entry, stack.initial_sp)
+                .enter_user(&aspace, plan.entry, stack_layout)
         };
     }
 }
@@ -90,13 +97,18 @@ pub trait UserProcessExecutor {
     type AddrSpace;
 
     /// Enters user mode for the specified address space, starting execution of the
-    /// process at the given entry point and stack pointer.
+    /// process at the given entry point and stack layout.
     ///
     /// # Safety
     ///
     /// The caller must ensure that the address space is properly set up for user execution,
-    /// and that the entry point and stack pointer are valid for the user process.
-    unsafe fn enter_user(&self, aspace: &Self::AddrSpace, entry: VirtAddr, sp: VirtAddr) -> !;
+    /// and that the entry point and stack pointers are valid for the user process.
+    unsafe fn enter_user(
+        &self,
+        aspace: &Self::AddrSpace,
+        entry: VirtAddr,
+        stack: ProcessStackLayout,
+    ) -> !;
 
     /// Resumes execution of a user process in the specified address space.
     ///
@@ -116,13 +128,18 @@ pub struct StackSpec {
     pub initial_sp: VirtAddr,
 }
 
+/// Specification of the kernel and user stack layout for a process.
+pub struct ProcessStackLayout {
+    /// The user stack specification.
+    pub user_stack: StackSpec,
+    /// The kernel stack specification.
+    pub kernel_stack: StackSpec,
+}
+
 /// Trait defining the default memory layout for user processes on the current architecture.
 pub trait ProcessMemoryLayout {
-    /// Returns the highest valid user virtual address.
-    fn user_end(&self) -> VirtAddr;
-
-    /// Returns the default stack specification for user processes.
-    fn default_stack(&self) -> StackSpec;
+    /// Returns the default stack layout for user processes, including both user and kernel stacks.
+    fn default_stack_layout(&self) -> ProcessStackLayout;
 }
 
 /// Possible errors when loading a process.

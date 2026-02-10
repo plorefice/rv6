@@ -20,6 +20,7 @@ use crate::{
         addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
         allocator::{BumpAllocator, BumpFrameAllocator, FrameAllocator},
     },
+    proc::StackSpec,
 };
 use fdt::{Fdt, PropEncodedArray};
 use mmu::PageTableWalker;
@@ -37,17 +38,31 @@ pub static PHYS_MEM_OFFSET: AtomicU64 = AtomicU64::new(0);
 // SAFETY: constant
 pub const PHYS_TO_VIRT_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0x20_0000_0000) };
 
+/// Base address for the per-hart kernel stack.
+// SAFETY: constant
+pub const KSTACK_MEM_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffc0_0000_0000) };
+pub const KSTACK_MEM_SIZE: usize = 16 * 1024; // 16 KB
+
+/// Base address for the process kernel stack
+// SAFETY: constant
+pub const PROC_KSTACK_MEM_OFFSET: VirtAddr = unsafe {
+    VirtAddr::new_unchecked(KSTACK_MEM_OFFSET.as_usize() + 64 * KSTACK_MEM_SIZE + PAGE_SIZE)
+};
+pub const PROC_KSTACK_MEM_SIZE: usize = 16 * 1024; // 16 KB
+
 /// Base address for the kernel heap.
 // SAFETY: constant
-const HEAP_MEM_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffc0_0000_0000) };
+pub const HEAP_MEM_OFFSET: VirtAddr = unsafe {
+    VirtAddr::new_unchecked(PROC_KSTACK_MEM_OFFSET.as_usize() + PROC_KSTACK_MEM_SIZE + PAGE_SIZE)
+};
 
 /// Base address for the memory-mapper I/O region.
 // SAFETY: constant
-const IOMAP_MEM_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffe0_0000_0000) };
+pub const IOMAP_MEM_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffe0_0000_0000) };
 
 /// Virtual address at which the kernel is loaded.
 // SAFETY: constant
-const LOAD_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffff_8000_0000) };
+pub const LOAD_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffff_8000_0000) };
 
 // Defined in linker script
 unsafe extern "C" {
@@ -188,6 +203,26 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
             .unwrap();
     }
 
+    // Allocate and map some pages for the per-hart kernel stack
+    let kstack_frame = gfa
+        .alloc(KSTACK_MEM_SIZE / PAGE_SIZE)
+        .expect("oom for kernel stack");
+    let kstack_base = KSTACK_MEM_OFFSET;
+    let kstack_end = kstack_base + KSTACK_MEM_SIZE;
+
+    // SAFETY: new mapper
+    unsafe {
+        mapper
+            .map_range(
+                kstack_base,
+                kstack_frame.phys()..(kstack_frame.phys() + KSTACK_MEM_SIZE),
+                PageSize::Kb,
+                EntryFlags::KERNEL,
+                gfa,
+            )
+            .unwrap();
+    }
+
     // Preallocate and map some memory for the heap
     // TODO: frames should be allocated on demand, rather than ahead of time
     const HEAP_PREALLOC_SIZE: usize = 1024 * 1024;
@@ -252,4 +287,25 @@ fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: usize) {
 /// upholds the condition `phys_mem_start <= pa < phys_mem_end`.
 pub unsafe fn phys_to_virt(pa: PhysAddr) -> VirtAddr {
     PHYS_TO_VIRT_OFFSET + (pa - PHYS_MEM_OFFSET.load(Ordering::Relaxed) as usize).as_usize()
+}
+
+/// Returns the layout of the kernel stack for the given hart ID.
+pub const fn kstack_layout(hart_id: usize) -> StackSpec {
+    debug_assert!(
+        hart_id < 64,
+        "too many harts for the current kernel stack layout"
+    );
+
+    // SAFETY: constant and valid by design
+    unsafe {
+        let offset = hart_id * KSTACK_MEM_SIZE;
+        let start = VirtAddr::new_unchecked(KSTACK_MEM_OFFSET.as_usize() + offset);
+        let end = VirtAddr::new_unchecked(start.as_usize() + KSTACK_MEM_SIZE);
+
+        StackSpec {
+            start,
+            end,
+            initial_sp: end,
+        }
+    }
 }

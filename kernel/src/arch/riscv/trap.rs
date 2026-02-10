@@ -1,9 +1,15 @@
 //! RISC-V exception handling.
 
+use core::arch::asm;
+
 use stackframe::unwind_stack_frame;
 
 use crate::{
-    arch::riscv::{mmu::dump_active_root_page_table, registers::Stvec},
+    arch::riscv::{
+        mmu::dump_active_root_page_table,
+        proc::ThreadInfo,
+        registers::{Sscratch, Stvec},
+    },
     syscall::{self, Errno, SysArgs, SysResult, UserPtr},
 };
 
@@ -81,39 +87,47 @@ impl From<usize> for ExceptionCause {
 /// Note: the order of the fields in this structure **must** match the order in which registers
 /// are pushed to the stack in the handler's trampoline.
 #[repr(C)]
-struct TrapFrame {
-    ra: usize,
-    sp: usize,
-    gp: usize,
-    tp: usize,
-    t0: usize,
-    t1: usize,
-    t2: usize,
-    s0: usize,
-    s1: usize,
-    a0: usize,
-    a1: usize,
-    a2: usize,
-    a3: usize,
-    a4: usize,
-    a5: usize,
-    a6: usize,
-    a7: usize,
-    s2: usize,
-    s3: usize,
-    s4: usize,
-    s5: usize,
-    s6: usize,
-    s7: usize,
-    s8: usize,
-    s9: usize,
-    s10: usize,
-    s11: usize,
-    t3: usize,
-    t4: usize,
-    t5: usize,
-    t6: usize,
+pub struct TrapFrame {
+    pub ra: usize,
+    pub sp: usize,
+    pub gp: usize,
+    pub tp: usize,
+    pub t0: usize,
+    pub t1: usize,
+    pub t2: usize,
+    pub s0: usize,
+    pub s1: usize,
+    pub a0: usize,
+    pub a1: usize,
+    pub a2: usize,
+    pub a3: usize,
+    pub a4: usize,
+    pub a5: usize,
+    pub a6: usize,
+    pub a7: usize,
+    pub s2: usize,
+    pub s3: usize,
+    pub s4: usize,
+    pub s5: usize,
+    pub s6: usize,
+    pub s7: usize,
+    pub s8: usize,
+    pub s9: usize,
+    pub s10: usize,
+    pub s11: usize,
+    pub t3: usize,
+    pub t4: usize,
+    pub t5: usize,
+    pub t6: usize,
+    pub status: usize,
+    pub epc: usize,
+    pub tval: usize,
+    pub cause: usize,
 }
+
+// Sanity checks to ensure that the layout of `TrapFrame` matches the expectations of the assembly code in `trap.S`.
+const _: () = assert!(core::mem::size_of::<TrapFrame>() == 280);
+const _: () = assert!(core::mem::offset_of!(TrapFrame, epc) == 256);
 
 impl From<&TrapFrame> for SysArgs {
     fn from(value: &TrapFrame) -> Self {
@@ -153,9 +167,12 @@ impl TrapFrame {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &mut TrapFrame) -> usize {
-    let is_irq = (cause & CAUSE_IRQ_FLAG_MASK) != 0;
-    let irq = cause & !CAUSE_IRQ_FLAG_MASK;
+extern "C" fn handle_exception(tf: &mut TrapFrame) {
+    // Invariant: when handling a trap, we are always in kernel mode, so sscratch should be 0
+    debug_assert!(Sscratch::read() == 0);
+
+    let is_irq = (tf.cause & CAUSE_IRQ_FLAG_MASK) != 0;
+    let irq = tf.cause & !CAUSE_IRQ_FLAG_MASK;
 
     if is_irq {
         let irq = IrqCause::from(irq);
@@ -166,9 +183,6 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &mut T
             }
             _ => kprintln!("Unhandled IRQ: {:?}", irq),
         }
-
-        // After an interrupt, continue from where we left off
-        epc
     } else {
         use ExceptionCause::*;
 
@@ -180,18 +194,18 @@ extern "C" fn handle_exception(cause: usize, epc: usize, tval: usize, tf: &mut T
                     StorePageFault => "Store",
                     _ => unreachable!(),
                 };
-
-                kprintln!("=> {} page fault trying to access {:016x}", kind, tval)
+                kprintln!("=> {} page fault trying to access {:016x}", kind, tf.tval)
             }
             EnvCallFromU => {
                 handle_syscall(tf);
-                return epc + 4;
+                tf.epc += 4;
+                return;
             }
-            ex => kprintln!("=> Unhandled exception: {:?}, tval {:016x}", ex, tval),
+            ex => kprintln!("=> Unhandled exception: {:?}, tval {:016x}", ex, tf.tval),
         }
 
         // Debug facilities
-        tf.dump(epc);
+        tf.dump(tf.epc);
         mmu::dump_active_root_page_table();
         unwind_stack_frame();
 
@@ -217,11 +231,16 @@ fn handle_syscall(tf: &mut TrapFrame) {
 }
 
 /// Configures the trap vector used to handle traps in S-mode.
-pub fn init() {
+pub fn init(hart_id: usize) {
     unsafe extern "C" {
         // Defined in trap.S
         fn trap_entry();
     }
+
+    // Prepare kernel thread info.
+    // This must be done before enabling interrupts, since trap code expects to find
+    // a valid pointer to a thread info struct in TP.
+    init_kernel_thread_info(hart_id);
 
     // Configure trap vector to point to `trap_entry`
     Stvec::write(trap_entry as *const () as u64);
@@ -230,4 +249,27 @@ pub fn init() {
     Sie::set(SiFlags::SSIE | SiFlags::STIE | SiFlags::SEIE);
     // SAFETY: stvec has been initialized to point to `trap_entry`
     unsafe { Sstatus::set(SstatusFlags::SIE) };
+}
+
+/// Allocates and initializes a thread info struct for the kernel thread running on the current hart,
+/// and writes its address to TP.
+fn init_kernel_thread_info(hart_id: usize) {
+    let ksl = mm::kstack_layout(hart_id);
+
+    // Place a thread info struct at the top of the kernel stack
+    let kti_ptr = ksl.start.as_mut_ptr::<ThreadInfo>();
+
+    // SAFETY: kti_ptr is valid by design
+    unsafe {
+        kti_ptr.write_volatile(ThreadInfo {
+            ksp: ksl.initial_sp.as_usize(),
+            usp: 0, // not used for this idle kernel thread
+        })
+    };
+
+    // Write this address in tp
+    // SAFETY: in kernel space, tp is reserved for this use
+    unsafe {
+        asm!("mv tp, {}", in(reg) kti_ptr);
+    }
 }

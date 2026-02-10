@@ -23,6 +23,45 @@ use crate::{
 /// RISC-V implementation of the ArchLoader trait for loading ELF binaries into user processes.
 pub struct RiscvLoader;
 
+impl RiscvLoader {
+    pub fn map_range_alloc(
+        &self,
+        pt_walker: &mut PageTableWalker,
+        vaddr: VirtAddr,
+        len: usize,
+        flags: EntryFlags,
+    ) -> Result<(), mmu::MapError> {
+        // Ignore zero-length mappings
+        if len == 0 {
+            return Ok(());
+        }
+
+        assert!(vaddr.is_aligned(PAGE_SIZE));
+        assert!(len.is_aligned(PAGE_SIZE));
+
+        let n_pages = len / PAGE_SIZE;
+
+        let mut gfa = GFA.lock();
+        let gfa = gfa.as_mut().expect("GFA not initialized");
+
+        // Allocate a physical frame for the mapping
+        let frame = gfa.alloc(n_pages).expect("oom");
+
+        for i in 0..n_pages {
+            let va = vaddr + i * PAGE_SIZE;
+            let pa = frame.phys() + i * PAGE_SIZE;
+
+            // Map each page
+            // SAFETY: caller must ensure that vaddr and len are page-aligned and valid.
+            unsafe {
+                pt_walker.map(va, pa, PageSize::Kb, flags, gfa)?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
 impl ElfLoader for RiscvLoader {
     type AddrSpace = RiscvAddrSpace;
     type Error = mmu::MapError;
@@ -88,40 +127,12 @@ impl ElfLoader for RiscvLoader {
         len: usize,
         flags: elf::SegmentFlags,
     ) -> Result<(), Self::Error> {
-        // Ignore zero-length mappings
-        if len == 0 {
-            return Ok(());
-        }
-
-        assert!(vaddr.is_aligned(self.page_size()));
-        assert!(len.is_aligned(self.page_size()));
-
-        let n_pages = len / self.page_size();
-
-        let mut gfa = GFA.lock();
-        let gfa = gfa.as_mut().expect("GFA not initialized");
-
-        // Allocate a physical frame for the mapping
-        let frame = gfa.alloc(n_pages).expect("oom");
-
-        for i in 0..n_pages {
-            let va = vaddr + i * self.page_size();
-            let pa = frame.phys() + i * self.page_size();
-
-            // Map each page
-            // SAFETY: caller must ensure that vaddr and len are page-aligned and valid.
-            unsafe {
-                aspace.pt_walker.map(
-                    va,
-                    pa,
-                    PageSize::Kb,
-                    EntryFlags::from_segment_flags(flags) | EntryFlags::USER | EntryFlags::ACCESS,
-                    gfa,
-                )?;
-            }
-        }
-
-        Ok(())
+        self.map_range_alloc(
+            &mut aspace.pt_walker,
+            vaddr,
+            len,
+            EntryFlags::from_segment_flags(flags) | EntryFlags::USER | EntryFlags::ACCESS,
+        )
     }
 
     fn protect_range(
@@ -212,6 +223,11 @@ impl RiscvAddrSpace {
     /// Returns the physical address of the root page table for this address space.
     pub fn root_page_table_pa(&self) -> PhysAddr {
         self.rpt_pa
+    }
+
+    /// Returns a mutable reference to the page table walker for this address space.
+    pub fn page_table_walker(&mut self) -> &mut PageTableWalker<'static> {
+        &mut self.pt_walker
     }
 
     /// Temporarily switches to this address space, runs the given closure, and then switches back.

@@ -104,7 +104,8 @@ _start_kernel:
     /* If hart ID is not #0, park it */
     bnez a0, .Lsecondary_park
 
-    /* Save DTB pointer, will be later passed to arch_init() */
+    /* Save hart ID and DTB pointer, will be later passed to arch_init() */
+    mv s3, a0
     mv s1, a1
 
 .option push
@@ -147,6 +148,7 @@ clear_bss_done:
     /* Jump to Rust code */
     mv a0, s1
     mv a1, s2
+    mv a2, s3
     call arch_init
 
     mv a0, s1
