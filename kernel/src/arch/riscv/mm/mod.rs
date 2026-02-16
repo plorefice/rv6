@@ -34,6 +34,15 @@ pub mod mmio;
 /// Base address for the physical address space.
 pub static PHYS_MEM_OFFSET: AtomicU64 = AtomicU64::new(0);
 
+/// Base address for the user virtual address space (the lower half).
+pub const USER_BASE: VirtAddr = unsafe { VirtAddr::new_unchecked(0) };
+/// Top address for the user virtual address space (the lower half).
+pub const USER_TOP: VirtAddr = unsafe { VirtAddr::new_unchecked(0x0000_0020_0000_0000) };
+
+/// Base address for the kernel virtual address space (the higher half).
+/// It starts at `USER_TOP` to leave the whole lower half of the address space for user processes.
+pub const KERNEL_BASE: VirtAddr = USER_TOP;
+
 /// Virtual offset at which physical memory is mapped.
 // SAFETY: constant
 pub const PHYS_TO_VIRT_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0x20_0000_0000) };
@@ -41,14 +50,14 @@ pub const PHYS_TO_VIRT_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0x20_
 /// Base address for the per-hart kernel stack.
 // SAFETY: constant
 pub const KSTACK_MEM_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffc0_0000_0000) };
-pub const KSTACK_MEM_SIZE: usize = 16 * 1024; // 16 KB
+pub const KSTACK_MEM_SIZE: usize = 64 * 1024; // 64 KB
 
 /// Base address for the process kernel stack
 // SAFETY: constant
 pub const PROC_KSTACK_MEM_OFFSET: VirtAddr = unsafe {
     VirtAddr::new_unchecked(KSTACK_MEM_OFFSET.as_usize() + 64 * KSTACK_MEM_SIZE + PAGE_SIZE)
 };
-pub const PROC_KSTACK_MEM_SIZE: usize = 16 * 1024; // 16 KB
+pub const PROC_KSTACK_MEM_SIZE: usize = 64 * 1024; // 64 KB
 
 /// Base address for the kernel heap.
 // SAFETY: constant
@@ -85,7 +94,7 @@ unsafe extern "C" {
 }
 
 /// Global frame allocator.
-static GFA: Mutex<Option<BumpFrameAllocator<PAGE_SIZE>>> = Mutex::new(None);
+pub static GFA: Mutex<Option<BumpFrameAllocator<PAGE_SIZE>>> = Mutex::new(None);
 
 /// Global heap allocator.
 /// TODO: remove hard-coded constants.

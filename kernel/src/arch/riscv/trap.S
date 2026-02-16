@@ -131,6 +131,7 @@ save_context:
 
     /* Call trap-handling function in Rust code */
 	mv a0, sp
+    mv a1, tp
     jal handle_exception
 
     /* Execution will fall through to ret_from_exception */
@@ -193,4 +194,62 @@ restore_context:
     ld sp, TF_SP(sp)
 
     /* Back to normal execution */
+    sret
+
+/*
+    Resume a process by switching page tables and restoring a trap frame.
+    a0 = satp value
+    a1 = pointer to TrapFrame (heap-resident)
+    a2 = thread info virtual address
+    a3 = kernel stack pointer
+*/
+.global resume_context
+.align 4
+resume_context:
+    mv t5, a1
+
+    csrw satp, a0
+    sfence.vma
+    fence.i
+
+    sd a3, TI_KERN_SP_OFFSET(a2)
+    csrw sscratch, a2
+
+    ld t0, TF_SSTATUS(t5)
+    ld t1, TF_SEPC(t5)
+    csrw sstatus, t0
+    csrw sepc, t1
+
+    ld ra, TF_RA(t5)
+    ld gp, TF_GP(t5)
+    ld tp, TF_TP(t5)
+    ld t0, TF_T0(t5)
+    ld t1, TF_T1(t5)
+    ld t2, TF_T2(t5)
+    ld s0, TF_S0(t5)
+    ld s1, TF_S1(t5)
+    ld a0, TF_A0(t5)
+    ld a4, TF_A4(t5)
+    ld a5, TF_A5(t5)
+    ld a6, TF_A6(t5)
+    ld a7, TF_A7(t5)
+    ld s2, TF_S2(t5)
+    ld s3, TF_S3(t5)
+    ld s4, TF_S4(t5)
+    ld s5, TF_S5(t5)
+    ld s6, TF_S6(t5)
+    ld s7, TF_S7(t5)
+    ld s8, TF_S8(t5)
+    ld s9, TF_S9(t5)
+    ld s10, TF_S10(t5)
+    ld s11, TF_S11(t5)
+    ld t3, TF_T3(t5)
+    ld t4, TF_T4(t5)
+    ld t6, TF_T6(t5)
+    ld a2, TF_A2(t5)
+    ld a3, TF_A3(t5)
+    ld a1, TF_A1(t5)
+    ld sp, TF_SP(t5)
+    ld t5, TF_T5(t5)
+
     sret

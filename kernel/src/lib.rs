@@ -19,7 +19,7 @@ use fdt::Fdt;
 use crate::{
     arch::hal,
     drivers::{DriverCtx, irqchip},
-    proc::ProcessBuilder,
+    proc::{ProcessBuilder, sched},
 };
 
 #[macro_use]
@@ -75,6 +75,7 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     // Subsystem initialization
     irqchip::init(&ctx, &fdt).expect("irqchip initialization failed");
     drivers::init(&ctx, &fdt).expect("driver initialization failed");
+    sched::init(Box::new(proc::sched::RoundRobinScheduler::default()));
 
     // Load initrd
     let initrd = initrd::load_from_fdt(&fdt).expect("failed to load initrd");

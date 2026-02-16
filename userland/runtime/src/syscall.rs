@@ -5,6 +5,14 @@ pub(crate) fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
     syscall3(Syscall::Write, fd, buf as usize, len)
 }
 
+pub(crate) fn sys_fork() -> isize {
+    syscall0(Syscall::Fork)
+}
+
+fn syscall0(sc: Syscall) -> isize {
+    syscall6(sc.into(), 0, 0, 0, 0, 0, 0)
+}
+
 /// Perform a syscall with 3 arguments.
 fn syscall3(sc: Syscall, arg0: usize, arg1: usize, arg2: usize) -> isize {
     syscall6(sc.into(), arg0, arg1, arg2, 0, 0, 0)
@@ -37,6 +45,8 @@ fn syscall6(
 /// Syscall numbers.
 enum Syscall {
     Write = 0,
+    Exit = 1,
+    Fork = 2,
 }
 
 impl From<Syscall> for usize {

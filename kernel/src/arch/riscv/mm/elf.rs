@@ -36,26 +36,12 @@ impl RiscvLoader {
             return Ok(());
         }
 
-        assert!(vaddr.is_aligned(PAGE_SIZE));
-        assert!(len.is_aligned(PAGE_SIZE));
-
-        let n_pages = len / PAGE_SIZE;
-
         let mut gfa = GFA.lock();
         let gfa = gfa.as_mut().expect("GFA not initialized");
 
-        // Allocate a physical frame for the mapping
-        let frame = gfa.alloc(n_pages).expect("oom");
-
-        for i in 0..n_pages {
-            let va = vaddr + i * PAGE_SIZE;
-            let pa = frame.phys() + i * PAGE_SIZE;
-
-            // Map each page
-            // SAFETY: caller must ensure that vaddr and len are page-aligned and valid.
-            unsafe {
-                pt_walker.map(va, pa, PageSize::Kb, flags, gfa)?;
-            }
+        // SAFETY: caller must ensure that vaddr and len are page-aligned and valid.
+        unsafe {
+            pt_walker.map_range_alloc(vaddr..(vaddr + len), PageSize::Kb, flags, gfa)?;
         }
 
         Ok(())
@@ -214,15 +200,21 @@ impl ElfLoader for RiscvLoader {
 }
 
 /// RISC-V user address space implementation for ELF loading.
+#[derive(Debug)]
 pub struct RiscvAddrSpace {
-    rpt_pa: PhysAddr,
-    pt_walker: PageTableWalker<'static>,
+    pub rpt_pa: PhysAddr,
+    pub pt_walker: PageTableWalker<'static>,
 }
 
 impl RiscvAddrSpace {
     /// Returns the physical address of the root page table for this address space.
     pub fn root_page_table_pa(&self) -> PhysAddr {
         self.rpt_pa
+    }
+
+    /// Returns a reference to the root page table for this address space.
+    pub fn page_table(&self) -> &PageTable {
+        self.pt_walker.page_table()
     }
 
     /// Returns a mutable reference to the page table walker for this address space.

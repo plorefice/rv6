@@ -13,6 +13,7 @@ use crate::{
     arch::riscv::{
         addr::{PhysAddrExt, VirtAddrExt},
         instructions::sfence_vma,
+        mm::{KERNEL_BASE, PHYS_TO_VIRT_OFFSET, USER_BASE, USER_TOP},
         phys_to_virt,
         registers::Satp,
     },
@@ -352,6 +353,8 @@ pub enum MapError {
     AllocationFailed,
     /// A page table entry was found corrupted or not respecting some invariants.
     CorruptedPageTable,
+    /// An invalid range of addresses was provided.
+    InvalidAddressRange,
 }
 
 /// A simple memory mapper.
@@ -477,6 +480,57 @@ impl<'a> PageTableWalker<'a> {
         }
 
         Ok(())
+    }
+
+    /// Allocates and maps a range of addresses to pages of size `page_size` starting at `vaddr`.
+    /// Returns the physical address of the allocated range on success.
+    /// See also [`Self::map`].
+    ///
+    /// # Safety
+    ///
+    /// See [`Self::map`] for safety consideration.
+    pub unsafe fn map_range_alloc(
+        &mut self,
+        virt: Range<VirtAddr>,
+        page_size: PageSize,
+        flags: EntryFlags,
+        allocator: &mut impl FrameAllocator<PAGE_SIZE>,
+    ) -> Result<PhysAddr, MapError> {
+        let vaddr = virt.start;
+        let len = (virt.end - virt.start).as_usize();
+
+        assert!(vaddr.is_aligned(PAGE_SIZE));
+        assert!(len.is_aligned(PAGE_SIZE));
+
+        // Ignore zero-length mappings
+        if len == 0 {
+            return Err(MapError::InvalidAddressRange);
+        }
+
+        let n_pages = len / page_size.size();
+        let frames_per_page = page_size.size() / PAGE_SIZE;
+        let n_frames = n_pages * frames_per_page;
+
+        let frame = allocator
+            .alloc(n_frames)
+            .ok_or(MapError::AllocationFailed)?;
+
+        for i in 0..n_pages {
+            let offset = i * page_size.size();
+
+            // SAFETY: assuming caller has upheld the safety contract
+            unsafe {
+                self.map(
+                    vaddr + offset,
+                    frame.phys() + i * frames_per_page * PAGE_SIZE,
+                    page_size,
+                    flags,
+                    allocator,
+                )?;
+            }
+        }
+
+        Ok(frame.phys())
     }
 
     /// Sets up identity mapping for a range of addresses, meaning that `vaddr == paddr` for all
@@ -608,6 +662,86 @@ impl<'a> PageTableWalker<'a> {
         pte.is_valid().then(|| NonNull::new(pte_ptr).unwrap())
     }
 
+    pub unsafe fn clone_user_mappings(
+        &mut self,
+        src: &PageTable,
+        allocator: &mut impl FrameAllocator<PAGE_SIZE>,
+    ) -> Result<(), MapError> {
+        unsafe {
+            self._clone_user_mappings_recursive(
+                src,
+                VirtAddr::new_unchecked(0),
+                PAGE_LEVELS - 1,
+                allocator,
+            )
+        }
+    }
+
+    pub unsafe fn _clone_user_mappings_recursive(
+        &mut self,
+        src_table: &PageTable,
+        base_vaddr: VirtAddr,
+        level: usize,
+        allocator: &mut impl FrameAllocator<PAGE_SIZE>,
+    ) -> Result<(), MapError> {
+        for (i, entry) in src_table.iter().enumerate().filter(|(_, e)| e.is_valid()) {
+            let vaddr = base_vaddr + (i << (9 * level + PAGE_SHIFT));
+
+            // Skip entries outside of the user address space
+            if vaddr >= USER_TOP {
+                continue;
+            }
+
+            if entry.is_leaf() {
+                assert!(
+                    entry.is_user(),
+                    "corrupted page table: found non-user leaf entry in user space"
+                );
+
+                // This is a leaf entry - map it directly at the appropriate page size
+                let page_size = PageSize::from_table_level(level).unwrap();
+
+                // SAFETY: assuming caller has upheld the safety contract
+                let dst_pa = unsafe {
+                    self.map_range_alloc(
+                        vaddr..(vaddr + page_size.size()),
+                        page_size,
+                        entry.flags(),
+                        allocator,
+                    )?
+                };
+                let src_pa = PhysAddr::from_ppn(entry.get_ppn());
+
+                // SAFETY: the frames are not overlapping since they are newly allocated
+                unsafe {
+                    core::ptr::copy_nonoverlapping(
+                        phys_to_virt(src_pa).as_ptr::<u8>(),
+                        phys_to_virt(dst_pa).as_mut_ptr::<u8>(),
+                        page_size.size(),
+                    );
+                }
+            } else {
+                // This is a non-leaf entry pointing to another page table - recurse into it
+                // Level 0 entries should always be leaf entries
+                if level == 0 {
+                    return Err(MapError::CorruptedPageTable);
+                }
+
+                // SAFETY: if this PTE is valid then the PPN points to valid memory
+                let inner_table = unsafe {
+                    &*phys_to_virt(PhysAddr::from_ppn(entry.get_ppn())).as_ptr::<PageTable>()
+                };
+
+                // SAFETY: assuming caller has upheld the safety contract
+                unsafe {
+                    self._clone_user_mappings_recursive(inner_table, vaddr, level - 1, allocator)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
     /// Copy kernel mappings to this page table. User mappings are ignored.
     ///
     /// # Safety
@@ -648,11 +782,21 @@ impl<'a> PageTableWalker<'a> {
         for (i, entry) in kernel_table
             .iter()
             .enumerate()
-            .filter(|(_, e)| e.is_valid() && !e.is_user())
+            .filter(|(_, e)| e.is_valid())
         {
             let vaddr = base_vaddr + (i << (9 * level + PAGE_SHIFT));
 
+            // Skip entries outside of the kernel address space
+            if vaddr < KERNEL_BASE {
+                continue;
+            }
+
             if entry.is_leaf() {
+                assert!(
+                    !entry.is_user(),
+                    "corrupted page table: found user leaf entry in kernel space"
+                );
+
                 // This is a leaf entry - map it directly at the appropriate page size
                 let page_size = PageSize::from_table_level(level).unwrap();
 

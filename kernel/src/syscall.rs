@@ -6,6 +6,7 @@ use crate::{
         earlycon::{self, EarlyCon},
         syscon,
     },
+    proc, sched,
 };
 
 /// Syscall numbers.
@@ -15,6 +16,8 @@ pub enum Sysno {
     Write = 0,
     /// Exit the current process.
     Exit = 1,
+    /// Fork the current process.
+    Fork = 2,
 }
 
 /// Syscall arguments passed from user space.
@@ -138,4 +141,12 @@ pub fn sys_exit(args: SysArgs) -> SysResult<usize> {
     kprintln!("Init process terminated unexpectedly, shutting down");
     syscon::poweroff();
     hal::cpu::halt();
+}
+
+pub fn sys_fork(args: SysArgs) -> SysResult<usize> {
+    let _flags = args.get(0);
+
+    let child_pid = proc::fork_current_process();
+    sched::enqueue_process(child_pid);
+    Ok(child_pid.pid())
 }

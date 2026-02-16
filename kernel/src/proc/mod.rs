@@ -1,22 +1,119 @@
 //! Process management module.
 
+use alloc::vec::Vec;
+use spin::Mutex;
+
 use crate::{
+    arch::hal,
     mm::addr::VirtAddr,
     proc::elf::{ElfLoadError, ElfLoader, LoadSegment},
 };
 
 pub mod elf;
+pub mod sched;
+
+/// A user process.
+pub struct Process {
+    pub state: hal::proc::ProcState,
+    pub aspace: hal::proc::AddrSpace,
+}
+
+/// A unique identifier for a process.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct ProcessId {
+    idx: usize,
+    generation: usize,
+}
+
+impl ProcessId {
+    pub fn pid(self) -> usize {
+        self.idx
+    }
+}
+
+/// The process table, which stores all processes in the system and allows for allocation,
+/// retrieval, and deallocation of processes.
+pub struct ProcessTable {
+    slots: Vec<ProcessSlot>,
+    free: Vec<usize>,
+}
+
+/// A versioned slot in the process table, which can either be occupied by a process or free.
+#[derive(Default)]
+struct ProcessSlot {
+    generation: usize,
+    process: Option<Process>,
+}
+
+impl ProcessTable {
+    /// Creates a new, empty process table.
+    pub const fn new() -> Self {
+        ProcessTable {
+            slots: Vec::new(),
+            free: Vec::new(),
+        }
+    }
+
+    /// Allocates a new process in the table and returns its unique identifier.
+    /// If there are free slots available, it reuses one; otherwise, it creates a new slot.
+    pub fn allocate(&mut self, p: Process) -> ProcessId {
+        // Try to reuse a free slot, or create a new one if none are available.
+        let idx = self.free.pop().unwrap_or_else(|| {
+            self.slots.push(ProcessSlot::default());
+            self.slots.len() - 1
+        });
+        let generation = self.slots[idx].generation;
+        // Store the new process in the slot
+        self.slots[idx].process = Some(p);
+        ProcessId { idx, generation }
+    }
+
+    #[allow(dead_code)]
+    pub fn get(&self, pid: ProcessId) -> Option<&Process> {
+        self.slots.get(pid.idx).and_then(|slot| {
+            if slot.generation == pid.generation {
+                slot.process.as_ref()
+            } else {
+                None
+            }
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn get_mut(&mut self, pid: ProcessId) -> Option<&mut Process> {
+        self.slots.get_mut(pid.idx).and_then(|slot| {
+            if slot.generation == pid.generation {
+                slot.process.as_mut()
+            } else {
+                None
+            }
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn free(&mut self, pid: ProcessId) {
+        if let Some(slot) = self.slots.get_mut(pid.idx)
+            && slot.generation == pid.generation
+        {
+            // Invalidate the slot by incrementing the generation and removing the process
+            slot.generation += 1;
+            slot.process = None;
+            // Add the index back to the free list for reuse
+            self.free.push(pid.idx);
+        }
+    }
+}
+
+// Global process table, protected by a mutex for safe concurrent access.
+static PROCESS_TABLE: Mutex<ProcessTable> = Mutex::new(ProcessTable::new());
 
 /// A trait to implement a user space process builder and executor.
 pub trait ProcessBuilder {
-    /// The process' address space
-    type AddrSpace;
-
     /// The process loader
-    type Loader: ElfLoader<AddrSpace = Self::AddrSpace>;
+    type Loader: ElfLoader<AddrSpace = hal::proc::AddrSpace>;
 
     /// The process executor
-    type Executor: UserProcessExecutor<AddrSpace = Self::AddrSpace>;
+    type Executor: UserProcessExecutor<AddrSpace = hal::proc::AddrSpace>;
 
     /// The process memory layout
     type MemoryLayout: ProcessMemoryLayout;
@@ -37,8 +134,10 @@ pub trait ProcessBuilder {
     /// The returned layout must match the allocated stack memory regions.
     fn setup_stack_memory(
         &self,
-        aspace: &mut Self::AddrSpace,
+        aspace: &mut hal::proc::AddrSpace,
     ) -> Result<ProcessStackLayout, ElfLoadError>;
+
+    fn fork(&self, parent: &Process) -> Process;
 
     /// Loads and executes a process given its ELF representation.
     ///
@@ -81,12 +180,15 @@ pub trait ProcessBuilder {
             }
         };
 
+        // Create the process and add it to the scheduler
+        let proc = Process {
+            aspace,
+            state: hal::proc::ProcState::default(),
+        };
+
         // Start execution of the new process
         // SAFETY: we have just created and loaded the address space for this process
-        unsafe {
-            self.executor()
-                .enter_user(&aspace, plan.entry, stack_layout)
-        };
+        unsafe { self.executor().enter_user(proc, plan.entry, stack_layout) };
     }
 }
 
@@ -103,19 +205,7 @@ pub trait UserProcessExecutor {
     ///
     /// The caller must ensure that the address space is properly set up for user execution,
     /// and that the entry point and stack pointers are valid for the user process.
-    unsafe fn enter_user(
-        &self,
-        aspace: &Self::AddrSpace,
-        entry: VirtAddr,
-        stack: ProcessStackLayout,
-    ) -> !;
-
-    /// Resumes execution of a user process in the specified address space.
-    ///
-    /// # Safety
-    ///
-    /// See [`enter_user`].
-    unsafe fn resume_user(&self, aspace: &Self::AddrSpace) -> !;
+    unsafe fn enter_user(&self, proc: Process, entry: VirtAddr, stack: ProcessStackLayout) -> !;
 }
 
 /// Specification of a user stack layout.
@@ -155,4 +245,24 @@ impl From<ElfLoadError> for ProcessLoadError {
     fn from(e: ElfLoadError) -> Self {
         ProcessLoadError::ElfLoadError(e)
     }
+}
+
+pub fn fork_current_process() -> ProcessId {
+    let parent_pid =
+        sched::current_process_id().expect("sys_fork called without a current process");
+
+    fork_process(parent_pid)
+}
+
+fn fork_process(parent_pid: ProcessId) -> ProcessId {
+    let child_proc = {
+        let proc_table = PROCESS_TABLE.lock();
+        let parent_proc = proc_table.get(parent_pid).expect("invalid parent PID");
+        hal::proc::builder().fork(parent_proc)
+    };
+    sched::allocate_process(child_proc)
+}
+
+pub fn global_process_table() -> &'static Mutex<ProcessTable> {
+    &PROCESS_TABLE
 }

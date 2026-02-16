@@ -1,6 +1,7 @@
 //! RISC-V exception handling.
 
 use core::arch::asm;
+use core::time::Duration;
 
 use stackframe::unwind_stack_frame;
 
@@ -10,6 +11,7 @@ use crate::{
         proc::ThreadInfo,
         registers::{Sscratch, Stvec},
     },
+    proc, sched,
     syscall::{self, Errno, SysArgs, SysResult, UserPtr},
 };
 
@@ -86,6 +88,7 @@ impl From<usize> for ExceptionCause {
 ///
 /// Note: the order of the fields in this structure **must** match the order in which registers
 /// are pushed to the stack in the handler's trampoline.
+#[derive(Debug, Clone)]
 #[repr(C)]
 pub struct TrapFrame {
     pub ra: usize,
@@ -167,9 +170,17 @@ impl TrapFrame {
 }
 
 #[unsafe(no_mangle)]
-extern "C" fn handle_exception(tf: &mut TrapFrame) {
+extern "C" fn handle_exception(tf: &mut TrapFrame, ti: &ThreadInfo) {
     // Invariant: when handling a trap, we are always in kernel mode, so sscratch should be 0
     debug_assert!(Sscratch::read() == 0);
+
+    let mut gpt = proc::global_process_table().lock();
+    if let Some(pid) = sched::current_process_id() {
+        let proc = gpt.get_mut(pid).expect("current process doesn't exist");
+        proc.state.tf.clone_from(tf);
+        proc.state.ti.clone_from(ti);
+    }
+    drop(gpt);
 
     let is_irq = (tf.cause & CAUSE_IRQ_FLAG_MASK) != 0;
     let irq = tf.cause & !CAUSE_IRQ_FLAG_MASK;
@@ -179,7 +190,8 @@ extern "C" fn handle_exception(tf: &mut TrapFrame) {
 
         match irq {
             IrqCause::Timer => {
-                time::schedule_next_tick(time::CLINT_TIMEBASE);
+                time::schedule_next_tick(Duration::from_millis(25));
+                sched::run_scheduler();
             }
             _ => kprintln!("Unhandled IRQ: {:?}", irq),
         }
@@ -221,6 +233,7 @@ fn handle_syscall(tf: &mut TrapFrame) {
     let res = match sysno {
         x if x == syscall::Sysno::Write as usize => syscall::sys_write(args),
         x if x == syscall::Sysno::Exit as usize => syscall::sys_exit(args),
+        x if x == syscall::Sysno::Fork as usize => syscall::sys_fork(args),
         n => {
             kprintln!("=> Unknown syscall number: {}", n);
             Err(Errno::ENOSYS)

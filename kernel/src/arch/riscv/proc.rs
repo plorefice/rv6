@@ -1,20 +1,26 @@
 //! RISC-V implementation of process management.
 
+use core::mem::MaybeUninit;
+
 use crate::{
     arch::riscv::{
+        addr::PhysAddrExt,
         instructions::fence_i,
         mm::{
-            PROC_KSTACK_MEM_OFFSET, PROC_KSTACK_MEM_SIZE,
+            GFA, PROC_KSTACK_MEM_OFFSET, PROC_KSTACK_MEM_SIZE,
             elf::{RiscvAddrSpace, RiscvLoader},
         },
         mmu::{self, EntryFlags, PAGE_SIZE},
-        registers::{Sepc, Sscratch, Sstatus, SstatusFlags},
+        registers::{Satp, Sepc, Sstatus, SstatusFlags},
         trap::TrapFrame,
     },
     mm::addr::{MemoryAddress, PhysAddr, VirtAddr},
     proc::{
-        ProcessBuilder, ProcessMemoryLayout, ProcessStackLayout, StackSpec, UserProcessExecutor,
+        Process, ProcessBuilder, ProcessId, ProcessMemoryLayout, ProcessStackLayout, StackSpec,
+        UserProcessExecutor,
         elf::{ElfLoadError, ElfLoader, SegmentFlags},
+        global_process_table,
+        sched,
     },
 };
 
@@ -26,14 +32,14 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
 
     unsafe fn enter_user(
         &self,
-        aspace: &Self::AddrSpace,
+        proc: Process,
         entry: VirtAddr,
         stack_layout: ProcessStackLayout,
     ) -> ! {
         // Swap page tables
         // SAFETY: assuming `pcb` has been properly init'd and `rpt_pa` is a valid page address.
         unsafe {
-            mmu::switch_page_table(aspace.root_page_table_pa());
+            mmu::switch_page_table(proc.aspace.root_page_table_pa());
         }
 
         // Set up thread info struct for this process at the top of the kernel stack,
@@ -63,6 +69,9 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
         // Ensure instruction cache is up to date after loading process
         fence_i();
 
+        let pid = sched::allocate_process(proc);
+        sched::enqueue_process(pid);
+
         // Switch to user stack and jump to user mode
         // NOTE: stack swap and sret must be "atomic": no stack usage must happen in between!
         // SAFETY: everything is properly set up for user mode.
@@ -80,10 +89,30 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
             );
         }
     }
+}
 
-    unsafe fn resume_user(&self, aspace: &Self::AddrSpace) -> ! {
-        todo!()
+/// Resumes execution of the specified process by switching address spaces and restoring its trap frame.
+pub fn resume_process(pid: ProcessId) -> ! {
+    let (satp, tf, ti, ksp) = {
+        let table = global_process_table().lock();
+        let proc = table.get(pid).expect("scheduled process not found");
+        let tf = core::ptr::from_ref(&proc.state.tf);
+        let rpt_pa = proc.aspace.root_page_table_pa();
+        let satp = (Satp::read_raw() & !0xfff_ffff_ffff_u64) | rpt_pa.page_index() as u64;
+        let ti = PROC_KSTACK_MEM_OFFSET.as_usize();
+        let ksp = (PROC_KSTACK_MEM_OFFSET + PROC_KSTACK_MEM_SIZE).as_usize();
+        (satp, tf, ti, ksp)
+    };
+
+    // SAFETY: `tf` points to a valid trap frame in the process table, and `satp`/`ti`/`ksp`
+    // describe a valid address space and kernel stack for the target process.
+    unsafe {
+        resume_context(satp as usize, tf, ti, ksp);
     }
+}
+
+unsafe extern "C" {
+    fn resume_context(satp: usize, tf: *const TrapFrame, ti: usize, ksp: usize) -> !;
 }
 
 /// RISC-V implementation of the ProcessMemoryLayout trait.
@@ -130,7 +159,6 @@ pub struct RiscvProcessBuilder {
 }
 
 impl ProcessBuilder for RiscvProcessBuilder {
-    type AddrSpace = RiscvAddrSpace;
     type Loader = RiscvLoader;
     type Executor = RiscvUserProcessExecutor;
     type MemoryLayout = RiscvProcessMemoryLayout;
@@ -149,7 +177,7 @@ impl ProcessBuilder for RiscvProcessBuilder {
 
     fn setup_stack_memory(
         &self,
-        aspace: &mut Self::AddrSpace,
+        aspace: &mut RiscvAddrSpace,
     ) -> Result<ProcessStackLayout, ElfLoadError> {
         let layout = self.memory_layout().default_stack_layout();
 
@@ -175,6 +203,54 @@ impl ProcessBuilder for RiscvProcessBuilder {
 
         Ok(layout)
     }
+
+    fn fork(&self, parent: &crate::proc::Process) -> crate::proc::Process {
+        let mut aspace = match self.loader().new_user_addr_space() {
+            Ok(aspace) => aspace,
+            Err(e) => {
+                panic!("failed to create user address space: {:?}", e);
+            }
+        };
+
+        let layout = self.memory_layout().default_stack_layout();
+
+        // Map kernel stack
+        self.loader()
+            .map_range_alloc(
+                aspace.page_table_walker(),
+                layout.kernel_stack.start,
+                (layout.kernel_stack.end - layout.kernel_stack.start).as_usize(),
+                EntryFlags::RW | EntryFlags::ACCESS | EntryFlags::GLOBAL,
+            )
+            .expect("failed to map kernel stack");
+
+        unsafe {
+            let mut gfa = GFA.lock();
+            let gfa = gfa.as_mut().expect("GFA not initialized");
+
+            aspace
+                .page_table_walker()
+                .clone_user_mappings(parent.aspace.page_table(), gfa);
+        }
+
+        let mut state = ProcState {
+            ti: ThreadInfo {
+                ksp: layout.kernel_stack.initial_sp.as_usize(),
+                usp: parent.state.ti.usp,
+            },
+            tf: parent.state.tf.clone(),
+        };
+
+        // Child returns 0 from fork and resumes after the ecall instruction.
+        state.tf.a0 = 0;
+        state.tf.epc += 4;
+
+        Process { aspace, state }
+    }
+}
+
+pub fn process_loader() -> impl ElfLoader {
+    RiscvLoader
 }
 
 pub fn process_builder() -> impl ProcessBuilder {
@@ -186,10 +262,25 @@ pub fn process_builder() -> impl ProcessBuilder {
 }
 
 /// A structure containing information required by the core for task handling.
+#[derive(Clone)]
 #[repr(C)]
 pub struct ThreadInfo {
     /// Pointer to the top of the kernel stack.
     pub ksp: usize,
     /// Pointer to the top of the user stack.
     pub usp: usize,
+}
+
+pub struct ProcState {
+    pub ti: ThreadInfo,
+    pub tf: TrapFrame,
+}
+
+impl Default for ProcState {
+    fn default() -> Self {
+        Self {
+            ti: ThreadInfo { ksp: 0, usp: 0 },
+            tf: unsafe { MaybeUninit::zeroed().assume_init() },
+        }
+    }
 }
