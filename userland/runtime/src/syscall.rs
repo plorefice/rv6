@@ -45,7 +45,7 @@ fn syscall6(
 /// Syscall numbers.
 enum Syscall {
     Write = 0,
-    Exit = 1,
+    // Exit = 1,
     Fork = 2,
 }
 

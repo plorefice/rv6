@@ -19,8 +19,7 @@ use crate::{
         Process, ProcessBuilder, ProcessId, ProcessMemoryLayout, ProcessStackLayout, StackSpec,
         UserProcessExecutor,
         elf::{ElfLoadError, ElfLoader, SegmentFlags},
-        global_process_table,
-        sched,
+        global_process_table, sched,
     },
 };
 
@@ -224,6 +223,8 @@ impl ProcessBuilder for RiscvProcessBuilder {
             )
             .expect("failed to map kernel stack");
 
+        // SAFETY: We are the only ones accessing the parent process at this point,
+        //         and we are duplicating its address space.
         unsafe {
             let mut gfa = GFA.lock();
             let gfa = gfa.as_mut().expect("GFA not initialized");
@@ -280,6 +281,8 @@ impl Default for ProcState {
     fn default() -> Self {
         Self {
             ti: ThreadInfo { ksp: 0, usp: 0 },
+            // SAFETY: TrapFrame is a plain data structure with no uninitialized fields,
+            //         so it's safe to create an uninitialized instance.
             tf: unsafe { MaybeUninit::zeroed().assume_init() },
         }
     }

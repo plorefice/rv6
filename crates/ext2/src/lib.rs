@@ -1,4 +1,5 @@
 #![cfg_attr(not(feature = "std"), no_std)]
+#![allow(unused)] // TODO: remove this when the crate is fully implemented
 
 mod blocks;
 mod error;

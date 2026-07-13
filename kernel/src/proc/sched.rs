@@ -97,6 +97,7 @@ pub fn enqueue_process(proc_id: ProcessId) {
     }
 }
 
+/// Returns the identifier of the currently running process, if any.
 pub fn current_process_id() -> Option<ProcessId> {
     SCHEDULER.lock().as_ref()?.current()
 }

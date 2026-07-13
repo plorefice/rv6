@@ -667,6 +667,7 @@ impl<'a> PageTableWalker<'a> {
         src: &PageTable,
         allocator: &mut impl FrameAllocator<PAGE_SIZE>,
     ) -> Result<(), MapError> {
+        // SAFETY: assuming caller has upheld the safety contract
         unsafe {
             self._clone_user_mappings_recursive(
                 src,

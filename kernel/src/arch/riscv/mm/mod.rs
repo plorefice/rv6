@@ -35,8 +35,10 @@ pub mod mmio;
 pub static PHYS_MEM_OFFSET: AtomicU64 = AtomicU64::new(0);
 
 /// Base address for the user virtual address space (the lower half).
+// SAFETY: constant
 pub const USER_BASE: VirtAddr = unsafe { VirtAddr::new_unchecked(0) };
 /// Top address for the user virtual address space (the lower half).
+// SAFETY: constant
 pub const USER_TOP: VirtAddr = unsafe { VirtAddr::new_unchecked(0x0000_0020_0000_0000) };
 
 /// Base address for the kernel virtual address space (the higher half).

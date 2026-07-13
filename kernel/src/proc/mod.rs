@@ -14,7 +14,10 @@ pub mod sched;
 
 /// A user process.
 pub struct Process {
+    /// The current state of the process, including registers and other architecture-specific information.
     pub state: hal::proc::ProcState,
+
+    /// The address space of the process, which defines its virtual memory layout.
     pub aspace: hal::proc::AddrSpace,
 }
 
@@ -26,6 +29,7 @@ pub struct ProcessId {
 }
 
 impl ProcessId {
+    /// Returns the index of the process in the process table.
     pub fn pid(self) -> usize {
         self.idx
     }
@@ -43,6 +47,12 @@ pub struct ProcessTable {
 struct ProcessSlot {
     generation: usize,
     process: Option<Process>,
+}
+
+impl Default for ProcessTable {
+    fn default() -> Self {
+        ProcessTable::new()
+    }
 }
 
 impl ProcessTable {
@@ -68,7 +78,8 @@ impl ProcessTable {
         ProcessId { idx, generation }
     }
 
-    #[allow(dead_code)]
+    /// Retrieves a reference to the process associated with the given `ProcessId`,
+    /// if it exists and is valid.
     pub fn get(&self, pid: ProcessId) -> Option<&Process> {
         self.slots.get(pid.idx).and_then(|slot| {
             if slot.generation == pid.generation {
@@ -79,7 +90,8 @@ impl ProcessTable {
         })
     }
 
-    #[allow(dead_code)]
+    /// Retrieves a mutable reference to the process associated with the given `ProcessId`,
+    /// if it exists and is valid.
     pub fn get_mut(&mut self, pid: ProcessId) -> Option<&mut Process> {
         self.slots.get_mut(pid.idx).and_then(|slot| {
             if slot.generation == pid.generation {
@@ -90,7 +102,7 @@ impl ProcessTable {
         })
     }
 
-    #[allow(dead_code)]
+    /// Frees the process associated with the given `ProcessId`, if it exists and is valid.
     pub fn free(&mut self, pid: ProcessId) {
         if let Some(slot) = self.slots.get_mut(pid.idx)
             && slot.generation == pid.generation
@@ -137,6 +149,7 @@ pub trait ProcessBuilder {
         aspace: &mut hal::proc::AddrSpace,
     ) -> Result<ProcessStackLayout, ElfLoadError>;
 
+    /// Creates a new process by duplicating the given parent process.
     fn fork(&self, parent: &Process) -> Process;
 
     /// Loads and executes a process given its ELF representation.
@@ -247,6 +260,8 @@ impl From<ElfLoadError> for ProcessLoadError {
     }
 }
 
+/// Forks the currently running process, creating a new child process that is a duplicate of the parent.
+/// Returns the `ProcessId` of the newly created child process.
 pub fn fork_current_process() -> ProcessId {
     let parent_pid =
         sched::current_process_id().expect("sys_fork called without a current process");
@@ -263,6 +278,7 @@ fn fork_process(parent_pid: ProcessId) -> ProcessId {
     sched::allocate_process(child_proc)
 }
 
+/// Returns a reference to the global process table, protected by a mutex for safe concurrent access.
 pub fn global_process_table() -> &'static Mutex<ProcessTable> {
     &PROCESS_TABLE
 }

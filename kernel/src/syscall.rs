@@ -143,6 +143,7 @@ pub fn sys_exit(args: SysArgs) -> SysResult<usize> {
     hal::cpu::halt();
 }
 
+/// Creates a new process by duplicating the current process.
 pub fn sys_fork(args: SysArgs) -> SysResult<usize> {
     let _flags = args.get(0);
 
