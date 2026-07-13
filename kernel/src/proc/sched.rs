@@ -13,6 +13,9 @@ pub trait Scheduler: Send + Sync {
     /// Enqueues a process to be scheduled.
     fn enqueue(&mut self, proc_id: ProcessId);
 
+    /// Removes the current process from the scheduler, typically called when a process exits.
+    fn exit_current(&mut self, pid: ProcessId);
+
     /// Returns the currently running process, if any.
     fn current(&self) -> Option<ProcessId>;
 }
@@ -37,6 +40,13 @@ impl Scheduler for RoundRobinScheduler {
 
     fn enqueue(&mut self, proc_id: ProcessId) {
         self.run_queue.push_back(proc_id);
+    }
+
+    fn exit_current(&mut self, pid: ProcessId) {
+        self.run_queue.retain(|&p| p != pid);
+        if self.current == Some(pid) {
+            self.current = None;
+        }
     }
 
     fn current(&self) -> Option<ProcessId> {
@@ -95,6 +105,14 @@ pub fn enqueue_process(proc_id: ProcessId) {
     if sched.current().is_none() {
         sched.schedule();
     }
+}
+
+/// Removes the specified process from the scheduler, typically called when a process exits.
+pub fn exit_current(pid: ProcessId) {
+    let mut sched = SCHEDULER.lock();
+    let sched = sched.as_mut().expect("scheduler not initialized");
+
+    sched.exit_current(pid);
 }
 
 /// Returns the identifier of the currently running process, if any.

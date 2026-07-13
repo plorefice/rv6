@@ -4,7 +4,7 @@
 use runtime::{self as _, io::Write};
 
 #[unsafe(no_mangle)]
-pub extern "C" fn main() -> ! {
+pub extern "C" fn main() -> isize {
     let mut stdout = runtime::io::stdout();
     stdout.write(b"Hello Rust user space!\n").unwrap();
 
@@ -14,11 +14,15 @@ pub extern "C" fn main() -> ! {
     } else if pid == 0 {
         // Child process
         stdout.write(b"Hello from the child process!\n").unwrap();
+        runtime::proc::exit(0);
     } else {
         // Parent process
         stdout.write(b"Hello from the parent process!\n").unwrap();
     }
 
-    #[allow(clippy::empty_loop)]
-    loop {}
+    stdout
+        .write(b"This line should only be printed once.\n")
+        .unwrap();
+
+    0
 }

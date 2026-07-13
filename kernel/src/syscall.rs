@@ -2,10 +2,7 @@
 
 use crate::{
     arch::hal,
-    drivers::{
-        earlycon::{self, EarlyCon},
-        syscon,
-    },
+    drivers::earlycon::{self, EarlyCon},
     proc, sched,
 };
 
@@ -134,13 +131,9 @@ pub fn sys_write(args: SysArgs) -> SysResult<usize> {
 }
 
 /// Terminates the current process with the given exit code.
-pub fn sys_exit(args: SysArgs) -> SysResult<usize> {
-    let _exit_code = args.get(0);
-
-    // We should never reach this point
-    kprintln!("Init process terminated unexpectedly, shutting down");
-    syscon::poweroff();
-    hal::cpu::halt();
+pub fn sys_exit(args: SysArgs) -> ! {
+    let exit_code = args.get(0);
+    proc::exit_current(exit_code);
 }
 
 /// Creates a new process by duplicating the current process.

@@ -9,8 +9,17 @@ pub(crate) fn sys_fork() -> isize {
     syscall0(Syscall::Fork)
 }
 
+pub(crate) fn sys_exit(exit_code: usize) -> ! {
+    syscall1(Syscall::Exit, exit_code);
+    unreachable!("sys_exit should not return");
+}
+
 fn syscall0(sc: Syscall) -> isize {
     syscall6(sc.into(), 0, 0, 0, 0, 0, 0)
+}
+
+fn syscall1(sc: Syscall, arg0: usize) -> isize {
+    syscall6(sc.into(), arg0, 0, 0, 0, 0, 0)
 }
 
 /// Perform a syscall with 3 arguments.
@@ -45,7 +54,7 @@ fn syscall6(
 /// Syscall numbers.
 enum Syscall {
     Write = 0,
-    // Exit = 1,
+    Exit = 1,
     Fork = 2,
 }
 

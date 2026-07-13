@@ -5,6 +5,7 @@ use spin::Mutex;
 
 use crate::{
     arch::hal,
+    drivers::syscon,
     mm::addr::VirtAddr,
     proc::elf::{ElfLoadError, ElfLoader, LoadSegment},
 };
@@ -103,15 +104,18 @@ impl ProcessTable {
     }
 
     /// Frees the process associated with the given `ProcessId`, if it exists and is valid.
-    pub fn free(&mut self, pid: ProcessId) {
+    pub fn take(&mut self, pid: ProcessId) -> Option<Process> {
         if let Some(slot) = self.slots.get_mut(pid.idx)
             && slot.generation == pid.generation
         {
             // Invalidate the slot by incrementing the generation and removing the process
             slot.generation += 1;
-            slot.process = None;
+            let process = slot.process.take();
             // Add the index back to the free list for reuse
             self.free.push(pid.idx);
+            process
+        } else {
+            None
         }
     }
 }
@@ -276,6 +280,28 @@ fn fork_process(parent_pid: ProcessId) -> ProcessId {
         hal::proc::builder().fork(parent_proc)
     };
     sched::allocate_process(child_proc)
+}
+
+/// Exits the currently running process and transfers control to the scheduler.
+/// This function does not return, as the current process is terminated.
+pub fn exit_current(_exit_code: usize) -> ! {
+    let pid = sched::current_process_id().expect("sys_exit called without a current process");
+
+    // Remove the current process from the scheduler and process table
+    sched::exit_current(pid);
+
+    let _proc = PROCESS_TABLE
+        .lock()
+        .take(pid)
+        .expect("failed to take current process from process table");
+
+    // Transfer control to the scheduler to run the next process
+    sched::run_scheduler();
+
+    // We only reach here if there are no more processes to run, so we halt the system.
+    kprintln!("All processes have exited. Bye!");
+    syscon::poweroff();
+    hal::cpu::halt();
 }
 
 /// Returns a reference to the global process table, protected by a mutex for safe concurrent access.
