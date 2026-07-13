@@ -7,6 +7,8 @@ fn main() {
         // Build startup code and archive it
         let mut cc = cc::Build::new();
         cc.compiler("riscv64-elf-gcc")
+            .archiver("riscv64-elf-ar")
+            .ranlib("riscv64-elf-ranlib")
             .flag("-march=rv64gc")
             .flag("-mabi=lp64d");
 
