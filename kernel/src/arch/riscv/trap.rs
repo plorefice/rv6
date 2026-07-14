@@ -177,8 +177,8 @@ extern "C" fn handle_exception(tf: &mut TrapFrame, ti: &ThreadInfo) {
     let mut gpt = proc::global_process_table().lock();
     if let Some(pid) = sched::current_process_id() {
         let proc = gpt.get_mut(pid).expect("current process doesn't exist");
-        proc.state.tf.clone_from(tf);
-        proc.state.ti.clone_from(ti);
+        proc.astate.tf.clone_from(tf);
+        proc.astate.ti.clone_from(ti);
     }
     drop(gpt);
 

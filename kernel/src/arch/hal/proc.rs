@@ -4,7 +4,7 @@ use crate::proc::{ProcessBuilder, ProcessId};
 
 pub type AddrSpace = imp::AddrSpace;
 
-pub type ProcState = imp::ProcState;
+pub type ProcArchState = imp::ProcState;
 
 #[inline]
 pub fn builder() -> impl ProcessBuilder {

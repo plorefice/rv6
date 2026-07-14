@@ -3,7 +3,10 @@
 use alloc::{boxed::Box, collections::VecDeque};
 use spin::Mutex;
 
-use crate::proc::{PROCESS_TABLE, Process, ProcessId};
+use crate::{
+    arch::hal,
+    proc::{PROCESS_TABLE, Process, ProcessId, ProcessState},
+};
 
 /// The scheduler trait, which defines the interface for scheduling processes in the system.
 pub trait Scheduler: Send + Sync {
@@ -84,7 +87,14 @@ pub fn run_scheduler() {
         next
     };
 
-    crate::arch::hal::proc::resume(next);
+    // Sanity check on the next process to be scheduled
+    {
+        let pt = PROCESS_TABLE.lock();
+        let proc = pt.get(next).expect("scheduled process not found");
+        assert!(matches!(proc.state, ProcessState::Running));
+    }
+
+    hal::proc::resume(next);
 }
 
 /// Allocates a new process in the process table and returns its unique identifier.

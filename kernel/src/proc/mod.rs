@@ -15,11 +15,32 @@ pub mod sched;
 
 /// A user process.
 pub struct Process {
+    /// The current execution state.
+    pub state: ProcessState,
+
     /// The current state of the process, including registers and other architecture-specific information.
-    pub state: hal::proc::ProcState,
+    pub astate: hal::proc::ProcArchState,
 
     /// The address space of the process, which defines its virtual memory layout.
     pub aspace: hal::proc::AddrSpace,
+
+    /// The parent process ID, if any. This is used to track the process hierarchy.
+    pub parent: Option<ProcessId>,
+
+    /// The list of child process IDs. This is used to manage the process tree and for cleanup when a process exits.
+    pub children: Vec<ProcessId>,
+}
+
+/// The execution state of a process.
+pub enum ProcessState {
+    /// The process is currently running and can be scheduled by the scheduler.
+    Running,
+
+    /// The process has exited and is waiting for its parent to collect its exit status.
+    Zombie {
+        /// The exit code of the process.
+        exit_code: usize,
+    },
 }
 
 /// A unique identifier for a process.
@@ -199,8 +220,11 @@ pub trait ProcessBuilder {
 
         // Create the process and add it to the scheduler
         let proc = Process {
+            state: ProcessState::Running,
             aspace,
-            state: hal::proc::ProcState::default(),
+            astate: hal::proc::ProcArchState::default(),
+            parent: None,
+            children: Vec::new(),
         };
 
         // Start execution of the new process
@@ -275,25 +299,31 @@ pub fn fork_current_process() -> ProcessId {
 
 fn fork_process(parent_pid: ProcessId) -> ProcessId {
     let child_proc = {
-        let proc_table = PROCESS_TABLE.lock();
-        let parent_proc = proc_table.get(parent_pid).expect("invalid parent PID");
-        hal::proc::builder().fork(parent_proc)
+        let mut proc_table = PROCESS_TABLE.lock();
+        let parent_proc = proc_table.get_mut(parent_pid).expect("invalid parent PID");
+        let mut child_proc = hal::proc::builder().fork(parent_proc);
+        child_proc.parent = Some(parent_pid);
+        child_proc
     };
-    sched::allocate_process(child_proc)
+    let child_pid = sched::allocate_process(child_proc);
+    {
+        let mut proc_table = PROCESS_TABLE.lock();
+        let parent_proc = proc_table.get_mut(parent_pid).expect("invalid parent PID");
+        parent_proc.children.push(child_pid);
+    }
+    child_pid
 }
 
 /// Exits the currently running process and transfers control to the scheduler.
 /// This function does not return, as the current process is terminated.
-pub fn exit_current(_exit_code: usize) -> ! {
+pub fn exit_current(exit_code: usize) -> ! {
     let pid = sched::current_process_id().expect("sys_exit called without a current process");
 
-    // Remove the current process from the scheduler and process table
+    // Remove the current process from the scheduler
     sched::exit_current(pid);
 
-    let _proc = PROCESS_TABLE
-        .lock()
-        .take(pid)
-        .expect("failed to take current process from process table");
+    // Mark the process as a zombie and store its exit code
+    mark_as_zombie(pid, exit_code);
 
     // Transfer control to the scheduler to run the next process
     sched::run_scheduler();
@@ -302,6 +332,12 @@ pub fn exit_current(_exit_code: usize) -> ! {
     kprintln!("All processes have exited. Bye!");
     syscon::poweroff();
     hal::cpu::halt();
+}
+
+fn mark_as_zombie(pid: ProcessId, exit_code: usize) {
+    let mut proc_table = PROCESS_TABLE.lock();
+    let proc = proc_table.get_mut(pid).expect("invalid PID");
+    proc.state = ProcessState::Zombie { exit_code };
 }
 
 /// Returns a reference to the global process table, protected by a mutex for safe concurrent access.

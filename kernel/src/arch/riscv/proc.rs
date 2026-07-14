@@ -16,8 +16,8 @@ use crate::{
     },
     mm::addr::{MemoryAddress, PhysAddr, VirtAddr},
     proc::{
-        Process, ProcessBuilder, ProcessId, ProcessMemoryLayout, ProcessStackLayout, StackSpec,
-        UserProcessExecutor,
+        Process, ProcessBuilder, ProcessId, ProcessMemoryLayout, ProcessStackLayout, ProcessState,
+        StackSpec, UserProcessExecutor,
         elf::{ElfLoadError, ElfLoader, SegmentFlags},
         global_process_table, sched,
     },
@@ -95,7 +95,7 @@ pub fn resume_process(pid: ProcessId) -> ! {
     let (satp, tf, ti, ksp) = {
         let table = global_process_table().lock();
         let proc = table.get(pid).expect("scheduled process not found");
-        let tf = core::ptr::from_ref(&proc.state.tf);
+        let tf = core::ptr::from_ref(&proc.astate.tf);
         let rpt_pa = proc.aspace.root_page_table_pa();
         let satp = (Satp::read_raw() & !0xfff_ffff_ffff_u64) | rpt_pa.page_index() as u64;
         let ti = PROC_KSTACK_MEM_OFFSET.as_usize();
@@ -234,19 +234,25 @@ impl ProcessBuilder for RiscvProcessBuilder {
                 .clone_user_mappings(parent.aspace.page_table(), gfa);
         }
 
-        let mut state = ProcState {
+        let mut astate = ProcState {
             ti: ThreadInfo {
                 ksp: layout.kernel_stack.initial_sp.as_usize(),
-                usp: parent.state.ti.usp,
+                usp: parent.astate.ti.usp,
             },
-            tf: parent.state.tf.clone(),
+            tf: parent.astate.tf.clone(),
         };
 
         // Child returns 0 from fork and resumes after the ecall instruction.
-        state.tf.a0 = 0;
-        state.tf.epc += 4;
+        astate.tf.a0 = 0;
+        astate.tf.epc += 4;
 
-        Process { aspace, state }
+        Process {
+            state: ProcessState::Running,
+            aspace,
+            astate,
+            parent: None, // Parent will be set by the caller, we don't have access to the parent's PID here
+            children: Default::default(),
+        }
     }
 }
 
