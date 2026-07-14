@@ -19,7 +19,7 @@ use crate::{
     },
     mm::{
         addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
-        allocator::FrameAllocator,
+        allocator::{Frame, FrameAllocator},
     },
     proc::elf::SegmentFlags,
 };
@@ -831,6 +831,124 @@ impl<'a> PageTableWalker<'a> {
         }
 
         Ok(())
+    }
+
+    /// Destroys an address space by freeing all process-owned page table frames and data pages.
+    ///
+    /// User mappings and per-process kernel stack pages are freed back to `allocator`. Kernel
+    /// mappings copied from the global page table are unmapped without freeing the underlying
+    /// physical pages, since those frames are still owned by the kernel.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that:
+    /// - `satp` no longer points at `rpt_pa`
+    /// - no CPU is executing in this address space
+    /// - no live kernel references exist to user memory in this address space
+    pub unsafe fn destroy_aspace(
+        &mut self,
+        rpt_pa: PhysAddr,
+        proc_kstack_start: VirtAddr,
+        proc_kstack_end: VirtAddr,
+        allocator: &mut impl FrameAllocator<PAGE_SIZE>,
+    ) -> Result<(), MapError> {
+        // SAFETY: caller must ensure this address space is no longer active
+        unsafe {
+            self.destroy_aspace_recursive(
+                VirtAddr::new_truncated(0),
+                PAGE_LEVELS - 1,
+                proc_kstack_start,
+                proc_kstack_end,
+                allocator,
+            )?;
+        }
+
+        // SAFETY: the root page table is no longer reachable through `satp`
+        allocator.free(unsafe { Frame::unmapped(rpt_pa) });
+        Ok(())
+    }
+
+    fn destroy_aspace_recursive(
+        &mut self,
+        base_vaddr: VirtAddr,
+        level: usize,
+        proc_kstack_start: VirtAddr,
+        proc_kstack_end: VirtAddr,
+        allocator: &mut impl FrameAllocator<PAGE_SIZE>,
+    ) -> Result<(), MapError> {
+        for (i, entry) in self
+            .rpt
+            .iter_mut()
+            .enumerate()
+            .filter(|(_, e)| e.is_valid())
+        {
+            let vaddr = base_vaddr + (i << (9 * level + PAGE_SHIFT));
+
+            if entry.is_leaf() {
+                let page_size = PageSize::from_table_level(level).unwrap();
+                if Self::should_free_leaf(
+                    vaddr,
+                    page_size,
+                    entry,
+                    proc_kstack_start,
+                    proc_kstack_end,
+                ) {
+                    let phys_addr = PhysAddr::from_ppn(entry.get_ppn());
+                    // SAFETY: this frame was allocated for this address space and is no longer used
+                    allocator.free(unsafe { Frame::unmapped(phys_addr) });
+                }
+
+                entry.clear();
+            } else {
+                if level == 0 {
+                    return Err(MapError::CorruptedPageTable);
+                }
+
+                // SAFETY: valid non-leaf PTEs point to page tables in the direct map
+                let inner_table = unsafe {
+                    &mut *phys_to_virt(PhysAddr::from_ppn(entry.get_ppn()))
+                        .as_mut_ptr::<PageTable>()
+                };
+
+                let mut walker = PageTableWalker { rpt: inner_table };
+                walker.destroy_aspace_recursive(
+                    vaddr,
+                    level - 1,
+                    proc_kstack_start,
+                    proc_kstack_end,
+                    allocator,
+                )?;
+
+                let table_phys_addr = PhysAddr::from_ppn(entry.get_ppn());
+                // SAFETY: this page table frame was allocated for this address space
+                allocator.free(unsafe { Frame::unmapped(table_phys_addr) });
+                entry.clear();
+            }
+        }
+
+        Ok(())
+    }
+
+    fn should_free_leaf(
+        vaddr: VirtAddr,
+        page_size: PageSize,
+        entry: &Entry,
+        proc_kstack_start: VirtAddr,
+        proc_kstack_end: VirtAddr,
+    ) -> bool {
+        let page_end = vaddr + page_size.size();
+
+        if vaddr < USER_TOP {
+            debug_assert!(
+                entry.is_user(),
+                "corrupted page table: found non-user leaf entry in user space"
+            );
+            return true;
+        }
+
+        // Kernel-half leaves normally alias global kernel mappings. The per-process kernel
+        // stack is the exception: it is privately allocated for this address space.
+        vaddr < proc_kstack_end && page_end > proc_kstack_start
     }
 
     /// Returns the physical address mapped to the specified virtual address, or `None` if the

@@ -27,6 +27,25 @@ pub struct Frame {
 }
 
 impl Frame {
+    /// Creates a new frame that is not mapped to any virtual address.
+    /// The virtual address is set to null, indicating that the frame is not currently mapped.
+    ///
+    /// This is useful when you need to represent a physical frame but do not need to reference
+    /// it in virtual memory, for example when needing to free a frame back to the allocator
+    /// without having a reference to it.
+    ///
+    /// # Safety
+    ///
+    /// This is an inherently unsafe operation for anything other than freeing the frame back
+    /// to the allocator, and even then, the caller must ensure that no references to the frame
+    /// are being used elsewhere in the kernel, as this could lead to undefined behavior.
+    pub unsafe fn unmapped(paddr: PhysAddr) -> Self {
+        Frame {
+            paddr,
+            ptr: core::ptr::null_mut(),
+        }
+    }
+
     /// Returns the physical address of the frame.
     pub fn phys(&self) -> PhysAddr {
         self.paddr

@@ -14,7 +14,7 @@ pub extern "C" fn main() -> isize {
     } else if pid == 0 {
         // Child process
         stdout.write(b"Hello from the child process!\n").unwrap();
-        runtime::proc::exit(0);
+        runtime::proc::exit(42);
     } else {
         // Parent process
         stdout.write(b"Hello from the parent process!\n").unwrap();
@@ -24,5 +24,21 @@ pub extern "C" fn main() -> isize {
         .write(b"This line should only be printed once.\n")
         .unwrap();
 
-    0
+    let exit_code = runtime::proc::wait();
+    stdout
+        .write(if exit_code == 42 {
+            b"Child process exited with code 42.\n"
+        } else {
+            b"Child process exited with a different code.\n"
+        })
+        .unwrap();
+
+    let exit_code = runtime::proc::wait();
+    if exit_code != -10 {
+        stdout
+            .write(b"Unexpectedly received a second exit code.\n")
+            .unwrap();
+    }
+
+    runtime::proc::exit(0)
 }

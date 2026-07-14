@@ -1,4 +1,4 @@
-use crate::syscall::{sys_exit, sys_fork};
+use crate::syscall::{sys_exit, sys_fork, sys_wait};
 
 /// Forks the current process by invoking the `sys_fork` syscall.
 ///
@@ -13,4 +13,9 @@ pub unsafe fn fork() -> isize {
 /// Exits the current process by invoking the `sys_exit` syscall.
 pub fn exit(exit_code: usize) -> ! {
     sys_exit(exit_code)
+}
+
+/// Waits for a child process to exit by invoking the `sys_wait` syscall.
+pub fn wait() -> isize {
+    sys_wait()
 }

@@ -95,6 +95,7 @@ pub fn resume_process(pid: ProcessId) -> ! {
     let (satp, tf, ti, ksp) = {
         let table = global_process_table().lock();
         let proc = table.get(pid).expect("scheduled process not found");
+        assert!(matches!(proc.state, ProcessState::Running));
         let tf = core::ptr::from_ref(&proc.astate.tf);
         let rpt_pa = proc.aspace.root_page_table_pa();
         let satp = (Satp::read_raw() & !0xfff_ffff_ffff_u64) | rpt_pa.page_index() as u64;
@@ -252,6 +253,24 @@ impl ProcessBuilder for RiscvProcessBuilder {
             astate,
             parent: None, // Parent will be set by the caller, we don't have access to the parent's PID here
             children: Default::default(),
+        }
+    }
+
+    fn destroy(&self, mut process: Process) {
+        let rpt_pa = process.aspace.root_page_table_pa();
+        let proc_kstack_start = PROC_KSTACK_MEM_OFFSET;
+        let proc_kstack_end = PROC_KSTACK_MEM_OFFSET + PROC_KSTACK_MEM_SIZE;
+
+        // SAFETY: the process is no longer runnable and `satp` points at the parent's tables.
+        unsafe {
+            let mut gfa = GFA.lock();
+            let gfa = gfa.as_mut().expect("GFA not initialized");
+
+            process
+                .aspace
+                .page_table_walker()
+                .destroy_aspace(rpt_pa, proc_kstack_start, proc_kstack_end, gfa)
+                .expect("failed to destroy process address space");
         }
     }
 }

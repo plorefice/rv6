@@ -51,6 +51,12 @@ pub struct ProcessId {
 }
 
 impl ProcessId {
+    /// The initial process ID, typically assigned to the first process created in the system.
+    pub const INIT_PID: ProcessId = ProcessId {
+        idx: 0,
+        generation: 0,
+    };
+
     /// Returns the index of the process in the process table.
     pub fn pid(self) -> usize {
         self.idx
@@ -176,6 +182,9 @@ pub trait ProcessBuilder {
 
     /// Creates a new process by duplicating the given parent process.
     fn fork(&self, parent: &Process) -> Process;
+
+    /// Destroys the given process, cleaning up any resources associated with it.
+    fn destroy(&self, process: Process);
 
     /// Loads and executes a process given its ELF representation.
     ///
@@ -322,8 +331,13 @@ pub fn exit_current(exit_code: usize) -> ! {
     // Remove the current process from the scheduler
     sched::exit_current(pid);
 
-    // Mark the process as a zombie and store its exit code
-    mark_as_zombie(pid, exit_code);
+    // Mark the process as a zombie and store its exit code.
+    // Also reparent any child processes to the init process (PID 0) to ensure they are not orphaned.
+    {
+        let mut proc_table = PROCESS_TABLE.lock();
+        mark_as_zombie(&mut proc_table, pid, exit_code);
+        reparent_children(&mut proc_table, pid);
+    }
 
     // Transfer control to the scheduler to run the next process
     sched::run_scheduler();
@@ -334,10 +348,24 @@ pub fn exit_current(exit_code: usize) -> ! {
     hal::cpu::halt();
 }
 
-fn mark_as_zombie(pid: ProcessId, exit_code: usize) {
-    let mut proc_table = PROCESS_TABLE.lock();
+fn mark_as_zombie(proc_table: &mut ProcessTable, pid: ProcessId, exit_code: usize) {
     let proc = proc_table.get_mut(pid).expect("invalid PID");
     proc.state = ProcessState::Zombie { exit_code };
+}
+
+fn reparent_children(proc_table: &mut ProcessTable, pid: ProcessId) {
+    let parent_proc = proc_table.get_mut(pid).expect("invalid PID");
+    let children = core::mem::take(&mut parent_proc.children);
+
+    for child_pid in children {
+        if let Some(child_proc) = proc_table.get_mut(child_pid) {
+            child_proc.parent = Some(ProcessId::INIT_PID);
+            let init_proc = proc_table
+                .get_mut(ProcessId::INIT_PID)
+                .expect("init process not found");
+            init_proc.children.push(child_pid);
+        }
+    }
 }
 
 /// Returns a reference to the global process table, protected by a mutex for safe concurrent access.

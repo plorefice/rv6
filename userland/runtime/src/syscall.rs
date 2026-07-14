@@ -5,13 +5,20 @@ pub(crate) fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
     syscall3(Syscall::Write, fd, buf as usize, len)
 }
 
+/// Forks the current process, creating a new child process.
 pub(crate) fn sys_fork() -> isize {
     syscall0(Syscall::Fork)
 }
 
+/// Exits the current process with the given exit code.
 pub(crate) fn sys_exit(exit_code: usize) -> ! {
     syscall1(Syscall::Exit, exit_code);
     unreachable!("sys_exit should not return");
+}
+
+/// Waits for a child process to exit and retrieves its exit code.
+pub(crate) fn sys_wait() -> isize {
+    syscall0(Syscall::Wait)
 }
 
 fn syscall0(sc: Syscall) -> isize {
@@ -56,6 +63,7 @@ enum Syscall {
     Write = 0,
     Exit = 1,
     Fork = 2,
+    Wait = 3,
 }
 
 impl From<Syscall> for usize {

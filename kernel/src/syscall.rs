@@ -3,7 +3,8 @@
 use crate::{
     arch::hal,
     drivers::earlycon::{self, EarlyCon},
-    proc, sched,
+    proc::{self, ProcessBuilder, ProcessId, ProcessState, ProcessTable, global_process_table},
+    sched,
 };
 
 /// Syscall numbers.
@@ -15,6 +16,8 @@ pub enum Sysno {
     Exit = 1,
     /// Fork the current process.
     Fork = 2,
+    /// Wait for a child process to exit.
+    Wait = 3,
 }
 
 /// Syscall arguments passed from user space.
@@ -38,6 +41,8 @@ impl SysArgs {
 /// Possible syscall error codes.
 #[repr(isize)]
 pub enum Errno {
+    /// No child processes
+    ECHILD = 10,
     /// Invalid argument
     EINVAL = 22,
     /// Function not implemented
@@ -143,4 +148,36 @@ pub fn sys_fork(args: SysArgs) -> SysResult<usize> {
     let child_pid = proc::fork_current_process();
     sched::enqueue_process(child_pid);
     Ok(child_pid.pid())
+}
+
+/// Waits for a child process to exit and retrieves its exit code.
+pub fn sys_wait(_: SysArgs) -> SysResult<usize> {
+    let parent_pid = sched::current_process_id().expect("no current process");
+
+    let mut proc_table = global_process_table().lock();
+
+    let (child_pid, exit_code) = find_zombie_child(&proc_table, parent_pid)?;
+    let child = proc_table.take(child_pid).expect("invalid child PID");
+
+    hal::proc::builder().destroy(child);
+
+    let parent = proc_table.get_mut(parent_pid).expect("invalid parent PID");
+    parent.children.retain(|&pid| pid != child_pid);
+
+    Ok(exit_code)
+}
+
+fn find_zombie_child(
+    proc_table: &ProcessTable,
+    parent_pid: ProcessId,
+) -> SysResult<(ProcessId, usize)> {
+    let parent = proc_table.get(parent_pid).expect("invalid parent PID");
+    for &child_pid in &parent.children {
+        if let Some(child) = proc_table.get(child_pid)
+            && let ProcessState::Zombie { exit_code } = child.state
+        {
+            return Ok((child_pid, exit_code));
+        }
+    }
+    Err(Errno::ECHILD)
 }
