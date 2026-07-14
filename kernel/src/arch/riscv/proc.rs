@@ -203,7 +203,7 @@ impl ProcessBuilder for RiscvProcessBuilder {
         Ok(layout)
     }
 
-    fn fork(&self, parent: &crate::proc::Process) -> crate::proc::Process {
+    fn fork(&self, parent: &Process) -> Process {
         let mut aspace = match self.loader().new_user_addr_space() {
             Ok(aspace) => aspace,
             Err(e) => {
