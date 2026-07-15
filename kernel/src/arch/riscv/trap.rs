@@ -218,7 +218,7 @@ extern "C" fn handle_exception(tf: &mut TrapFrame, ti: &ThreadInfo) {
 
         // Debug facilities
         tf.dump(tf.epc);
-        mmu::dump_active_root_page_table();
+        dump_active_root_page_table();
         unwind_stack_frame();
 
         // Halt the hart. This will change when exceptions are handled.

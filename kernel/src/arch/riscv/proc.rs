@@ -7,7 +7,7 @@ use crate::{
         addr::PhysAddrExt,
         instructions::fence_i,
         mm::{
-            GFA, PROC_KSTACK_MEM_OFFSET, PROC_KSTACK_MEM_SIZE,
+            GFA, PROC_KSTACK_MEM_OFFSET, PROC_KSTACK_MEM_SIZE, USER_TOP,
             elf::{RiscvAddrSpace, RiscvLoader},
         },
         mmu::{self, EntryFlags, PAGE_SIZE},
@@ -100,7 +100,7 @@ pub fn resume_process(pid: ProcessId) -> ! {
         let rpt_pa = proc.aspace.root_page_table_pa();
         let satp = (Satp::read_raw() & !0xfff_ffff_ffff_u64) | rpt_pa.page_index() as u64;
         let ti = PROC_KSTACK_MEM_OFFSET.as_usize();
-        let ksp = (PROC_KSTACK_MEM_OFFSET + PROC_KSTACK_MEM_SIZE).as_usize();
+        let ksp = proc.astate.ti.ksp;
         (satp, tf, ti, ksp)
     };
 
@@ -131,7 +131,8 @@ impl RiscvProcessMemoryLayout {
     }
 
     fn default_user_stack(&self) -> StackSpec {
-        let end = VirtAddr::new(0x0000_003f_ffff_f000);
+        // One unmapped page below USER_TOP acts as a guard against the direct map.
+        let end = USER_TOP - PAGE_SIZE;
         let size = 8 * 1024 * 1024; // 8 MiB
         let start = end - size;
 
