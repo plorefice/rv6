@@ -49,7 +49,9 @@ impl<'d> Fdt<'d> {
         &'_ self,
     ) -> impl Iterator<Item = Result<ReserveEntry, FdtParseError<'_>>> {
         self.data[self.hdr.off_mem_rsvmap as usize..]
-            .chunks_exact(16)
+            .as_chunks::<16>()
+            .0
+            .iter()
             .map(ReserveEntry::from_bytes)
             .take_while(|res| match res {
                 Ok(res) => !res.is_empty(),
@@ -185,7 +187,7 @@ pub struct ReserveEntry {
 }
 
 impl ReserveEntry {
-    fn from_bytes<'d>(s: &'d [u8]) -> Result<Self, FdtParseError<'d>> {
+    fn from_bytes<'d>(s: &'d [u8; 16]) -> Result<Self, FdtParseError<'d>> {
         Ok(Self::parse(s).map_err(FdtParseError::ParseError)?.1)
     }
 
