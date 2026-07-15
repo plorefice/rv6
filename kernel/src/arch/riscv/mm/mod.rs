@@ -37,17 +37,19 @@ pub static PHYS_MEM_OFFSET: AtomicU64 = AtomicU64::new(0);
 /// Base address for the user virtual address space (the lower half).
 // SAFETY: constant
 pub const USER_BASE: VirtAddr = unsafe { VirtAddr::new_unchecked(0) };
-/// Top address for the user virtual address space (the lower half).
+/// Exclusive top of the user virtual address space.
+///
+/// Equals [`KERNEL_BASE`]: the entire Sv39 lower half is user, and the entire
+/// upper half is kernel.
 // SAFETY: constant
-pub const USER_TOP: VirtAddr = unsafe { VirtAddr::new_unchecked(0x0000_0020_0000_0000) };
+pub const USER_TOP: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffc0_0000_0000) };
 
 /// Base address for the kernel virtual address space (the higher half).
-/// It starts at `USER_TOP` to leave the whole lower half of the address space for user processes.
 pub const KERNEL_BASE: VirtAddr = USER_TOP;
 
-/// Virtual offset at which physical memory is mapped.
+/// Virtual offset at which physical memory is mapped (upper half, below IOMAP).
 // SAFETY: constant
-pub const PHYS_TO_VIRT_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0x20_0000_0000) };
+pub const PHYS_TO_VIRT_OFFSET: VirtAddr = unsafe { VirtAddr::new_unchecked(0xffff_ffd0_0000_0000) };
 
 /// Base address for the per-hart kernel stack.
 // SAFETY: constant
@@ -102,7 +104,7 @@ pub static GFA: Mutex<Option<BumpFrameAllocator<PAGE_SIZE>>> = Mutex::new(None);
 /// TODO: remove hard-coded constants.
 #[global_allocator]
 static HEAP: BumpAllocator =
-    BumpAllocator::new(HEAP_MEM_OFFSET.as_usize(), IOMAP_MEM_OFFSET.as_usize());
+    BumpAllocator::new(HEAP_MEM_OFFSET.as_usize(), PHYS_TO_VIRT_OFFSET.as_usize());
 
 /// I/O virtual memory allocator.
 static IOMAP: BumpAllocator =
@@ -241,7 +243,7 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     let map_size = PageSize::Kb;
     assert_eq!(HEAP_PREALLOC_SIZE % map_size.size(), 0);
 
-    let heap_prealloc_base = IOMAP_MEM_OFFSET - HEAP_PREALLOC_SIZE;
+    let heap_prealloc_base = PHYS_TO_VIRT_OFFSET - HEAP_PREALLOC_SIZE;
     let n_pages = HEAP_PREALLOC_SIZE / map_size.size();
 
     let frame = gfa.alloc(n_pages).expect("oom for heap allocation");

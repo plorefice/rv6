@@ -16,30 +16,26 @@ into two usable halves with a large non-canonical hole between them:
 
 | Region | Virtual range | Notes |
 |--------|---------------|--------|
-| Lower half | `0x0000_0000_0000_0000` – `0x0000_003f_ffff_ffff` | 256 GiB; user + direct map |
+| Lower half | `0x0000_0000_0000_0000` – `0x0000_003f_ffff_ffff` | 256 GiB; **user** |
 | Non-canonical hole | `0x0000_0040_0000_0000` – `0xffff_ffbf_ffff_ffff` | Not usable |
-| Upper half | `0xffff_ffc0_0000_0000` – `0xffff_ffff_ffff_ffff` | 256 GiB; kernel stacks, heap, MMIO, image |
+| Upper half | `0xffff_ffc0_0000_0000` – `0xffff_ffff_ffff_ffff` | 256 GiB; **kernel** |
 
-rv6 does **not** use a classic “user = entire lower half, kernel = entire upper
-half” split. Instead:
-
-- **User code/data and the user stack** live in the low part of the lower half
-  (`0` … `USER_TOP`).
-- **Physical DRAM** is direct-mapped starting at `USER_TOP` (still in the lower
-  half).
-- **Most other kernel structures** live in the Sv39 upper half.
+rv6 uses a classic split: the entire lower half is user space and the entire
+upper half is kernel space. `USER_TOP` / `KERNEL_BASE` sit at the start of the
+upper half. The DRAM direct map lives in a dedicated upper-half window below
+the MMIO region.
 
 Canonical constants are defined in `kernel/src/arch/riscv/mm/mod.rs`.
 
 ```text
   0xffff_ffff_ffff_ffff  ┌──────────────────────────────┐
-                         │  (unused / guard)            │
-  0xffff_ffff_8000_0000  ├──────────────────────────────┤  LOAD_OFFSET
                          │  Kernel image (.text … .bss) │
-  0xffff_ffe0_0000_0000  ├──────────────────────────────┤  IOMAP_MEM_OFFSET
+  0xffff_ffff_8000_0000  ├──────────────────────────────┤  LOAD_OFFSET
                          │  MMIO window (bump alloc)    │
-                         ├──────────────────────────────┤  grows down ← heap
-                         │  Kernel heap (VA window)     │
+  0xffff_ffe0_0000_0000  ├──────────────────────────────┤  IOMAP_MEM_OFFSET
+                         │  Direct map of physical DRAM │
+  0xffff_ffd0_0000_0000  ├──────────────────────────────┤  PHYS_TO_VIRT_OFFSET
+                         │  Kernel heap (grows down)    │
   0xffff_ffc0_0041_2000  ├──────────────────────────────┤  HEAP_MEM_OFFSET
                          │  [guard page]                │
   0xffff_ffc0_0041_1000  ├──────────────────────────────┤  PROC_KSTACK end
@@ -48,19 +44,15 @@ Canonical constants are defined in `kernel/src/arch/riscv/mm/mod.rs`.
                          │  [guard page]                │
   0xffff_ffc0_0040_0000  ├──────────────────────────────┤
                          │  Per-hart kernel stacks      │
-  0xffff_ffc0_0000_0000  ├──────────────────────────────┤  KSTACK_MEM_OFFSET
-                         │                              │
+  0xffff_ffc0_0000_0000  ├──────────────────────────────┤  KSTACK / USER_TOP /
+                         │                              │  KERNEL_BASE
                          │     Sv39 non-canonical hole  │
                          │                              │
   0x0000_0040_0000_0000  ├──────────────────────────────┤  end of lower half
-                         │  (unmapped / future)         │
-  0x0000_0020_1000_0000  ├──────────────────────────────┤  ≈ end of 256 MiB DRAM map
-                         │  Direct map of physical DRAM │
-  0x0000_0020_0000_0000  ├──────────────────────────────┤  USER_TOP / KERNEL_BASE /
-                         │  [guard page]                │  PHYS_TO_VIRT_OFFSET
-  0x0000_001f_ffff_f000  ├──────────────────────────────┤  user stack top
+                         │  [guard page]                │
+  0x0000_003f_ffff_f000  ├──────────────────────────────┤  user stack top
                          │  User stack (8 MiB)          │
-  0x0000_001f_ff7f_f000  ├──────────────────────────────┤  user stack base
+  0x0000_003f_ff7f_f000  ├──────────────────────────────┤  user stack base
                          │  User ELF image & anon maps  │
   0x0000_0000_0000_0000  └──────────────────────────────┘  USER_BASE
 ```
@@ -72,10 +64,11 @@ Canonical constants are defined in `kernel/src/arch/riscv/mm/mod.rs`.
 | Constant | Address | Role |
 |----------|---------|------|
 | `USER_BASE` | `0x0000_0000_0000_0000` | Start of user VAS |
-| `USER_TOP` / `KERNEL_BASE` / `PHYS_TO_VIRT_OFFSET` | `0x0000_0020_0000_0000` | User/kernel policy boundary **and** direct-map base |
+| `USER_TOP` / `KERNEL_BASE` | `0xffff_ffc0_0000_0000` | User/kernel policy boundary (start of upper half) |
 | `KSTACK_MEM_OFFSET` | `0xffff_ffc0_0000_0000` | Per-hart kernel stacks |
 | `PROC_KSTACK_MEM_OFFSET` | `0xffff_ffc0_0040_1000` | Per-process kernel stack |
 | `HEAP_MEM_OFFSET` | `0xffff_ffc0_0041_2000` | Low end of kernel heap VA window |
+| `PHYS_TO_VIRT_OFFSET` | `0xffff_ffd0_0000_0000` | DRAM direct-map base |
 | `IOMAP_MEM_OFFSET` | `0xffff_ffe0_0000_0000` | MMIO mapping window |
 | `LOAD_OFFSET` | `0xffff_ffff_8000_0000` | Linked kernel image base |
 
@@ -87,16 +80,16 @@ any VA `< USER_TOP` as “user space” when cloning/destroying user mappings.
 
 ## Userspace ranges
 
-### `0x0` – `USER_TOP` (`0x20_0000_0000`): user program mappings
+### `0x0` – `USER_TOP` (`0xffff_ffc0_0000_0000`): user program mappings
 
-**Size:** 128 GiB (half of the Sv39 lower half).
+**Size:** the full Sv39 lower half (256 GiB of canonical addresses).
 
 **Contents:**
 
 - ELF load segments for user binaries (from initrd / filesystem), mapped with
   `EntryFlags::USER` plus R/W/X derived from the program headers.
 - Anonymous mappings created during ELF load (e.g. BSS).
-- The per-process user stack (near the high end of this range; see below).
+- The per-process user stack (near the high end of the lower half; see below).
 - Future `mmap`-style allocations are expected to live here.
 
 PIE binaries currently load at base `0` (`RiscvLoader::choose_pie_base`).
@@ -107,63 +100,24 @@ PIE binaries currently load at base `0` (`RiscvLoader::choose_pie_base`).
 are deep-copied (`PageTableWalker::clone_user_mappings`), including the user
 stack. On process exit they are freed (`destroy_aspace` / `should_free_leaf`).
 
-### User stack: `0x1f_ff7f_f000` – `0x1f_ffff_f000`
+### User stack: `0x3f_ff7f_f000` – `0x3f_ffff_f000`
 
 **Size:** 8 MiB. Defined in `RiscvProcessMemoryLayout::default_user_stack`
 (`kernel/src/arch/riscv/proc.rs`):
 
-- Top (initial SP): `USER_TOP − PAGE_SIZE` = `0x0000_001f_ffff_f000`
-- Base: top − 8 MiB = `0x0000_001f_ff7f_f000`
-- One unmapped page between the stack top and `USER_TOP` guards against the
-  direct map that begins at `USER_TOP`.
+- Top (initial SP): `0x0000_003f_ffff_f000`
+- Base: top − 8 MiB = `0x0000_003f_ff7f_f000`
+- One unmapped page between the stack top and the end of the lower half
+  (`0x40_0000_0000`) guards against the non-canonical hole / kernel half.
 
-Placing the stack strictly below `USER_TOP` keeps it inside the range that
-`clone_user_mappings` / `should_free_leaf` treat as user space, so `fork`
-copies stack pages with the rest of the address space and teardown frees them
-normally.
+The stack sits strictly below `USER_TOP`, so `clone_user_mappings` /
+`should_free_leaf` treat it as ordinary user space: `fork` copies stack pages
+with the rest of the address space and teardown frees them normally.
 
 Flags: `RW | USER | ACCESS` (not `GLOBAL`).
 
 The gap between low ELF/anon mappings and the stack base is unmapped and
 available for future growth (`mmap`, heap, …).
-
----
-
-## Kernel ranges (lower half)
-
-### Direct map: `PHYS_TO_VIRT_OFFSET` + DRAM
-
-**Base:** `PHYS_TO_VIRT_OFFSET` = `0x20_0000_0000` (= `USER_TOP` / `KERNEL_BASE`).
-
-**Translation:**
-
-```text
-va = PHYS_TO_VIRT_OFFSET + (pa − PHYS_MEM_OFFSET)
-```
-
-`PHYS_MEM_OFFSET` is the DRAM base from the FDT `memory` node (QEMU `virt`:
-typically `0x8000_0000`), stored in `PHYS_MEM_OFFSET` during `setup_late`.
-
-**QEMU `virt` example (−m 256M):**
-
-| Physical | Virtual (direct map) |
-|----------|----------------------|
-| `0x8000_0000` … `0x9000_0000` | `0x20_0000_0000` … `0x20_1000_0000` |
-
-**Contents:** a linear view of all DRAM so the kernel can:
-
-- Convert frame PPNs to usable pointers (`phys_to_virt`)
-- Walk/copy page tables and user pages while the process’s own tables are active
-- Access the FDT after early relocation (early setup relocates the FDT pointer
-  into this window)
-
-**Mapping:** installed in early boot (`setup_early_vm`) with 2 MiB megapages, then
-rebuilt in `setup_late` again with 2 MiB pages and `EntryFlags::KERNEL`
-(`RWX | ACCESS | DIRTY | GLOBAL`). Copied into every process page table via
-`copy_kernel_mappings` so traps/syscalls can use `phys_to_virt` without
-switching back to the global kernel root.
-
-This window is **not** user-accessible (no `USER` PTE bit).
 
 ---
 
@@ -203,24 +157,60 @@ kernel mappings, these frames are **owned by the process** and freed on
 
 Another **4 KiB guard** separates this stack from the heap VA window.
 
-### Kernel heap: `HEAP_MEM_OFFSET` … `IOMAP_MEM_OFFSET`
+### Kernel heap: `HEAP_MEM_OFFSET` … `PHYS_TO_VIRT_OFFSET`
 
 | | |
 |--|--|
 | Low bound | `0xffff_ffc0_0041_2000` (`HEAP_MEM_OFFSET`) |
-| High bound | `0xffff_ffe0_0000_0000` (`IOMAP_MEM_OFFSET`) |
+| High bound | `0xffff_ffd0_0000_0000` (`PHYS_TO_VIRT_OFFSET`) |
 
 Implemented as a bump allocator (`HEAP`) that **allocates downward** from
-`IOMAP_MEM_OFFSET` toward `HEAP_MEM_OFFSET` (Rust `#[global_allocator]`).
+`PHYS_TO_VIRT_OFFSET` toward `HEAP_MEM_OFFSET` (Rust `#[global_allocator]`).
 
 Only the top **1 MiB** is pre-mapped in `setup_late`:
 
 ```text
-[IOMAP_MEM_OFFSET − 1 MiB, IOMAP_MEM_OFFSET)  →  HEAP_PREALLOC_SIZE
+[PHYS_TO_VIRT_OFFSET − 1 MiB, PHYS_TO_VIRT_OFFSET)  →  HEAP_PREALLOC_SIZE
 ```
 
-i.e. `0xffff_ffdf_fff0_0000` … `0xffff_ffe0_0000_0000`. Further growth would
+i.e. `0xffff_ffcf_fff0_0000` … `0xffff_ffd0_0000_0000`. Further growth would
 require on-demand mapping (noted as TODO in code).
+
+### Direct map: `PHYS_TO_VIRT_OFFSET` + DRAM
+
+**Base:** `PHYS_TO_VIRT_OFFSET` = `0xffff_ffd0_0000_0000`.
+
+**Translation:**
+
+```text
+va = PHYS_TO_VIRT_OFFSET + (pa − PHYS_MEM_OFFSET)
+```
+
+`PHYS_MEM_OFFSET` is the DRAM base from the FDT `memory` node (QEMU `virt`:
+typically `0x8000_0000`), stored in `PHYS_MEM_OFFSET` during `setup_late`.
+
+**QEMU `virt` example (−m 256M):**
+
+| Physical | Virtual (direct map) |
+|----------|----------------------|
+| `0x8000_0000` … `0x9000_0000` | `0xffff_ffd0_0000_0000` … `0xffff_ffd0_1000_0000` |
+
+**Contents:** a linear view of all DRAM so the kernel can:
+
+- Convert frame PPNs to usable pointers (`phys_to_virt`)
+- Walk/copy page tables and user pages while the process’s own tables are active
+- Access the FDT after early relocation (early setup relocates the FDT pointer
+  into this window)
+
+**Mapping:** installed in early boot (`setup_early_vm`) with 2 MiB megapages, then
+rebuilt in `setup_late` again with 2 MiB pages and `EntryFlags::KERNEL`
+(`RWX | ACCESS | DIRTY | GLOBAL`). Copied into every process page table via
+`copy_kernel_mappings` so traps/syscalls can use `phys_to_virt` without
+switching back to the global kernel root.
+
+This window is **not** user-accessible (no `USER` PTE bit). The window extends
+up to `IOMAP_MEM_OFFSET` (`0xffff_ffe0_0000_0000`), leaving ~64 GiB for DRAM —
+far more than QEMU’s default 256 MiB.
 
 ### MMIO window: `IOMAP_MEM_OFFSET` … `LOAD_OFFSET`
 

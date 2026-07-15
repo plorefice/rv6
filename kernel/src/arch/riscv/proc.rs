@@ -7,7 +7,7 @@ use crate::{
         addr::PhysAddrExt,
         instructions::fence_i,
         mm::{
-            GFA, PROC_KSTACK_MEM_OFFSET, PROC_KSTACK_MEM_SIZE, USER_TOP,
+            GFA, PROC_KSTACK_MEM_OFFSET, PROC_KSTACK_MEM_SIZE,
             elf::{RiscvAddrSpace, RiscvLoader},
         },
         mmu::{self, EntryFlags, PAGE_SIZE},
@@ -131,8 +131,9 @@ impl RiscvProcessMemoryLayout {
     }
 
     fn default_user_stack(&self) -> StackSpec {
-        // One unmapped page below USER_TOP acts as a guard against the direct map.
-        let end = USER_TOP - PAGE_SIZE;
+        // Top of the Sv39 lower half, with one unmapped page as a guard against
+        // the non-canonical hole / kernel half.
+        let end = VirtAddr::new(0x0000_003f_ffff_f000);
         let size = 8 * 1024 * 1024; // 8 MiB
         let start = end - size;
 
