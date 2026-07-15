@@ -1,45 +1,59 @@
-use core::fmt;
+use core::{fmt, io};
 
 use crate::syscall::sys_write;
 
-pub type Result<T> = core::result::Result<T, Error>;
+pub struct OwnedFd(usize);
 
-#[derive(Debug)]
-pub struct Error {
-    code: isize,
-}
+pub struct Stdout(OwnedFd);
 
-impl fmt::Display for Error {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Error code: {}", self.code)
-    }
-}
-
-pub trait Write {
-    fn write(&mut self, buf: &[u8]) -> Result<usize>;
-
-    fn flush(&mut self) -> Result<()>;
-}
-
-pub struct Fd(usize);
-
-pub struct Stdout(Fd);
-
-impl Write for Stdout {
-    fn write(&mut self, buf: &[u8]) -> Result<usize> {
+impl io::Write for Stdout {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
         let n = sys_write(self.0.0, buf.as_ptr(), buf.len());
         if n < 0 {
-            Err(Error { code: n })
+            Err(from_raw_os_error(n))
         } else {
             Ok(n as usize)
         }
     }
 
-    fn flush(&mut self) -> Result<()> {
+    fn flush(&mut self) -> io::Result<()> {
         Ok(())
     }
 }
 
+impl fmt::Write for Stdout {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        io::Write::write(self, s.as_bytes())
+            .map(|_| ())
+            .map_err(|_| fmt::Error)
+    }
+}
+
 pub fn stdout() -> Stdout {
-    Stdout(Fd(1))
+    Stdout(OwnedFd(1))
+}
+
+fn from_raw_os_error(code: isize) -> io::Error {
+    let kind = match code {
+        -22 => io::ErrorKind::InvalidInput,
+        _ => io::ErrorKind::Other,
+    };
+    io::Error::from(kind)
+}
+
+#[macro_export]
+macro_rules! println {
+    () => {
+        $crate::print!("\n");
+    };
+    ($($arg:tt)*) => {
+        $crate::io::_print(core::format_args!("{}\n", core::format_args!($($arg)*)));
+    };
+}
+
+#[doc(hidden)]
+pub fn _print(args: fmt::Arguments) {
+    use core::fmt::Write;
+    let mut out = stdout();
+    out.write_fmt(args).unwrap();
 }

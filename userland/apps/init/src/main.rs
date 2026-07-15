@@ -1,44 +1,38 @@
 #![no_std]
 #![no_main]
 
-use runtime::{self as _, io::Write};
+use rt::{println, proc};
+use runtime::{self as rt};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> isize {
-    let mut stdout = runtime::io::stdout();
-    stdout.write(b"Hello Rust user space!\n").unwrap();
+    println!("Hello Rust user space!");
 
-    let pid = unsafe { runtime::proc::fork() };
+    let pid = unsafe { proc::fork() };
     if pid < 0 {
-        stdout.write(b"Fork failed\n").unwrap();
+        println!("Fork failed");
     } else if pid == 0 {
         // Child process
-        stdout.write(b"Hello from the child process!\n").unwrap();
-        runtime::proc::exit(42);
+        println!("Hello from the child process!");
+        proc::exit(42);
     } else {
         // Parent process
-        stdout.write(b"Hello from the parent process!\n").unwrap();
+        println!("Hello from the parent process!");
     }
 
-    stdout
-        .write(b"This line should only be printed once.\n")
-        .unwrap();
+    println!("This line should only be printed once.");
 
-    let exit_code = runtime::proc::wait();
-    stdout
-        .write(if exit_code == 42 {
-            b"Child process exited with code 42.\n"
-        } else {
-            b"Child process exited with a different code.\n"
-        })
-        .unwrap();
+    let exit_code = proc::wait();
+    if exit_code == 42 {
+        println!("Child process exited with code 42.");
+    } else {
+        println!("Child process exited with a different code.");
+    }
 
-    let exit_code = runtime::proc::wait();
+    let exit_code = proc::wait();
     if exit_code != -10 {
-        stdout
-            .write(b"Unexpectedly received a second exit code.\n")
-            .unwrap();
+        println!("Unexpectedly received a second exit code.");
     }
 
-    runtime::proc::exit(0)
+    proc::exit(0)
 }

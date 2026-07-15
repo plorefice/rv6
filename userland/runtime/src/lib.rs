@@ -1,4 +1,5 @@
 #![no_std]
+#![feature(core_io)]
 
 pub mod io;
 pub mod proc;
