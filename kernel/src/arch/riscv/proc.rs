@@ -1,6 +1,6 @@
 //! RISC-V implementation of process management.
 
-use core::mem::MaybeUninit;
+use core::{mem::MaybeUninit, time::Duration};
 
 use crate::{
     arch::riscv::{
@@ -12,6 +12,7 @@ use crate::{
         },
         mmu::{self, EntryFlags, PAGE_SIZE},
         registers::{Satp, Sepc, Sstatus, SstatusFlags},
+        time,
         trap::TrapFrame,
     },
     mm::addr::{MemoryAddress, PhysAddr, VirtAddr},
@@ -52,6 +53,12 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
             });
         }
 
+        // Ensure instruction cache is up to date after loading process
+        fence_i();
+
+        let pid = sched::allocate_process(proc);
+        sched::enqueue_process(pid);
+
         // Configure s-registers for user mode switch
         // SAFETY: assuming memory has been properly mapped and loaded
         unsafe {
@@ -60,16 +67,13 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
 
             // Prepare switch to U-mode
             Sstatus::update(|f| {
-                f.remove(SstatusFlags::SPP); // Set to user mode
+                f.remove(SstatusFlags::SPP | SstatusFlags::SIE); // Set to user mode
                 f.insert(SstatusFlags::SPIE); // Enable interrupts on return to user mode
             });
         }
 
-        // Ensure instruction cache is up to date after loading process
-        fence_i();
-
-        let pid = sched::allocate_process(proc);
-        sched::enqueue_process(pid);
+        // Arm the timer for the next tick to kick-start preemption
+        time::schedule_next_tick(Duration::ZERO);
 
         // Switch to user stack and jump to user mode
         // NOTE: stack swap and sret must be "atomic": no stack usage must happen in between!

@@ -174,13 +174,14 @@ extern "C" fn handle_exception(tf: &mut TrapFrame, ti: &ThreadInfo) {
     // Invariant: when handling a trap, we are always in kernel mode, so sscratch should be 0
     debug_assert!(Sscratch::read() == 0);
 
-    let mut gpt = proc::global_process_table().lock();
-    if let Some(pid) = sched::current_process_id() {
-        let proc = gpt.get_mut(pid).expect("current process doesn't exist");
-        proc.astate.tf.clone_from(tf);
-        proc.astate.ti.clone_from(ti);
+    {
+        let mut gpt = proc::global_process_table().lock();
+        if let Some(pid) = sched::current_process_id() {
+            let proc = gpt.get_mut(pid).expect("current process doesn't exist");
+            proc.astate.tf.clone_from(tf);
+            proc.astate.ti.clone_from(ti);
+        }
     }
-    drop(gpt);
 
     let is_irq = (tf.cause & CAUSE_IRQ_FLAG_MASK) != 0;
     let irq = tf.cause & !CAUSE_IRQ_FLAG_MASK;
@@ -259,10 +260,11 @@ pub fn init(hart_id: usize) {
     // Configure trap vector to point to `trap_entry`
     Stvec::write(trap_entry as *const () as u64);
 
-    // Enable interrupts
+    // Enable interrupt sources: software, timer, external
     Sie::set(SiFlags::SSIE | SiFlags::STIE | SiFlags::SEIE);
+    // SIE stays clear in S-mode; user IRQs come from SPIE → SIE on sret
     // SAFETY: stvec has been initialized to point to `trap_entry`
-    unsafe { Sstatus::set(SstatusFlags::SIE) };
+    unsafe { Sstatus::clear(SstatusFlags::SIE) };
 }
 
 /// Allocates and initializes a thread info struct for the kernel thread running on the current hart,
