@@ -7,6 +7,7 @@
 
 // We are building a freestanding binary, so no standard library support for us
 #![no_std]
+#![feature(core_io)]
 // Keep things clean and tidy
 #![warn(missing_docs)]
 #![warn(clippy::missing_safety_doc)]
@@ -29,6 +30,7 @@ extern crate alloc;
 pub mod macros;
 
 pub mod arch;
+pub mod block;
 pub mod drivers;
 pub mod initrd;
 pub mod ksyms;

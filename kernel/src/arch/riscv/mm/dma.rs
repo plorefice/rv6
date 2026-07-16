@@ -7,10 +7,14 @@ use core::{
 };
 
 use crate::{
-    arch::riscv::{addr::PhysAddrExt, mm::GFA, mmu::PAGE_SIZE},
+    arch::riscv::{
+        addr::{DmaAddrExt, PhysAddrExt},
+        mm::GFA,
+        mmu::PAGE_SIZE,
+    },
     mm::{
         addr::{Align, DmaAddr},
-        allocator::FrameAllocator,
+        allocator::{Frame, FrameAllocator},
         dma::{DmaAllocError, DmaAllocator, DmaBuf, DmaDirection, DmaObject, DmaSafe},
     },
 };
@@ -49,14 +53,17 @@ impl DmaAllocator for RiscvDmaAllocator {
     }
 
     unsafe fn free_raw(&self, buf: DmaBuf) {
-        todo!()
+        let phys_addr = buf.dma_addr().to_phys_addr();
+        /// SAFETY: by construction, the physical address corresponds to a valid frame
+        let frame = unsafe { Frame::unmapped(phys_addr) };
+        GFA.lock().as_mut().unwrap().free(frame);
     }
 
     fn sync_for_device(&self, addr: DmaAddr, len: usize, direction: DmaDirection) {
-        todo!()
+        // no-op, assumes DMA-coherent platform (QEMU virt)
     }
 
     fn sync_for_cpu(&self, addr: DmaAddr, len: usize, direction: DmaDirection) {
-        todo!()
+        // no-op, assumes DMA-coherent platform (QEMU virt)
     }
 }
