@@ -1,5 +1,7 @@
 //! Process management module.
 
+use core::{error::Error, fmt};
+
 use alloc::vec::Vec;
 use spin::Mutex;
 
@@ -29,6 +31,9 @@ pub struct Process {
 
     /// The list of child process IDs. This is used to manage the process tree and for cleanup when a process exits.
     pub children: Vec<ProcessId>,
+
+    /// Heap information for the process.
+    pub heap: ProcessHeap,
 }
 
 /// The execution state of a process.
@@ -41,6 +46,95 @@ pub enum ProcessState {
         /// The exit code of the process.
         exit_code: usize,
     },
+}
+
+/// The heap of a process, which manages the program break and the mapped end of the heap.
+#[derive(Debug, Clone, Copy)]
+pub struct ProcessHeap {
+    /// The base virtual address of the heap. This is the starting point for heap allocations.
+    base: VirtAddr,
+
+    /// The current end of the heap (program break) for the process.
+    brk: VirtAddr,
+
+    /// The highest virtual address that has been mapped for the heap.
+    mapped_end: VirtAddr,
+}
+
+impl ProcessHeap {
+    /// Creates a new `ProcessHeap` with the specified base virtual address.
+    /// The initial program break and mapped end of the heap are set to the base address,
+    /// i.e. the heap is empty and has no additional capacity.
+    pub const fn new(base: VirtAddr) -> Self {
+        ProcessHeap {
+            base,
+            brk: base,
+            mapped_end: base,
+        }
+    }
+
+    /// Returns the current program break (end of the heap) for the process.
+    pub fn brk(&self) -> VirtAddr {
+        self.brk
+    }
+
+    /// Returns the highest virtual address that has been mapped for the heap.
+    pub fn mapped_end(&self) -> VirtAddr {
+        self.mapped_end
+    }
+
+    /// Returns the available space in the heap, which is the difference between the mapped end
+    /// and the current program break. No new allocations are required to reserve heap memory
+    /// if the requested increment is less than or equal to the available space.
+    pub fn available_space(&self) -> usize {
+        self.mapped_end.as_usize() - self.brk.as_usize()
+    }
+
+    /// Returns the total allocated size of the heap, which is the difference between the current
+    /// program break and the base of the heap. This represents the total amount of heap memory
+    /// that has been allocated for the process, regardless of whether it is currently in use.
+    pub fn allocated_size(&self) -> usize {
+        self.brk.as_usize() - self.base.as_usize()
+    }
+
+    /// Attempts to reserve the specified increment of heap space without mapping new pages.
+    /// If there is enough available space, the program break is adjusted and the previous program break
+    /// is returned. If there is not enough space, `None` is returned.
+    pub fn try_reserve(&mut self, increment: usize) -> Option<VirtAddr> {
+        if self.available_space() >= increment {
+            let prev_brk = self.brk;
+            self.brk = self.brk + increment;
+            Some(prev_brk)
+        } else {
+            None
+        }
+    }
+
+    /// Reclaims the specified increment of heap space, reducing the program break.
+    /// It does not modify the mapped end of the heap, so future allocations may successfully use
+    /// the reclaimed space if it is still within the mapped range.
+    ///
+    /// Returns the previous program break on success, or an error if the reclaim increment is
+    /// larger than the total allocated size of the heap.
+    pub fn reclaim(&mut self, increment: usize) -> Result<VirtAddr, BreakError> {
+        if increment > self.allocated_size() {
+            return Err(BreakError::InvalidIncrement);
+        }
+        let prev_brk = self.brk;
+        self.brk = self.brk - increment;
+        assert!(
+            self.brk >= self.base,
+            "program break cannot be less than the base of the heap"
+        );
+        Ok(prev_brk)
+    }
+
+    /// Extends the heap reservation by the specified increment and mapped increment.
+    /// This function must be called after new pages have been mapped to extend the heap.
+    pub fn extend_reservation(&mut self, increment: usize, mapped_increment: usize) {
+        self.brk = self.brk + increment;
+        self.mapped_end = self.mapped_end + mapped_increment;
+    }
 }
 
 /// A unique identifier for a process.
@@ -180,6 +274,15 @@ pub trait ProcessBuilder {
         aspace: &mut hal::proc::AddrSpace,
     ) -> Result<ProcessStackLayout, ElfLoadError>;
 
+    /// Adjusts the program break (heap size) for the given process by the specified increment.
+    ///
+    /// Returns the previous program break address on success, or an error if the operation fails.
+    fn adjust_program_break(
+        &self,
+        proc: &mut Process,
+        increment: isize,
+    ) -> Result<VirtAddr, BreakError>;
+
     /// Creates a new process by duplicating the given parent process.
     fn fork(&self, parent: &Process) -> Process;
 
@@ -234,6 +337,7 @@ pub trait ProcessBuilder {
             astate: hal::proc::ProcArchState::default(),
             parent: None,
             children: Vec::new(),
+            heap: ProcessHeap::new(plan.heap_start),
         };
 
         // Start execution of the new process
@@ -296,6 +400,26 @@ impl From<ElfLoadError> for ProcessLoadError {
         ProcessLoadError::ElfLoadError(e)
     }
 }
+
+/// Error type for process heap adjustment (program break) operations.
+#[derive(Debug, Clone, Copy)]
+pub enum BreakError {
+    /// The increment is invalid.
+    InvalidIncrement,
+    /// Cannot allocate additional memory.
+    OutOfMemory,
+}
+
+impl fmt::Display for BreakError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BreakError::InvalidIncrement => write!(f, "invalid increment"),
+            BreakError::OutOfMemory => write!(f, "out of memory"),
+        }
+    }
+}
+
+impl Error for BreakError {}
 
 /// Forks the currently running process, creating a new child process that is a duplicate of the parent.
 /// Returns the `ProcessId` of the newly created child process.

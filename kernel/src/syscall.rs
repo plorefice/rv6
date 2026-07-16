@@ -1,70 +1,13 @@
 //! Syscalls implementation.
 
+use uapi::{Errno, SysArgs, SysResult};
+
 use crate::{
     arch::hal,
     drivers::earlycon::{self, EarlyCon},
     proc::{self, ProcessBuilder, ProcessId, ProcessState, ProcessTable, global_process_table},
     sched,
 };
-
-/// Syscall numbers.
-#[repr(usize)]
-pub enum Sysno {
-    /// Write to a file descriptor.
-    Write = 0,
-    /// Exit the current process.
-    Exit = 1,
-    /// Fork the current process.
-    Fork = 2,
-    /// Wait for a child process to exit.
-    Wait = 3,
-}
-
-/// Syscall arguments passed from user space.
-#[derive(Debug, Copy, Clone)]
-pub struct SysArgs([usize; 6]);
-
-impl SysArgs {
-    /// Creates a new `SysArgs` instance from the given array of syscall arguments.
-    #[inline]
-    pub fn new(args: [usize; 6]) -> Self {
-        SysArgs(args)
-    }
-
-    /// Retrieves the syscall argument at the specified index.
-    #[inline]
-    pub fn get(&self, n: usize) -> usize {
-        self.0[n]
-    }
-}
-
-/// Possible syscall error codes.
-#[repr(isize)]
-pub enum Errno {
-    /// No child processes
-    ECHILD = 10,
-    /// Invalid argument
-    EINVAL = 22,
-    /// Function not implemented
-    ENOSYS = 38,
-}
-
-/// Syscall result type.
-pub type SysResult<T> = Result<T, Errno>;
-
-impl<T> From<Errno> for SysResult<T> {
-    fn from(err: Errno) -> Self {
-        Err(err)
-    }
-}
-
-/// Converts a `SysResult` into a raw return value for syscalls.
-pub fn to_ret(res: SysResult<usize>) -> usize {
-    match res {
-        Ok(val) => val,
-        Err(err) => (-(err as i64)) as isize as usize, // Return negative error code
-    }
-}
 
 /// A raw pointer to a user-space memory location.
 ///
@@ -115,7 +58,7 @@ pub fn sys_write(args: SysArgs) -> SysResult<usize> {
 
     // For simplicity, only support fd=1 (stdout)
     if fd != 1 {
-        return Err(Errno::EINVAL);
+        return Err(Errno::Inval);
     }
 
     // Print each byte to the early console
@@ -179,5 +122,23 @@ fn find_zombie_child(
             return Ok((child_pid, exit_code));
         }
     }
-    Err(Errno::ECHILD)
+    Err(Errno::Child)
+}
+
+/// Adjusts the program break (heap size) for the current process.
+pub fn sys_sbrk(args: SysArgs) -> SysResult<usize> {
+    let increment = args.get(0) as isize;
+
+    let mut proc_table = global_process_table().lock();
+    let pid = sched::current_process_id().expect("no current process");
+    let proc = proc_table.get_mut(pid).expect("invalid current PID");
+
+    let prev_brk = hal::proc::builder()
+        .adjust_program_break(proc, increment)
+        .map_err(|e| match e {
+            proc::BreakError::InvalidIncrement => Errno::Inval,
+            proc::BreakError::OutOfMemory => Errno::NoMem,
+        })?;
+
+    Ok(prev_brk.as_usize())
 }

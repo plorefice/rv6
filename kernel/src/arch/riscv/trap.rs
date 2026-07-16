@@ -4,6 +4,7 @@ use core::arch::asm;
 use core::time::Duration;
 
 use stackframe::unwind_stack_frame;
+use uapi::{Errno, SysArgs, Sysno};
 
 use crate::{
     arch::riscv::{
@@ -12,7 +13,7 @@ use crate::{
         registers::{Sscratch, Stvec},
     },
     proc, sched,
-    syscall::{self, Errno, SysArgs, SysResult, UserPtr},
+    syscall::{self, UserPtr},
 };
 
 use super::*;
@@ -232,17 +233,18 @@ fn handle_syscall(tf: &mut TrapFrame) {
     let args = SysArgs::from(&*tf);
 
     let res = match sysno {
-        x if x == syscall::Sysno::Write as usize => syscall::sys_write(args),
-        x if x == syscall::Sysno::Exit as usize => syscall::sys_exit(args),
-        x if x == syscall::Sysno::Fork as usize => syscall::sys_fork(args),
-        x if x == syscall::Sysno::Wait as usize => syscall::sys_wait(args),
+        x if x == Sysno::Write as usize => syscall::sys_write(args),
+        x if x == Sysno::Exit as usize => syscall::sys_exit(args),
+        x if x == Sysno::Fork as usize => syscall::sys_fork(args),
+        x if x == Sysno::Wait as usize => syscall::sys_wait(args),
+        x if x == Sysno::Sbrk as usize => syscall::sys_sbrk(args),
         n => {
             kprintln!("=> Unknown syscall number: {}", n);
-            Err(Errno::ENOSYS)
+            Err(Errno::NoSys)
         }
     };
 
-    tf.a0 = syscall::to_ret(res);
+    tf.a0 = uapi::to_ret(res);
 }
 
 /// Configures the trap vector used to handle traps in S-mode.

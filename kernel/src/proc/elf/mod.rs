@@ -4,7 +4,10 @@ use core::fmt;
 
 use elf::Elf64;
 
-use crate::mm::addr::{Align, MemoryAddress, VirtAddr};
+use crate::mm::{
+    self,
+    addr::{Align, MemoryAddress, VirtAddr},
+};
 
 /// Trait defining the architecture-specific interface for loading processes.
 /// The core process loader will call these methods to set up the process's address space and load
@@ -96,6 +99,9 @@ pub struct LoadPlan<'a> {
     pub entry: VirtAddr,
     /// caller-provided buffer filled by core
     pub segments: &'a [LoadSegment<'a>],
+    /// Start of the heap for this process, used for dynamic memory allocation.
+    /// This is typically set to the end of the last loadable segment.
+    pub heap_start: VirtAddr,
 }
 
 /// A single segment to be loaded, derived from an ELF PT_LOAD program header.
@@ -151,6 +157,7 @@ fn build_load_plan<'a>(
     // return LoadPlan { segments: &ph_buf[..n], entry: e_entry (+base if PIE), ... }
 
     let elf = Elf64::parse(elf)?;
+    let mut heap_va = VirtAddr::new(0);
 
     for (i, ph) in elf.program_headers().enumerate() {
         let ph = ph?;
@@ -204,11 +211,18 @@ fn build_load_plan<'a>(
             flags,
             align,
         };
+
+        // Update heap_va to be the end of this segment if it's higher than the current heap_va
+        let segment_end = vaddr + mem_size;
+        if segment_end > heap_va {
+            heap_va = segment_end;
+        }
     }
 
     Ok(LoadPlan {
         entry: VirtAddr::new(elf.header().entry() as usize),
         segments: &ph_buf[..elf.program_headers().count()],
+        heap_start: heap_va.align_up(mm::page_size()),
     })
 }
 

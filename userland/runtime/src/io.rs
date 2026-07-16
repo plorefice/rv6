@@ -8,11 +8,9 @@ pub struct Stdout(OwnedFd);
 
 impl io::Write for Stdout {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let n = sys_write(self.0.0, buf.as_ptr(), buf.len());
-        if n < 0 {
-            Err(from_raw_os_error(n))
-        } else {
-            Ok(n as usize)
+        match sys_write(self.0.0, buf.as_ptr(), buf.len()) {
+            Ok(n) => Ok(n),
+            Err(e) => Err(from_raw_os_error(e as isize)),
         }
     }
 

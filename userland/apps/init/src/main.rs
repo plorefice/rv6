@@ -1,38 +1,49 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
+
+use alloc::vec::Vec;
 use rt::{println, proc};
-use runtime::{self as rt};
+use runtime::{self as rt, proc::Fork};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> isize {
     println!("Hello Rust user space!");
 
-    let pid = unsafe { proc::fork() };
-    if pid < 0 {
-        println!("Fork failed");
-    } else if pid == 0 {
-        // Child process
-        println!("Hello from the child process!");
-        proc::exit(42);
-    } else {
-        // Parent process
-        println!("Hello from the parent process!");
-    }
+    match unsafe { proc::fork() } {
+        Ok(Fork::Child) => {
+            println!("Hello from the child process!");
+            proc::exit(42);
+        }
+        Ok(Fork::Parent(pid)) => {
+            println!("Hello from the parent process! Child PID: {}", pid);
+        }
+        Err(e) => {
+            println!("Fork failed: {e}");
+            proc::exit(-1);
+        }
+    };
 
     println!("This line should only be printed once.");
 
-    let exit_code = proc::wait();
-    if exit_code == 42 {
-        println!("Child process exited with code 42.");
-    } else {
-        println!("Child process exited with a different code.");
+    match proc::wait() {
+        Ok(42) => println!("Child process exited with code 42."),
+        Ok(code) => println!("Child process exited with a different code: {code}"),
+        Err(e) => {
+            println!("Wait failed: {e}");
+            proc::exit(-1);
+        }
     }
 
-    let exit_code = proc::wait();
-    if exit_code != -10 {
-        println!("Unexpectedly received a second exit code.");
+    if let Ok(code) = proc::wait() {
+        println!("Unexpected child with exit code: {code}");
+        proc::exit(-1);
     }
+
+    let mut v = Vec::<u8>::with_capacity(1024);
+    v.extend_from_slice(b"Hello from the heap!");
+    println!("{}", core::str::from_utf8(&v).unwrap());
 
     proc::exit(0)
 }

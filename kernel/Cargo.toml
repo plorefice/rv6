@@ -16,6 +16,7 @@ fdt = { path = "../crates/fdt" }
 lazy_static = { version = "1.5.0", features = ["spin_no_std"] }
 paste = "1.0.15"
 spin = "0.10.0"
+uapi = { path = "../crates/uapi" }
 
 [build-dependencies]
 cc = "1.2.55"

@@ -15,10 +15,10 @@ use crate::{
         time,
         trap::TrapFrame,
     },
-    mm::addr::{MemoryAddress, PhysAddr, VirtAddr},
+    mm::addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
     proc::{
-        Process, ProcessBuilder, ProcessId, ProcessMemoryLayout, ProcessStackLayout, ProcessState,
-        StackSpec, UserProcessExecutor,
+        BreakError, Process, ProcessBuilder, ProcessId, ProcessMemoryLayout, ProcessStackLayout,
+        ProcessState, StackSpec, UserProcessExecutor,
         elf::{ElfLoadError, ElfLoader, SegmentFlags},
         global_process_table, sched,
     },
@@ -210,6 +210,63 @@ impl ProcessBuilder for RiscvProcessBuilder {
         Ok(layout)
     }
 
+    fn adjust_program_break(
+        &self,
+        proc: &mut Process,
+        increment: isize,
+    ) -> Result<VirtAddr, BreakError> {
+        if increment < 0 {
+            if increment == isize::MIN {
+                return Err(BreakError::InvalidIncrement);
+            }
+            return proc.heap.reclaim((-increment) as usize);
+        }
+
+        let increment = increment as usize;
+
+        // Check if the current heap has enough available space to accommodate the requested increment.
+        // If so, no new pages need to be mapped, and we can simply adjust the program break.
+        if let Some(brk) = proc.heap.try_reserve(increment) {
+            return Ok(brk);
+        }
+
+        let prev_brk = proc.heap.brk();
+
+        // Not enough space -> map new pages to extend the heap.
+        let mapped_increment = increment - proc.heap.available_space();
+        let mapped_increment = mapped_increment.next_multiple_of(PAGE_SIZE);
+        assert!(proc.heap.mapped_end().is_aligned(PAGE_SIZE)); // should always be true
+
+        // Check if the new top of the heap would exceed the user stack.
+        let new_top = proc.heap.mapped_end() + mapped_increment;
+        if new_top > self.memory_layout().default_user_stack().start {
+            return Err(BreakError::OutOfMemory);
+        }
+
+        // Map the new pages
+        self.loader()
+            .map_range_alloc(
+                proc.aspace.page_table_walker(),
+                proc.heap.mapped_end(),
+                mapped_increment,
+                EntryFlags::RW | EntryFlags::USER | EntryFlags::ACCESS,
+            )
+            .map_err(|_| BreakError::OutOfMemory)?;
+
+        // Zero the new pages
+        self.loader()
+            .zero_user(
+                &mut proc.aspace,
+                proc.heap.mapped_end(),
+                mapped_increment,
+            )
+            .expect("failed to zero new pages");
+
+        proc.heap.extend_reservation(increment, mapped_increment);
+
+        Ok(prev_brk)
+    }
+
     fn fork(&self, parent: &Process) -> Process {
         let mut aspace = match self.loader().new_user_addr_space() {
             Ok(aspace) => aspace,
@@ -259,6 +316,7 @@ impl ProcessBuilder for RiscvProcessBuilder {
             astate,
             parent: None, // Parent will be set by the caller, we don't have access to the parent's PID here
             children: Default::default(),
+            heap: parent.heap, // Inherit the heap from the parent
         }
     }
 

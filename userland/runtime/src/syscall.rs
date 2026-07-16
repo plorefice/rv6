@@ -1,36 +1,49 @@
-use core::arch::asm;
+use core::{arch::asm, num::NonZero};
+
+use uapi::{Errno, SysResult, Sysno};
 
 /// Writes `len` bytes from `buf` to the file descriptor `fd`.
-pub(crate) fn sys_write(fd: usize, buf: *const u8, len: usize) -> isize {
-    syscall3(Syscall::Write, fd, buf as usize, len)
+pub(crate) fn sys_write(fd: usize, buf: *const u8, len: usize) -> SysResult<usize> {
+    syscall3(Sysno::Write, fd, buf as usize, len)
 }
 
 /// Forks the current process, creating a new child process.
-pub(crate) fn sys_fork() -> isize {
-    syscall0(Syscall::Fork)
+pub(crate) fn sys_fork() -> SysResult<usize> {
+    syscall0(Sysno::Fork)
+}
+
+/// Adjusts the program break (heap size) for the current process.
+/// 
+/// # Safety
+///
+/// This function is unsafe because it can break the memory safety guarantees of the program.
+/// The caller must ensure that the program is not using the impacted memory after the call.
+pub(crate) unsafe fn sys_sbrk(increment: isize) -> SysResult<NonZero<usize>> {
+    let result = syscall1(Sysno::Sbrk, increment as usize)?;
+    NonZero::new(result).ok_or(Errno::NoMem)
 }
 
 /// Exits the current process with the given exit code.
-pub(crate) fn sys_exit(exit_code: usize) -> ! {
-    syscall1(Syscall::Exit, exit_code);
+pub(crate) fn sys_exit(exit_code: isize) -> ! {
+    syscall1(Sysno::Exit, exit_code as usize).ok();
     unreachable!("sys_exit should not return");
 }
 
 /// Waits for a child process to exit and retrieves its exit code.
-pub(crate) fn sys_wait() -> isize {
-    syscall0(Syscall::Wait)
+pub(crate) fn sys_wait() -> SysResult<usize> {
+    syscall0(Sysno::Wait)
 }
 
-fn syscall0(sc: Syscall) -> isize {
+fn syscall0(sc: Sysno) -> SysResult<usize> {
     syscall6(sc.into(), 0, 0, 0, 0, 0, 0)
 }
 
-fn syscall1(sc: Syscall, arg0: usize) -> isize {
+fn syscall1(sc: Sysno, arg0: usize) -> SysResult<usize> {
     syscall6(sc.into(), arg0, 0, 0, 0, 0, 0)
 }
 
 /// Perform a syscall with 3 arguments.
-fn syscall3(sc: Syscall, arg0: usize, arg1: usize, arg2: usize) -> isize {
+fn syscall3(sc: Sysno, arg0: usize, arg1: usize, arg2: usize) -> SysResult<usize> {
     syscall6(sc.into(), arg0, arg1, arg2, 0, 0, 0)
 }
 
@@ -43,7 +56,7 @@ fn syscall6(
     arg3: usize,
     arg4: usize,
     arg5: usize,
-) -> isize {
+) -> SysResult<usize> {
     unsafe {
         asm!("ecall",
                 inout("a0") arg0,
@@ -55,19 +68,9 @@ fn syscall6(
                 in("a7") num);
     }
 
-    arg0 as isize
-}
-
-/// Syscall numbers.
-enum Syscall {
-    Write = 0,
-    Exit = 1,
-    Fork = 2,
-    Wait = 3,
-}
-
-impl From<Syscall> for usize {
-    fn from(syscall: Syscall) -> Self {
-        syscall as usize
+    if arg0 as isize >= 0 {
+        Ok(arg0)
+    } else {
+        Err(Errno::from(-(arg0 as i64) as isize))
     }
 }

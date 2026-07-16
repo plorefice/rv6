@@ -1,6 +1,8 @@
 #![no_std]
 #![feature(core_io)]
+#![feature(allocator_api)]
 
+pub mod alloc;
 pub mod io;
 pub mod proc;
 
@@ -18,6 +20,8 @@ pub extern "C" fn __entry(_argc: usize, _argv: *const *const u8, _envp: *const *
 }
 
 #[panic_handler]
-fn panic(_: &core::panic::PanicInfo) -> ! {
-    loop {}
+fn panic(info: &core::panic::PanicInfo) -> ! {
+    use core::fmt::Write;
+    io::stdout().write_fmt(format_args!("{}\n", info)).ok();
+    proc::exit(-1)
 }
