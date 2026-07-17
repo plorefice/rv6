@@ -227,10 +227,10 @@ mod tests {
     fn parses_minimal_archive() {
         let archive = include_bytes!("../tests/data/initrd-minimal.cpio");
 
-        let mut iter = NewcIter::new(archive);
+        let iter = NewcIter::new(archive);
         assert_eq!(iter.count(), 3); // ., bin/, bin/init
 
-        let mut iter = NewcIter::new(archive);
+        let iter = NewcIter::new(archive);
         let entry = iter
             .filter_map(|e| e.ok())
             .find(|e| e.name == "bin/init")
