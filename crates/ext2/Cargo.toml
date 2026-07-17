@@ -8,5 +8,6 @@ edition = "2024"
 [dependencies]
 
 [features]
-default = ["std"]
-std = []
+default = []
+std = ["alloc"]
+alloc = []
