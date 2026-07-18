@@ -68,10 +68,9 @@ initrd: userland
 	cd userland && ./install.sh
 	cd out/rootfs && find . -print0 | perl -0pe 's|^\./||' | cpio -0 -o --format=newc > ../initrd.cpio
 
-hddimg:
+hddimg: userland
 	mkdir -p {{OUTDIR}}
-	dd if=/dev/zero of={{HDDIMG}} bs=1M count=64
-	mkfs.ext2 -F {{HDDIMG}}
+	genext2fs -b 16384 -d out/rootfs {{HDDIMG}}
 
 # ----------------------------
 # QEMU

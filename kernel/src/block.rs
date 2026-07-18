@@ -4,7 +4,11 @@
 //! This module defines the [`BlockDev`] trait, which represents a synchronous block device,
 //! and the [`BlockIoError`] type, which represents errors that can occur during block I/O operations.
 
-use core::{error::Error, fmt, io};
+use core::{
+    error::Error,
+    fmt,
+    io::{self, SeekFrom},
+};
 
 use alloc::{sync::Arc, vec::Vec};
 
@@ -24,6 +28,14 @@ impl fmt::Display for BlockIoError {
 }
 
 impl Error for BlockIoError {}
+
+impl From<BlockIoError> for io::Error {
+    fn from(e: BlockIoError) -> Self {
+        match e {
+            BlockIoError::Io(io_err) => io_err,
+        }
+    }
+}
 
 /// A synchronous block device.
 ///
@@ -118,3 +130,94 @@ impl BlockDevTable {
 
 /// Global block device table, protected by a spinlock for thread-safe access.
 pub static BLOCK_DEVS: spin::Mutex<BlockDevTable> = spin::Mutex::new(BlockDevTable::new());
+
+/// A byte-oriented cursor for reading from a block device.
+///
+/// This struct provides a convenient way to read data from a block device in a byte-oriented manner,
+/// while internally managing sector-aligned reads and buffering.
+pub struct BlockDevCursor {
+    dev: Arc<dyn BlockDev>, // The block device being read from
+    pos: u64,               // Current byte position in the device
+    sector: Vec<u8>,        // Buffer for a single sector worth of data
+    sector_index: u64,      // Index of the currently buffered sector
+}
+
+impl BlockDevCursor {
+    /// Creates a new `BlockDevCursor` for the given block device.
+    pub fn new(dev: Arc<dyn BlockDev>) -> Self {
+        let sector_size = dev.sector_size();
+
+        Self {
+            dev,
+            pos: 0,
+            sector: vec![0; sector_size],
+            sector_index: u64::MAX, // Invalid index to force initial read
+        }
+    }
+}
+
+impl ext2::Read for BlockDevCursor {
+    fn read(&mut self, buf: &mut [u8]) -> Result<usize, io::Error> {
+        let capacity = self.dev.capacity() * self.dev.sector_size() as u64;
+        if self.pos >= capacity || buf.is_empty() {
+            return Ok(0); // EOF
+        }
+
+        let sector_index = self.pos / self.dev.sector_size() as u64;
+        let sector_offset = (self.pos % self.dev.sector_size() as u64) as usize;
+
+        // Read the current sector into the buffer if needed
+        if self.sector_index != sector_index {
+            self.dev.read_sector(sector_index, &mut self.sector)?;
+            self.sector_index = sector_index;
+        }
+
+        // Calculate how many bytes we can read from the current sector
+        let bytes_to_read = core::cmp::min(buf.len(), self.sector.len() - sector_offset);
+        let bytes_to_read = core::cmp::min(bytes_to_read, (capacity - self.pos) as usize);
+        buf[..bytes_to_read]
+            .copy_from_slice(&self.sector[sector_offset..sector_offset + bytes_to_read]);
+        self.pos += bytes_to_read as u64;
+
+        Ok(bytes_to_read)
+    }
+}
+
+impl io::Seek for BlockDevCursor {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        let capacity = self.dev.capacity() * self.dev.sector_size() as u64;
+
+        let new_pos = match pos {
+            SeekFrom::Start(offset) => offset,
+            SeekFrom::End(offset) => {
+                if offset < 0 {
+                    capacity
+                        .checked_sub((-offset) as u64)
+                        .ok_or(io::Error::from(io::ErrorKind::InvalidInput))?
+                } else {
+                    capacity
+                        .checked_add(offset as u64)
+                        .ok_or(io::Error::from(io::ErrorKind::InvalidInput))?
+                }
+            }
+            SeekFrom::Current(offset) => {
+                if offset < 0 {
+                    self.pos
+                        .checked_sub((-offset) as u64)
+                        .ok_or(io::Error::from(io::ErrorKind::InvalidInput))?
+                } else {
+                    self.pos
+                        .checked_add(offset as u64)
+                        .ok_or(io::Error::from(io::ErrorKind::InvalidInput))?
+                }
+            }
+        };
+
+        if new_pos > capacity {
+            return Err(io::ErrorKind::InvalidInput.into());
+        }
+
+        self.pos = new_pos;
+        Ok(self.pos)
+    }
+}

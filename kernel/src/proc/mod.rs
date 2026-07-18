@@ -293,7 +293,9 @@ pub trait ProcessBuilder {
     ///
     /// The default implementation is fine for most cases. Each implementor can override it
     /// for finer grained control over process execution.
-    fn exec(&self, bytes: &[u8]) -> ! {
+    fn exec(&self, bytes: impl AsRef<[u8]>) -> ! {
+        let bytes = bytes.as_ref();
+
         // Create a new user address space
         let mut aspace = match self.loader().new_user_addr_space() {
             Ok(aspace) => aspace,

@@ -14,13 +14,18 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use alloc::{boxed::Box, string::String};
+use alloc::{boxed::Box, string::String, vec::Vec};
+use ext2::Read;
 use fdt::Fdt;
 
 use crate::{
     arch::hal,
+    block::{BLOCK_DEVS, BlockDevCursor},
     drivers::{DriverCtx, irqchip},
-    proc::{ProcessBuilder, sched},
+    proc::{
+        ProcessBuilder,
+        sched::{self, RoundRobinScheduler},
+    },
 };
 
 #[macro_use]
@@ -77,13 +82,42 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     // Subsystem initialization
     irqchip::init(&ctx, &fdt).expect("irqchip initialization failed");
     drivers::init(&ctx, &fdt).expect("driver initialization failed");
-    sched::init(Box::new(proc::sched::RoundRobinScheduler::default()));
+    sched::init(Box::new(RoundRobinScheduler::default()));
 
-    // Load initrd
-    let initrd = initrd::load_from_fdt(&fdt).expect("failed to load initrd");
+    // Mount root filesystem and read init program
+    let blkdev = {
+        let table = BLOCK_DEVS.lock();
+        table.iter().next().expect("no block device found").clone()
+    };
+    let rootfs_init = ext2::FileSystem::mount(BlockDevCursor::new(blkdev)).and_then(|mut fs| {
+        let mut init = fs.open("/init")?;
+        let mut buf = Vec::new();
+        init.read_to_end(&mut buf)?;
+        Ok(buf)
+    });
+
+    // Fallback to initrd if rootfs init fails
+    let init_code = match rootfs_init {
+        Ok(buf) => {
+            kprintln!("Loaded /init from rootfs");
+            Some(buf)
+        }
+        Err(e) => {
+            kprintln!(
+                "Failed to load init from rootfs: {:?}, falling back to initrd",
+                e
+            );
+
+            let initrd = initrd::load_from_fdt(&fdt).expect("failed to load initrd");
+            initrd.find_file("init").map(|f| f.to_vec())
+        }
+    };
 
     // Run init code
-    let init_code = initrd.find_file("init").expect("init not found");
-    kprintln!("Found init program in initrd, size {}", init_code.len());
-    hal::proc::builder().exec(init_code);
+    if let Some(init_code) = init_code {
+        kprintln!("Found init program, size {}", init_code.len());
+        hal::proc::builder().exec(init_code);
+    } else {
+        panic!("No init program found");
+    }
 }
