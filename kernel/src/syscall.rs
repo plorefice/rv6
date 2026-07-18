@@ -4,7 +4,6 @@ use uapi::{Errno, SysArgs, SysResult};
 
 use crate::{
     arch::hal,
-    drivers::earlycon::{self, EarlyCon},
     proc::{self, ProcessBuilder, ProcessId, ProcessState, ProcessTable, global_process_table},
     sched,
 };
@@ -47,35 +46,21 @@ pub unsafe fn copy_from_user(dst: &mut [u8], src: UserPtr<u8>) {
 }
 
 /// Writes `len` bytes from the user-space buffer `buf` to the specified file descriptor.
-///
-/// # Note
-///
-/// For simplicity, this implementation only supports writing to `fd=1` (stdout).
 pub fn sys_write(args: SysArgs) -> SysResult<usize> {
     let fd = args.get(0);
-    let buf = UserPtr::<u8>::new(args.get(1));
-    let len = args.get(2);
 
-    // For simplicity, only support fd=1 (stdout)
-    if fd != 1 {
-        return Err(Errno::Inval);
-    }
+    // Read the user-space buffer into a kernel-space buffer
+    let kbuf = {
+        let buf = UserPtr::<u8>::new(args.get(1));
+        let len = args.get(2);
+        let mut kbuf = vec![0u8; len];
+        // SAFETY: the user pointer has been checked to be valid
+        unsafe { copy_from_user(&mut kbuf, buf) };
+        kbuf
+    };
 
-    // Print each byte to the early console
-    hal::mm::with_user_access(|| {
-        let mut p = buf.addr as *const u8;
-        for _ in 0..len {
-            // SAFETY: TODO: validate user pointer
-            let byte = unsafe {
-                let b = core::ptr::read_volatile(p);
-                p = p.add(1);
-                b
-            };
-            earlycon::get().put(byte);
-        }
-    });
-
-    Ok(len)
+    let file = proc::with_current_process(|p| p.fds.get(fd.into()))?;
+    file.write(&kbuf)
 }
 
 /// Terminates the current process with the given exit code.

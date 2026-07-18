@@ -255,11 +255,7 @@ impl ProcessBuilder for RiscvProcessBuilder {
 
         // Zero the new pages
         self.loader()
-            .zero_user(
-                &mut proc.aspace,
-                proc.heap.mapped_end(),
-                mapped_increment,
-            )
+            .zero_user(&mut proc.aspace, proc.heap.mapped_end(), mapped_increment)
             .expect("failed to zero new pages");
 
         proc.heap.extend_reservation(increment, mapped_increment);
@@ -316,7 +312,8 @@ impl ProcessBuilder for RiscvProcessBuilder {
             astate,
             parent: None, // Parent will be set by the caller, we don't have access to the parent's PID here
             children: Default::default(),
-            heap: parent.heap, // Inherit the heap from the parent
+            heap: parent.heap,       // Inherit the heap from the parent
+            fds: parent.fds.clone(), // Inherit the file descriptor table from the parent
         }
     }
 

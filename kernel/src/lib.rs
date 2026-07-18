@@ -43,6 +43,7 @@ pub mod mm;
 pub mod panic;
 pub mod proc;
 pub mod syscall;
+pub mod vfs;
 
 const RV6_ASCII_LOGO: &str = r#"
 ________________________________________/\\\\\_

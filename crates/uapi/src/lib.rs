@@ -47,6 +47,8 @@ impl SysArgs {
 /// Possible syscall error codes.
 #[repr(isize)]
 pub enum Errno {
+    /// Bad file descriptor
+    BadF = 9,
     /// No child processes
     Child = 10,
     /// Out of memory
@@ -60,6 +62,7 @@ pub enum Errno {
 impl From<isize> for Errno {
     fn from(code: isize) -> Self {
         match code {
+            9 => Errno::BadF,
             10 => Errno::Child,
             12 => Errno::NoMem,
             22 => Errno::Inval,
