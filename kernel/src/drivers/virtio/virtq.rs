@@ -22,9 +22,10 @@ pub struct Virtq {
     descr: &'static mut [VirtqDescriptor],
     avail: &'static mut VirtqAvailable,
     avail_ring: &'static mut [u16],
-    _used: &'static mut VirtqUsed,
-    _used_ring: &'static mut [VirtqUsedElem],
-    _last_seen_used: u16,
+    used: &'static mut VirtqUsed,
+    used_ring: &'static mut [VirtqUsedElem],
+    /// Driver cursor into [`Self::used_ring`]; advanced by [`Self::reclaim`].
+    last_seen_used: u16,
 
     first_free: usize,
     free_count: usize,
@@ -33,18 +34,20 @@ pub struct Virtq {
 impl Virtq {
     pub fn new(idx: u32, size: u16) -> Self {
         let size = size as usize;
+        let page = mm::page_size();
 
         let vq_desc_sz = size_of::<VirtqDescriptor>() * size;
         let vq_avail_sz = size_of::<VirtqAvailable>() + size_of::<u16>() * (size + 1);
         let vq_used_sz =
-            size_of::<VirtqUsed>() + size_of::<u16>() + size_of::<VirtqUsedElem>() * size;
+            size_of::<VirtqUsed>() + size_of::<VirtqUsedElem>() * size + size_of::<u16>();
 
-        // Used ring must be aligned to 4 bytes
-        let vq_avail_pad = (vq_desc_sz + vq_avail_sz + 3) & !3;
-        let vq_total_sz = vq_desc_sz + vq_avail_sz + vq_used_sz + vq_avail_pad;
+        // Legacy virtio: used ring starts at the next Queue Align (page) boundary
+        // after the descriptor table and available ring.
+        let vq_used_off = (vq_desc_sz + vq_avail_sz + page - 1) & !(page - 1);
+        let vq_total_sz = vq_used_off + vq_used_sz;
 
         let vq_mem = dma::allocator()
-            .alloc_raw_zeroed(Layout::from_size_align(vq_total_sz, mm::page_size()).unwrap())
+            .alloc_raw_zeroed(Layout::from_size_align(vq_total_sz, page).unwrap())
             .expect("dma allocation failed");
 
         // SAFETY: lots of pointer arithmetics down below, if my calculations are correct
@@ -53,7 +56,6 @@ impl Virtq {
             let vq_ptr = vq_mem.as_ptr();
 
             let vq_avail_off = vq_desc_sz;
-            let vq_used_off = vq_avail_off + vq_avail_sz + vq_avail_pad;
 
             let descr = slice::from_raw_parts_mut(vq_ptr as *mut VirtqDescriptor, size);
 
@@ -81,9 +83,9 @@ impl Virtq {
                 descr,
                 avail,
                 avail_ring,
-                _used: used,
-                _used_ring: used_ring,
-                _last_seen_used: 0,
+                used,
+                used_ring,
+                last_seen_used: 0,
 
                 first_free: 0,
                 free_count: size,
@@ -95,32 +97,67 @@ impl Virtq {
         (self.phys.as_usize() / mm::page_size()) as u32
     }
 
+    /// Returns completed descriptor chains from the used ring to the free list.
+    ///
+    /// Must be called after the device signals that it has used buffers (e.g. via
+    /// the used-buffer interrupt), otherwise descriptors are leaked and
+    /// [`Self::submit`] eventually runs out of free descriptors.
+    pub fn reclaim(&mut self) {
+        // Ensure we observe used-ring writes from the device.
+        fence(Ordering::SeqCst);
+
+        // SAFETY: packed virtq header fields may be unaligned
+        let used_idx = unsafe { core::ptr::addr_of!(self.used.idx).read_unaligned() };
+        let qsize = self.size as usize;
+
+        while self.last_seen_used != used_idx {
+            let chain_head = self.used_ring[self.last_seen_used as usize % qsize].id as usize;
+
+            // Walk the completed chain and count its length. The last descriptor
+            // is linked onto the current free list; the chain head becomes the
+            // new free-list head, preserving the existing `next` links.
+            let mut idx = chain_head;
+            let mut chain_len = 0;
+            loop {
+                chain_len += 1;
+                let flags = self.descr[idx].flags;
+                let next = self.descr[idx].next as usize;
+                if flags & VirtqDescriptor::NEXT == 0 {
+                    self.descr[idx].next = self.first_free as u16;
+                    break;
+                }
+                idx = next;
+            }
+
+            self.first_free = chain_head;
+            self.free_count += chain_len;
+            self.last_seen_used = self.last_seen_used.wrapping_add(1);
+        }
+    }
+
     pub fn submit<'a, D, I>(&mut self, dev: &D, buffers: I)
     where
         D: VirtioDev,
         I: IntoIterator<Item = &'a VirtqBuffer> + Clone,
     {
         let total_req = buffers.clone().into_iter().count();
+        assert!(
+            self.free_count >= total_req,
+            "virtq: not enough free descriptors ({}/{})",
+            self.free_count,
+            total_req
+        );
 
-        // Remove `total_req` descriptors from the free list
+        // Take `total_req` descriptors from the head of the free list. Their
+        // existing `next` links become the buffer chain submitted to the device.
         let chain_head = self.first_free;
-        let next_link = {
-            let mut idx = chain_head;
-            for _ in 0..total_req {
-                idx = self.descr[idx].next as usize;
-            }
-            idx
-        };
+        let mut idx = chain_head;
+        for _ in 1..total_req {
+            idx = self.descr[idx].next as usize;
+        }
+        let next_free = self.descr[idx].next as usize;
 
-        // Relink the first used descriptor's parent to the new first free one
-        self.descr
-            .iter_mut()
-            .find(|d| d.next as usize == chain_head)
-            .unwrap()
-            .next = next_link as u16;
-
-        // Update the free list
-        self.first_free = next_link;
+        self.first_free = next_free;
         self.free_count -= total_req;
 
         // Prepare the descriptors
@@ -136,10 +173,10 @@ impl Virtq {
             self.descr[idx].flags = 0;
 
             if rem != 1 {
-                self.descr[idx].flags |= 0x1;
+                self.descr[idx].flags |= VirtqDescriptor::NEXT;
             }
             if write {
-                self.descr[idx].flags |= 0x2;
+                self.descr[idx].flags |= VirtqDescriptor::WRITE;
             }
 
             idx = self.descr[idx].next as usize;
@@ -172,6 +209,13 @@ pub struct VirtqDescriptor {
     len: u32,
     flags: u16,
     next: u16,
+}
+
+impl VirtqDescriptor {
+    /// This descriptor is followed by another via [`Self::next`].
+    const NEXT: u16 = 1 << 0;
+    /// Device may write to the buffer (device → driver).
+    const WRITE: u16 = 1 << 1;
 }
 
 #[repr(C, packed)]

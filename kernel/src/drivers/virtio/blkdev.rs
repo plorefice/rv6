@@ -146,29 +146,34 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
             }
         };
 
-        self.virtq.lock().submit(
-            &self.dev,
-            [
-                Some(VirtqBuffer::Readable {
-                    addr: blk_req.dma_addr(),
-                    len: VirtioBlkReq::HEADER_SIZE,
-                }),
-                data_buf,
-                Some(VirtqBuffer::Writeable {
-                    addr: blk_req.dma_addr() + VirtioBlkReq::HEADER_SIZE,
-                    len: VirtioBlkReq::TRAILER_SIZE,
-                }),
-            ]
-            .iter()
-            .filter_map(Option::as_ref),
-        );
+        {
+            let mut virtq = self.virtq.lock();
+            virtq.submit(
+                &self.dev,
+                [
+                    Some(VirtqBuffer::Readable {
+                        addr: blk_req.dma_addr(),
+                        len: VirtioBlkReq::HEADER_SIZE,
+                    }),
+                    data_buf,
+                    Some(VirtqBuffer::Writeable {
+                        addr: blk_req.dma_addr() + VirtioBlkReq::HEADER_SIZE,
+                        len: VirtioBlkReq::TRAILER_SIZE,
+                    }),
+                ]
+                .iter()
+                .filter_map(Option::as_ref),
+            );
 
-        // TODO: replace this with proper interrupt handling
-        while !self.dev.interrupts().contains(InterruptStatus::USED_BUFFER) {
-            hint::spin_loop();
+            // TODO: replace this with proper interrupt handling
+            while !self.dev.interrupts().contains(InterruptStatus::USED_BUFFER) {
+                hint::spin_loop();
+            }
+
+            // Return completed descriptors to the free list before acking the IRQ.
+            virtq.reclaim();
+            self.dev.clear_interrupts(InterruptStatus::USED_BUFFER);
         }
-
-        self.dev.clear_interrupts(InterruptStatus::USED_BUFFER);
     }
 
     fn validate(&self, start: u64, count: u64, buf: &[u8]) -> Result<(), BlockIoError> {
