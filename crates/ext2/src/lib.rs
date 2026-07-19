@@ -15,4 +15,5 @@ mod superblock;
 
 pub use error::*;
 pub use fs::*;
+pub use inode::*;
 pub use io::*;

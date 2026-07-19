@@ -1,6 +1,11 @@
 use core::{arch::asm, num::NonZero};
 
-use uapi::{Errno, SysResult, Sysno};
+use uapi::{Errno, OpenFlags, SysResult, Sysno};
+
+/// Reads `len` bytes from the file descriptor `fd` into `buf`.
+pub(crate) fn sys_read(fd: usize, buf: *mut u8, len: usize) -> SysResult<usize> {
+    syscall3(Sysno::Read, fd, buf as usize, len)
+}
 
 /// Writes `len` bytes from `buf` to the file descriptor `fd`.
 pub(crate) fn sys_write(fd: usize, buf: *const u8, len: usize) -> SysResult<usize> {
@@ -13,7 +18,7 @@ pub(crate) fn sys_fork() -> SysResult<usize> {
 }
 
 /// Adjusts the program break (heap size) for the current process.
-/// 
+///
 /// # Safety
 ///
 /// This function is unsafe because it can break the memory safety guarantees of the program.
@@ -34,6 +39,22 @@ pub(crate) fn sys_wait() -> SysResult<usize> {
     syscall0(Sysno::Wait)
 }
 
+/// Opens a file at the specified `path` with the given `flags`.
+pub(crate) fn sys_open(path: *const u8, flags: OpenFlags) -> SysResult<usize> {
+    syscall2(Sysno::Open, path as usize, flags.bits())
+}
+
+/// Closes the file descriptor `fd`, removing it from the process's file descriptor table.
+///
+/// # Safety
+///
+/// This function is unsafe because it can lead to undefined behavior if the file descriptor
+/// is used after being closed. The caller must ensure that the file descriptor is not used
+/// after this call.
+pub(crate) unsafe fn sys_close(fd: usize) -> SysResult<usize> {
+    syscall1(Sysno::Close, fd)
+}
+
 fn syscall0(sc: Sysno) -> SysResult<usize> {
     syscall6(sc.into(), 0, 0, 0, 0, 0, 0)
 }
@@ -42,7 +63,10 @@ fn syscall1(sc: Sysno, arg0: usize) -> SysResult<usize> {
     syscall6(sc.into(), arg0, 0, 0, 0, 0, 0)
 }
 
-/// Perform a syscall with 3 arguments.
+fn syscall2(sc: Sysno, arg0: usize, arg1: usize) -> SysResult<usize> {
+    syscall6(sc.into(), arg0, arg1, 0, 0, 0, 0)
+}
+
 fn syscall3(sc: Sysno, arg0: usize, arg1: usize, arg2: usize) -> SysResult<usize> {
     syscall6(sc.into(), arg0, arg1, arg2, 0, 0, 0)
 }

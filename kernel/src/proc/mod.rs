@@ -439,6 +439,17 @@ where
     f(proc)
 }
 
+/// Executes a closure with mutable access to the currently running process.
+pub fn with_current_process_mut<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut Process) -> R,
+{
+    let pid = sched::current_process_id().expect("no current process");
+    let mut proc_table = PROCESS_TABLE.lock();
+    let proc = proc_table.get_mut(pid).expect("invalid PID");
+    f(proc)
+}
+
 /// Forks the currently running process, creating a new child process that is a duplicate of the parent.
 /// Returns the `ProcessId` of the newly created child process.
 pub fn fork_current_process() -> ProcessId {

@@ -69,6 +69,10 @@ impl<IO: Read + Seek> FileSystem<IO> {
         Ok(Dir { fs: self, inode })
     }
 
+    pub fn lookup(&mut self, path: &str) -> Result<Inode, Error> {
+        self.resolve_path(path)
+    }
+
     fn resolve_path(&mut self, path: &str) -> Result<Inode, Error> {
         let mut current_inode = self.read_inode(Self::ROOT_INODE)?;
 
@@ -163,19 +167,16 @@ impl<IO: Read + Seek> FileSystem<IO> {
         Ok(())
     }
 
-    pub(crate) fn read_at(
-        &mut self,
-        inode: &Inode,
-        offset: u64,
-        buf: &mut [u8],
-    ) -> Result<usize, Error> {
-        if buf.is_empty() {
+    pub fn read_at(&mut self, inode: &Inode, offset: u64, buf: &mut [u8]) -> Result<usize, Error> {
+        if buf.is_empty() || offset >= inode.size() {
             return Ok(0);
         }
 
+        let amt = core::cmp::min(buf.len() as u64, inode.size() - offset);
+
         let block_size = self.block_size() as u64;
         let start_block_index = (offset / block_size) as u32;
-        let end_block_index = ((offset + buf.len() as u64 - 1) / block_size) as u32;
+        let end_block_index = ((offset + amt as u64 - 1) / block_size) as u32;
 
         let mut total_bytes_read = 0;
 
@@ -190,7 +191,7 @@ impl<IO: Read + Seek> FileSystem<IO> {
             };
 
             let bytes_to_read = if block_index == end_block_index {
-                let end = offset + buf.len() as u64;
+                let end = offset + amt;
                 let end_in_block = match end % block_size {
                     0 => block_size,
                     n => n,

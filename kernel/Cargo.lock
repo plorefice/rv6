@@ -128,3 +128,6 @@ dependencies = [
 [[package]]
 name = "uapi"
 version = "0.1.0"
+dependencies = [
+ "bitflags",
+]

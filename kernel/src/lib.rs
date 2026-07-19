@@ -15,7 +15,6 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 
 use alloc::{boxed::Box, string::String, vec::Vec};
-use ext2::Read;
 use fdt::Fdt;
 
 use crate::{
@@ -26,6 +25,7 @@ use crate::{
         ProcessBuilder,
         sched::{self, RoundRobinScheduler},
     },
+    vfs::fd::OpenFlags,
 };
 
 #[macro_use]
@@ -85,30 +85,41 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     drivers::init(&ctx, &fdt).expect("driver initialization failed");
     sched::init(Box::new(RoundRobinScheduler::default()));
 
-    // Mount root filesystem and read init program
+    // Register disk device and mount root filesystem
     let blkdev = {
         let table = BLOCK_DEVS.lock();
         table.iter().next().expect("no block device found").clone()
     };
-    let rootfs_init = ext2::FileSystem::mount(BlockDevCursor::new(blkdev)).and_then(|mut fs| {
-        let mut init = fs.open("/init")?;
-        let mut buf = Vec::new();
-        init.read_to_end(&mut buf)?;
-        Ok(buf)
+    let rootfs = match ext2::FileSystem::mount(BlockDevCursor::new(blkdev)) {
+        Ok(fs) => Some(vfs::init_root_fs(vfs::ext2::Fs::new(fs))),
+        Err(e) => {
+            kprintln!("Failed to mount root filesystem: {e}");
+            None
+        }
+    };
+
+    // If rootfs is mounted, try to load /init from it
+    let rootfs_init = rootfs.and_then(|fs| {
+        fs.open("/init", OpenFlags::READ)
+            .and_then(|f| {
+                let mut buf = Vec::new();
+                f.read_to_end(&mut buf)?;
+                Ok(Some(buf))
+            })
+            .unwrap_or_else(|e| {
+                kprintln!("Failed to read /init from root filesystem: {e}");
+                None
+            })
     });
 
     // Fallback to initrd if rootfs init fails
     let init_code = match rootfs_init {
-        Ok(buf) => {
+        Some(buf) => {
             kprintln!("Loaded /init from rootfs");
             Some(buf)
         }
-        Err(e) => {
-            kprintln!(
-                "Failed to load init from rootfs: {:?}, falling back to initrd",
-                e
-            );
-
+        None => {
+            kprintln!("Failed to load init from rootfs, falling back to initrd",);
             let initrd = initrd::load_from_fdt(&fdt).expect("failed to load initrd");
             initrd.find_file("init").map(|f| f.to_vec())
         }

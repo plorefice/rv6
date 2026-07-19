@@ -238,6 +238,9 @@ fn handle_syscall(tf: &mut TrapFrame) {
         x if x == Sysno::Fork as usize => syscall::sys_fork(args),
         x if x == Sysno::Wait as usize => syscall::sys_wait(args),
         x if x == Sysno::Sbrk as usize => syscall::sys_sbrk(args),
+        x if x == Sysno::Open as usize => syscall::sys_open(args),
+        x if x == Sysno::Close as usize => syscall::sys_close(args),
+        x if x == Sysno::Read as usize => syscall::sys_read(args),
         n => {
             kprintln!("=> Unknown syscall number: {}", n);
             Err(Errno::NoSys)
