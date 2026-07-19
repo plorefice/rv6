@@ -7,7 +7,7 @@ use bitflags::bitflags;
 use spin::Mutex;
 use uapi::Errno;
 
-use crate::{drivers::earlycon, vfs::file_ops::FileOps};
+use crate::{console, vfs::file_ops::FileOps};
 
 /// A file descriptor, which is an index into a process's file descriptor table.
 #[repr(transparent)]
@@ -109,7 +109,7 @@ impl OpenFile {
         Self {
             offset: Mutex::new(0),
             flags: OpenFlags::READ | OpenFlags::WRITE,
-            inner: Arc::new(earlycon::get()),
+            inner: console::get(),
         }
     }
 

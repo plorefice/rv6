@@ -36,6 +36,7 @@ pub mod macros;
 
 pub mod arch;
 pub mod block;
+pub mod console;
 pub mod drivers;
 pub mod initrd;
 pub mod ksyms;

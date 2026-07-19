@@ -2,15 +2,19 @@
 
 use core::{fmt::Write, hint, num::NonZeroUsize};
 
+use alloc::sync::Arc;
 use fdt::Node;
+use spin::Mutex;
+use uapi::Errno;
 
 use crate::{
-    driver_info,
+    console, driver_info,
     drivers::{Driver, DriverCtx},
     mm::{
         addr::{MemoryAddress, PhysAddr},
         mmio::{self, IoMapper, IoMapping},
     },
+    vfs::file_ops::FileOps,
 };
 
 use super::DriverError;
@@ -37,12 +41,11 @@ impl Driver for Ns16550 {
 
         let regmap = mmio::mapper().iomap(pa_base, size).unwrap();
 
-        let mut slf = Self { regmap };
+        let slf = Self { regmap };
 
         kprintln!("ns16550: UART at 0x{:x}", base);
-        writeln!(slf, "*** Hello, world! ***").ok();
 
-        // TODO: register this as console device
+        console::register(Arc::new(slf));
 
         Ok(())
     }
@@ -80,5 +83,33 @@ impl Write for Ns16550 {
             self.put(b);
         }
         Ok(())
+    }
+}
+
+impl FileOps for Ns16550 {
+    fn read(&self, _off: &Mutex<u64>, buf: &mut [u8]) -> Result<usize, Errno> {
+        let mut i = 0;
+        while i < buf.len() {
+            if let Some(b) = self.get() {
+                buf[i] = b;
+                i += 1;
+            } else if i == 0 {
+                return Err(Errno::Again);
+            } else {
+                break;
+            }
+        }
+        Ok(i)
+    }
+
+    fn write(&self, _off: &Mutex<u64>, buf: &[u8]) -> Result<usize, Errno> {
+        for &b in buf {
+            self.put(b);
+        }
+        Ok(buf.len())
+    }
+
+    fn seek(&self, _off: &Mutex<u64>, _whence: core::io::SeekFrom) -> Result<u64, Errno> {
+        Err(Errno::NoSys)
     }
 }
