@@ -1,85 +1,65 @@
+use core::{fmt, io};
+
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum Error<T> {
-    Io(T),
+pub enum Error {
+    Io(io::Error),
     UnexpectedEof,
-    WriteZero,
+    BadMagic,
+    InvalidData,
+    InvalidInput,
+    InvalidFilename,
+    NotFound,
+    NotADirectory,
+    IsADirectory,
+    Unsupported,
 }
 
-impl<T: IoError> From<T> for Error<T> {
-    fn from(e: T) -> Self {
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
         Self::Io(e)
     }
 }
 
-#[cfg(feature = "std")]
-impl From<Error<std::io::Error>> for std::io::Error {
-    fn from(e: Error<Self>) -> Self {
+impl From<Error> for io::Error {
+    fn from(e: Error) -> Self {
         match e {
             Error::Io(e) => e,
-            Error::UnexpectedEof => Self::new(std::io::ErrorKind::UnexpectedEof, e),
-            Error::WriteZero => Self::new(std::io::ErrorKind::WriteZero, e),
+            Error::UnexpectedEof => io::ErrorKind::UnexpectedEof.into(),
+            Error::BadMagic => io::ErrorKind::InvalidData.into(),
+            Error::InvalidData => io::ErrorKind::InvalidData.into(),
+            Error::InvalidInput => io::ErrorKind::InvalidInput.into(),
+            Error::InvalidFilename => io::ErrorKind::InvalidFilename.into(),
+            Error::NotFound => io::ErrorKind::NotFound.into(),
+            Error::NotADirectory => io::ErrorKind::NotADirectory.into(),
+            Error::IsADirectory => io::ErrorKind::IsADirectory.into(),
+            Error::Unsupported => io::ErrorKind::Unsupported.into(),
         }
     }
 }
 
-impl<T: core::fmt::Display> core::fmt::Display for Error<T> {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Io(e) => write!(f, "IO error: {}", e),
             Error::UnexpectedEof => write!(f, "unexpected EOF"),
-            Error::WriteZero => write!(f, "write zero"),
+            Error::BadMagic => write!(f, "bad magic number"),
+            Error::InvalidData => write!(f, "invalid data"),
+            Error::InvalidInput => write!(f, "invalid input"),
+            Error::InvalidFilename => write!(f, "invalid filename"),
+            Error::NotFound => write!(f, "not found"),
+            Error::NotADirectory => write!(f, "not a directory"),
+            Error::IsADirectory => write!(f, "is a directory"),
+            Error::Unsupported => write!(f, "unsupported operation"),
         }
     }
 }
 
-#[cfg(feature = "std")]
-impl<T: std::error::Error + 'static> std::error::Error for Error<T> {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+impl core::error::Error for Error {
+    fn source(&self) -> Option<&(dyn core::error::Error + 'static)> {
         match self {
             Error::Io(e) => Some(e),
             _ => None,
         }
-    }
-}
-
-pub trait IoError: core::fmt::Debug {
-    fn is_interrupted(&self) -> bool;
-    fn new_unexpected_eof_error() -> Self;
-    fn new_write_zero_error() -> Self;
-}
-
-impl<T: core::fmt::Debug + IoError> IoError for Error<T> {
-    fn is_interrupted(&self) -> bool {
-        match self {
-            Error::Io(e) => e.is_interrupted(),
-            _ => false,
-        }
-    }
-
-    fn new_unexpected_eof_error() -> Self {
-        Self::UnexpectedEof
-    }
-
-    fn new_write_zero_error() -> Self {
-        Self::WriteZero
-    }
-}
-
-#[cfg(feature = "std")]
-impl IoError for std::io::Error {
-    fn is_interrupted(&self) -> bool {
-        self.kind() == std::io::ErrorKind::Interrupted
-    }
-
-    fn new_unexpected_eof_error() -> Self {
-        Self::new(std::io::ErrorKind::UnexpectedEof, "unexpected EOF")
-    }
-
-    fn new_write_zero_error() -> Self {
-        Self::new(
-            std::io::ErrorKind::WriteZero,
-            "failed to write whole buffer",
-        )
     }
 }

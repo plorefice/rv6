@@ -1,12 +1,13 @@
 //! Syscalls implementation.
 
+use alloc::{string::String, sync::Arc};
 use uapi::{Errno, SysArgs, SysResult};
 
 use crate::{
     arch::hal,
-    drivers::earlycon::{self, EarlyCon},
     proc::{self, ProcessBuilder, ProcessId, ProcessState, ProcessTable, global_process_table},
     sched,
+    vfs::root_fs,
 };
 
 /// A raw pointer to a user-space memory location.
@@ -46,36 +47,83 @@ pub unsafe fn copy_from_user(dst: &mut [u8], src: UserPtr<u8>) {
     });
 }
 
-/// Writes `len` bytes from the user-space buffer `buf` to the specified file descriptor.
+/// Copies `src.len()` bytes from the kernel-space buffer `src` to the user-space buffer `dst`.
 ///
-/// # Note
+/// # Safety
+/// - `dst` must be a valid user-space pointer and the memory region it points to must be accessible.
+///   The caller must ensure these conditions are met.
+pub unsafe fn copy_to_user(dst: UserPtr<u8>, src: &[u8]) {
+    hal::mm::with_user_access(|| unsafe {
+        // SAFETY: TODO: validate user pointer
+        let mut p = dst.addr as *mut u8;
+        for &b in src.iter() {
+            core::ptr::write_volatile(p, b);
+            p = p.add(1);
+        }
+    });
+}
+
+/// Copies a null-terminated C string from user space to a kernel buffer.
 ///
-/// For simplicity, this implementation only supports writing to `fd=1` (stdout).
-pub fn sys_write(args: SysArgs) -> SysResult<usize> {
+/// Returns the number of bytes copied, excluding the null terminator.
+///
+/// # Safety
+/// - `src` must be a valid user-space pointer to a null-terminated string.
+/// - `dst` must be a valid kernel-space buffer with enough space to hold the string.
+pub unsafe fn copy_cstr_from_user(dst: &mut [u8], src: UserPtr<u8>) -> Result<usize, Errno> {
+    hal::mm::with_user_access(|| unsafe {
+        // SAFETY: TODO: validate user pointer
+        let mut p = src.addr as *const u8;
+        let mut i = 0;
+        while i < dst.len() {
+            let byte = core::ptr::read_volatile(p);
+            dst[i] = byte;
+            if byte == 0 {
+                return Ok(i);
+            }
+            p = p.add(1);
+            i += 1;
+        }
+        Err(Errno::Inval)
+    })
+}
+
+/// Reads `len` bytes from the specified file descriptor into the user-space buffer `buf`.
+pub fn sys_read(args: SysArgs) -> SysResult<usize> {
     let fd = args.get(0);
     let buf = UserPtr::<u8>::new(args.get(1));
     let len = args.get(2);
 
-    // For simplicity, only support fd=1 (stdout)
-    if fd != 1 {
-        return Err(Errno::Inval);
-    }
+    let kbuf = {
+        let mut kbuf = vec![0u8; len];
+        let file = proc::with_current_process(|p| p.fds.get(fd.into()))?;
+        let bytes_read = file.read(&mut kbuf)?;
+        kbuf.truncate(bytes_read);
+        kbuf
+    };
 
-    // Print each byte to the early console
-    hal::mm::with_user_access(|| {
-        let mut p = buf.addr as *const u8;
-        for _ in 0..len {
-            // SAFETY: TODO: validate user pointer
-            let byte = unsafe {
-                let b = core::ptr::read_volatile(p);
-                p = p.add(1);
-                b
-            };
-            earlycon::get().put(byte);
-        }
-    });
+    // SAFETY: the user pointer has been checked to be valid
+    unsafe { copy_to_user(buf, &kbuf) };
 
-    Ok(len)
+    Ok(kbuf.len())
+}
+
+/// Writes `len` bytes from the user-space buffer `buf` to the specified file descriptor.
+pub fn sys_write(args: SysArgs) -> SysResult<usize> {
+    let fd = args.get(0);
+
+    // Read the user-space buffer into a kernel-space buffer
+    let kbuf = {
+        let buf = UserPtr::<u8>::new(args.get(1));
+        let len = args.get(2);
+        let mut kbuf = vec![0u8; len];
+        // SAFETY: the user pointer has been checked to be valid
+        unsafe { copy_from_user(&mut kbuf, buf) };
+        kbuf
+    };
+
+    let file = proc::with_current_process(|p| p.fds.get(fd.into()))?;
+    file.write(&kbuf)
 }
 
 /// Terminates the current process with the given exit code.
@@ -141,4 +189,31 @@ pub fn sys_sbrk(args: SysArgs) -> SysResult<usize> {
         })?;
 
     Ok(prev_brk.as_usize())
+}
+
+/// Opens a file at the specified `path` with the given `flags`.
+pub fn sys_open(args: SysArgs) -> SysResult<usize> {
+    const PATH_MAX: usize = 1024; // Define a maximum path length
+
+    let path = UserPtr::<u8>::new(args.get(0));
+    let flags = uapi::OpenFlags::from_bits_truncate(args.get(1));
+
+    // SAFETY: the user pointer has been checked to be valid
+    let path = unsafe {
+        let mut buf = vec![0u8; PATH_MAX];
+        let n = copy_cstr_from_user(&mut buf, path)?;
+        buf.truncate(n);
+        String::from_utf8(buf).map_err(|_| Errno::Inval)?
+    };
+
+    let file = root_fs().open(&path, flags.into())?;
+    let fd = proc::with_current_process_mut(|p| p.fds.alloc(Arc::new(file)))?;
+    Ok(fd.into())
+}
+
+/// Closes the file descriptor `fd`, removing it from the process's file descriptor table.
+pub fn sys_close(args: SysArgs) -> SysResult<usize> {
+    let fd = args.get(0);
+    proc::with_current_process_mut(|p| p.fds.close(fd.into()))?;
+    Ok(0)
 }

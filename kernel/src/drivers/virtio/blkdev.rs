@@ -1,20 +1,25 @@
-use core::{ffi::CStr, hint};
+use core::{ffi::CStr, hint, io};
 
 use alloc::string::String;
 use bitflags::bitflags;
+use spin::Mutex;
 
 use crate::{
+    block::{BlockDev, BlockIoError},
     drivers::virtio::{
         InterruptStatus, Status, VirtioDev, VirtioDriver,
         virtq::{Virtq, VirtqBuffer},
     },
-    mm::addr::DmaAddr,
+    mm::{
+        addr::DmaAddr,
+        dma::{self, DmaAllocator, DmaAllocatorExt},
+    },
 };
 
 /// A virtio block device.
 pub struct VirtioBlkDev<D> {
     dev: D,
-    virtq: Virtq,
+    virtq: Mutex<Virtq>,
     config: VirtioBlkConfig,
     features: DeviceFeatures,
 }
@@ -40,7 +45,7 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
 
         let mut slf = Self {
             dev,
-            virtq,
+            virtq: Mutex::new(virtq),
             features,
             config: VirtioBlkConfig::default(),
         };
@@ -102,7 +107,7 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
         }
     }
 
-    fn read_device_id(&mut self) -> Option<String> {
+    fn read_device_id(&self) -> Option<String> {
         let buf = self.dev.allocate_guest_mem([0_u8; 20]).expect("oom");
 
         // SAFETY: buf has just been allocated and this is the only reference to it
@@ -118,7 +123,7 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
         id.to_str().ok().map(String::from)
     }
 
-    fn transfer(&mut self, kind: VirtioBlkReqType, sector: u64, data: DmaAddr, len: usize) {
+    fn transfer(&self, kind: VirtioBlkReqType, sector: u64, data: DmaAddr, len: usize) {
         use VirtioBlkReqType::*;
         use VirtqBuffer::*;
 
@@ -141,33 +146,117 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
             }
         };
 
-        self.virtq.submit(
-            &self.dev,
-            [
-                Some(VirtqBuffer::Readable {
-                    addr: blk_req.dma_addr(),
-                    len: VirtioBlkReq::HEADER_SIZE,
-                }),
-                data_buf,
-                Some(VirtqBuffer::Writeable {
-                    addr: blk_req.dma_addr() + VirtioBlkReq::HEADER_SIZE,
-                    len: VirtioBlkReq::TRAILER_SIZE,
-                }),
-            ]
-            .iter()
-            .filter_map(Option::as_ref),
-        );
+        {
+            let mut virtq = self.virtq.lock();
+            virtq.submit(
+                &self.dev,
+                [
+                    Some(VirtqBuffer::Readable {
+                        addr: blk_req.dma_addr(),
+                        len: VirtioBlkReq::HEADER_SIZE,
+                    }),
+                    data_buf,
+                    Some(VirtqBuffer::Writeable {
+                        addr: blk_req.dma_addr() + VirtioBlkReq::HEADER_SIZE,
+                        len: VirtioBlkReq::TRAILER_SIZE,
+                    }),
+                ]
+                .iter()
+                .filter_map(Option::as_ref),
+            );
 
-        // TODO: replace this with proper interrupt handling
-        while !self.dev.interrupts().contains(InterruptStatus::USED_BUFFER) {
-            hint::spin_loop();
+            // TODO: replace this with proper interrupt handling
+            while !self.dev.interrupts().contains(InterruptStatus::USED_BUFFER) {
+                hint::spin_loop();
+            }
+
+            // Return completed descriptors to the free list before acking the IRQ.
+            virtq.reclaim();
+            self.dev.clear_interrupts(InterruptStatus::USED_BUFFER);
+        }
+    }
+
+    fn validate(&self, start: u64, count: u64, buf: &[u8]) -> Result<(), BlockIoError> {
+        let sector_size = self.sector_size() as u64;
+        let buf_len = buf.len() as u64;
+
+        if buf_len != count * sector_size {
+            return Err(BlockIoError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "buffer length does not match count * sector size",
+            )));
         }
 
-        self.dev.clear_interrupts(InterruptStatus::USED_BUFFER);
+        let end = start.checked_add(count).ok_or_else(|| {
+            BlockIoError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "sector range overflow",
+            ))
+        })?;
+
+        if end > self.config.capacity {
+            return Err(BlockIoError::Io(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "requested sectors exceed device capacity",
+            )));
+        }
+
+        Ok(())
     }
 }
 
 impl<D> VirtioDriver for VirtioBlkDev<D> {}
+
+impl<D> BlockDev for VirtioBlkDev<D>
+where
+    D: VirtioDev,
+{
+    fn capacity(&self) -> u64 {
+        self.config.capacity
+    }
+
+    fn read_sectors(&self, start: u64, count: u64, buf: &mut [u8]) -> Result<(), BlockIoError> {
+        let alloc = dma::allocator();
+
+        self.validate(start, count, buf)?;
+
+        let dma = alloc
+            .alloc_slice_zeroed::<u8>(count as usize * self.sector_size())
+            .map_err(|_| BlockIoError::Io(io::ErrorKind::OutOfMemory.into()))?;
+
+        alloc.sync_for_device(dma.dma_addr(), dma.size(), dma::DmaDirection::ToDevice);
+        self.transfer(VirtioBlkReqType::In, start, dma.dma_addr(), dma.size());
+        alloc.sync_for_cpu(dma.dma_addr(), dma.size(), dma::DmaDirection::ToDevice);
+
+        buf.copy_from_slice(dma.as_slice());
+        alloc.free_slice(dma);
+
+        Ok(())
+    }
+
+    fn write_sectors(&self, start: u64, count: u64, buf: &[u8]) -> Result<(), BlockIoError> {
+        let alloc = dma::allocator();
+
+        self.validate(start, count, buf)?;
+
+        let dma = alloc
+            .alloc_slice_from(buf)
+            .map_err(|_| BlockIoError::Io(io::ErrorKind::OutOfMemory.into()))?;
+
+        alloc.sync_for_device(dma.dma_addr(), dma.size(), dma::DmaDirection::FromDevice);
+        self.transfer(VirtioBlkReqType::Out, start, dma.dma_addr(), dma.size());
+        alloc.sync_for_cpu(dma.dma_addr(), dma.size(), dma::DmaDirection::FromDevice);
+
+        alloc.free_slice(dma);
+
+        Ok(())
+    }
+
+    fn flush(&self) -> Result<(), BlockIoError> {
+        self.transfer(VirtioBlkReqType::Flush, 0, DmaAddr::default(), 0);
+        Ok(())
+    }
+}
 
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]

@@ -2,7 +2,10 @@
 #![feature(core_io)]
 #![feature(allocator_api)]
 
-pub mod alloc;
+extern crate alloc;
+
+pub mod allocator;
+pub mod fs;
 pub mod io;
 pub mod proc;
 

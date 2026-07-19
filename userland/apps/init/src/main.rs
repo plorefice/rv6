@@ -3,9 +3,11 @@
 
 extern crate alloc;
 
+use core::str;
+
 use alloc::vec::Vec;
-use rt::{println, proc};
-use runtime::{self as rt, proc::Fork};
+use rt::{print, println, proc};
+use runtime::{self as rt, fs::File, io::Read, proc::Fork};
 
 #[unsafe(no_mangle)]
 pub extern "C" fn main() -> isize {
@@ -44,6 +46,14 @@ pub extern "C" fn main() -> isize {
     let mut v = Vec::<u8>::with_capacity(1024);
     v.extend_from_slice(b"Hello from the heap!");
     println!("{}", core::str::from_utf8(&v).unwrap());
+
+    let mut f = File::open("/hello.txt").expect("Failed to open /hello.txt");
+    let mut buf = Vec::new();
+    let n = f.read_to_end(&mut buf).expect("Failed to read /hello.txt");
+    let contents = str::from_utf8(&buf[..n]).expect("Failed to convert bytes to string");
+    println!("Read from /hello.txt:");
+    print!("{}", contents);
+    drop(f);
 
     proc::exit(0)
 }

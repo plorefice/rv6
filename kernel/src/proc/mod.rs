@@ -10,6 +10,7 @@ use crate::{
     drivers::syscon,
     mm::addr::VirtAddr,
     proc::elf::{ElfLoadError, ElfLoader, LoadSegment},
+    vfs::fd::FdTable,
 };
 
 pub mod elf;
@@ -34,6 +35,9 @@ pub struct Process {
 
     /// Heap information for the process.
     pub heap: ProcessHeap,
+
+    /// Open file descriptors for the process.
+    pub fds: FdTable,
 }
 
 /// The execution state of a process.
@@ -293,7 +297,9 @@ pub trait ProcessBuilder {
     ///
     /// The default implementation is fine for most cases. Each implementor can override it
     /// for finer grained control over process execution.
-    fn exec(&self, bytes: &[u8]) -> ! {
+    fn exec(&self, bytes: impl AsRef<[u8]>) -> ! {
+        let bytes = bytes.as_ref();
+
         // Create a new user address space
         let mut aspace = match self.loader().new_user_addr_space() {
             Ok(aspace) => aspace,
@@ -338,6 +344,7 @@ pub trait ProcessBuilder {
             parent: None,
             children: Vec::new(),
             heap: ProcessHeap::new(plan.heap_start),
+            fds: FdTable::with_stdio(),
         };
 
         // Start execution of the new process
@@ -420,6 +427,28 @@ impl fmt::Display for BreakError {
 }
 
 impl Error for BreakError {}
+
+/// Executes a closure with access to the currently running process.
+pub fn with_current_process<F, R>(f: F) -> R
+where
+    F: FnOnce(&Process) -> R,
+{
+    let pid = sched::current_process_id().expect("no current process");
+    let proc_table = PROCESS_TABLE.lock();
+    let proc = proc_table.get(pid).expect("invalid PID");
+    f(proc)
+}
+
+/// Executes a closure with mutable access to the currently running process.
+pub fn with_current_process_mut<F, R>(f: F) -> R
+where
+    F: FnOnce(&mut Process) -> R,
+{
+    let pid = sched::current_process_id().expect("no current process");
+    let mut proc_table = PROCESS_TABLE.lock();
+    let proc = proc_table.get_mut(pid).expect("invalid PID");
+    f(proc)
+}
 
 /// Forks the currently running process, creating a new child process that is a duplicate of the parent.
 /// Returns the `ProcessId` of the newly created child process.

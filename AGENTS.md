@@ -7,7 +7,8 @@ Guidance for AI coding agents working in the **rv6** repository.
 rv6 is an educational, Unix-like **RISC-V kernel** inspired by
 [xv6](https://pdos.csail.mit.edu/6.828/2020/xv6.html) and the Linux kernel. It is
 `#![no_std]`, boots on the QEMU `virt` machine via OpenSBI, and is being extended toward a
-userland (init program, syscalls, fork/wait, virtio-blk, initrd). Not tested on real hardware.
+userland (init program, syscalls, fork/wait, virtio-blk, ext2 rootfs, initrd fallback).
+Not tested on real hardware.
 
 License: dual MIT / Apache-2.0.
 
@@ -32,6 +33,7 @@ Kernel subsystems live under `kernel/src/`:
 - `drivers/` — FDT-driven drivers (PLIC, virtio-mmio, NS16550 UART, syscon)
 - `mm/` — addresses, allocators (bump/bitmap), DMA, MMIO mapping
 - `proc/` — process table, round-robin scheduler, ELF process loading
+- `block.rs` — block device table + `BlockDevCursor` (byte cursor over virtio-blk for ext2)
 - `syscall.rs`, `initrd.rs`, `ksyms.rs`, `panic.rs`
 
 ## Build & run
@@ -40,8 +42,8 @@ Kernel subsystems live under `kernel/src/`:
 
 ```bash
 just --list        # list all targets
-just initrd        # build userland + pack out/initrd.cpio (do this before first run)
-just hddimg        # create out/hdd.img (once)
+just initrd        # build userland, install to out/rootfs, pack out/initrd.cpio
+just hddimg        # pack out/rootfs into out/hdd.img (ext2 via genext2fs)
 just run           # build kernel + launch QEMU (default target)
 just debug         # QEMU waits for GDB on :1234 (-S -s)
 just gdb           # connect GDB to a running debug session
@@ -51,15 +53,20 @@ just clean         # clean all three projects + out/
 Other targets: `just kernel` (staticlib), `just kernel-elf` (linked `out/rv6`),
 `just kernel-bin` (`out/rv6.bin`), `just userland`, `just ksymsgen`.
 
-Note: `just run` only depends on `kernel-bin`. It does **not** rebuild the initrd or userland.
-After `just clean` or a fresh clone, run `just initrd` (and `just hddimg`) before `just run`.
+Note: `just run` only depends on `kernel-bin`. It does **not** rebuild the initrd, disk
+image, or userland. After `just clean` or a fresh clone, run `just initrd` then
+`just hddimg` before `just run` — initrd populates `out/rootfs`, which hddimg packs.
+
+At boot the kernel mounts the virtio-blk ext2 image as rootfs and loads `/init` from it,
+falling back to the CPIO initrd if that fails.
 
 ### Prerequisites
 
 - Rust **nightly** (pinned via `rust-toolchain.toml`) with `rust-src`, `rustfmt`, `clippy`
 - RISC-V cross toolchain, prefix `riscv64-elf-` (gcc/ld/ar/objcopy/gdb).
   Override with `CROSS_COMPILE=riscv64-unknown-elf- just kernel-elf`.
-- `qemu-system-riscv64`, `just`, `rg` (ripgrep — required by `link-rv6.sh`), `cpio`, `perl`, `dd`
+- `qemu-system-riscv64`, `just`, `rg` (ripgrep — required by `link-rv6.sh`), `cpio`, `perl`,
+  `genext2fs` (for `just hddimg`; e.g. `brew install genext2fs` on macOS)
 
 ## Toolchain constraints
 
@@ -78,7 +85,7 @@ Host-side tests run in the root workspace:
 ```bash
 cargo test -p cpio
 cargo test -p fdt     # uses crates/fdt/tests/data/qemu-riscv.dtb
-cargo test -p ext2    # uses crates/ext2/tests/data/ext2.img
+cargo test -p ext2 --features std   # uses crates/ext2/tests/data/ext2.img
 ```
 
 There is no custom bare-metal test runner wired up, and no CI. Some `#[cfg(test)]` unit tests
@@ -112,8 +119,9 @@ Follow the lints declared in `kernel/src/lib.rs` — they are the de facto style
 
 - **Keep syscall numbers in sync** between `kernel/src/syscall.rs` and
   `userland/runtime/src/syscall.rs`.
-- The init binary must land at the archive root as `init` in `out/initrd.cpio`
-  (`userland/install.sh` copies it to `out/rootfs/init`).
+- The init binary must be installed as `out/rootfs/init` (`userland/install.sh`). That path
+  is packed into both `out/initrd.cpio` (`just initrd`) and the ext2 rootfs image
+  `out/hdd.img` (`just hddimg` via `genext2fs -d out/rootfs`).
 - rust-analyzer is configured (`.vscode/settings.json`) to link all three Cargo projects.
 - The `README.md` references a Makefile and an older crate layout (`kmm/`, `riscv/`, `sbi/`)
   that no longer exist — trust `justfile` and the current tree instead.

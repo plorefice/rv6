@@ -1,6 +1,11 @@
 //! Early console support.
 
-use core::fmt;
+use core::{fmt, io::SeekFrom};
+
+use spin::Mutex;
+use uapi::Errno;
+
+use crate::vfs::file_ops::FileOps;
 
 /// The global early console instance.
 static EARLY_CONSOLE: spin::Once<&'static dyn EarlyCon> = spin::Once::new();
@@ -12,6 +17,28 @@ static EARLY_CONSOLE: spin::Once<&'static dyn EarlyCon> = spin::Once::new();
 pub trait EarlyCon: Send + Sync {
     /// Writes a single byte to the early console.
     fn put(&self, byte: u8);
+
+    /// Writes a buffer of bytes to the early console.
+    fn write(&self, buf: &[u8]) {
+        for &byte in buf {
+            self.put(byte);
+        }
+    }
+}
+
+impl<T: EarlyCon> FileOps for T {
+    fn read(&self, _off: &Mutex<u64>, _buf: &mut [u8]) -> Result<usize, Errno> {
+        Err(Errno::Inval)
+    }
+
+    fn write(&self, _off: &Mutex<u64>, buf: &[u8]) -> Result<usize, Errno> {
+        self.write(buf);
+        Ok(buf.len())
+    }
+
+    fn seek(&self, _off: &Mutex<u64>, _whence: SeekFrom) -> Result<u64, Errno> {
+        Err(Errno::Inval)
+    }
 }
 
 /// A reference to the early console that implements `fmt::Write`.
@@ -28,9 +55,7 @@ impl EarlyCon for EarlyConRef {
 impl fmt::Write for EarlyConRef {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         if let Some(con) = EARLY_CONSOLE.get() {
-            for byte in s.bytes() {
-                con.put(byte);
-            }
+            con.write(s.as_bytes());
         }
         Ok(())
     }

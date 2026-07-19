@@ -2,10 +2,11 @@
 
 use core::{mem::size_of, num::NonZeroUsize};
 
-use alloc::boxed::Box;
+use alloc::{boxed::Box, sync::Arc};
 use fdt::Node;
 
 use crate::{
+    block::BLOCK_DEVS,
     driver_info,
     drivers::{
         Driver, DriverCtx, DriverError,
@@ -63,14 +64,15 @@ impl Driver for VirtioMmio {
         // Device initialization
         dev.set_guest_page_size(mm::page_size() as u32);
 
-        let _driver = match dev_id {
-            2 => Box::new(VirtioBlkDev::new(dev)),
+        match dev_id {
+            2 => {
+                let blk_dev = Arc::new(VirtioBlkDev::new(dev));
+                BLOCK_DEVS.lock().register(blk_dev);
+            }
             _ => todo!("unsupported virtio device"),
         };
 
         kprintln!("virtio-mmio: new device {vendor_id:x}:{dev_id:x} at 0x{base:x}");
-
-        // TODO: register this as block device
 
         Ok(())
     }

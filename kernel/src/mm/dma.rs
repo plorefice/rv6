@@ -122,6 +122,58 @@ pub trait DmaAllocatorExt: DmaAllocator {
             self.free_raw(buf);
         }
     }
+
+    /// Allocates a DMA-capable memory region for a slice of `T` with the specified length.
+    fn alloc_slice_from<T: DmaSafe>(&self, src: &[T]) -> Result<DmaSlice<T>, DmaAllocError> {
+        let mut slice = self.alloc_slice_uninit::<T>(src.len())?;
+        // SAFETY: slice points to at least len * size_of::<T>() bytes, properly mapped for CPU access.
+        unsafe {
+            ptr::copy_nonoverlapping(src.as_ptr(), slice.as_mut_ptr() as _, src.len());
+        }
+        // SAFETY: by construction we just initialized all bytes of T.
+        Ok(unsafe { slice.assume_init() })
+    }
+
+    /// Allocates a DMA-capable memory region for an uninitialized slice of `T` with the specified length.
+    fn alloc_slice_uninit<T: DmaSafe>(
+        &self,
+        len: usize,
+    ) -> Result<DmaSlice<MaybeUninit<T>>, DmaAllocError> {
+        let layout = Layout::array::<T>(len).map_err(|_| DmaAllocError::OutOfMemory)?;
+
+        let buf = self.alloc_raw(layout)?;
+
+        // SAFETY: `buf.ptr` is known to be a valid pointer
+        let ptr = unsafe { NonNull::new_unchecked(buf.ptr.as_ptr() as *mut MaybeUninit<T>) };
+
+        // SAFETY: by construction
+        Ok(unsafe { DmaSlice::new_unchecked(ptr, buf.dma_addr, len, buf.size) })
+    }
+
+    /// Allocates a DMA-capable memory region for a slice of `T` with the specified length, initializing it to zero.
+    fn alloc_slice_zeroed<T: DmaSafe>(&self, len: usize) -> Result<DmaSlice<T>, DmaAllocError> {
+        let mut slice = self.alloc_slice_uninit::<T>(len)?;
+        // SAFETY: slice points to at least len * size_of::<T>() bytes, properly mapped for CPU access.
+        unsafe {
+            ptr::write_bytes(slice.as_mut_ptr().cast::<u8>(), 0, slice.size());
+        }
+        // SAFETY: by construction we just initialized all bytes of T to zero.
+        Ok(unsafe { slice.assume_init() })
+    }
+
+    /// Frees a previously allocated DMA-capable memory region for a slice of `T`.
+    fn free_slice<T>(&self, slice: DmaSlice<T>) {
+        let buf = DmaBuf {
+            ptr: slice.ptr.cast::<u8>(),
+            dma_addr: slice.dma_addr,
+            size: slice.size,
+            align: mem::align_of::<T>(),
+        };
+        // SAFETY: by construction, slice was allocated by this allocator
+        unsafe {
+            self.free_raw(buf);
+        }
+    }
 }
 
 /// Blanket implementation of `DmaAllocatorExt` for all `DmaAllocator` types.
@@ -248,6 +300,94 @@ impl<T: DmaSafe> DmaObject<MaybeUninit<T>> {
         DmaObject {
             ptr: self.ptr.cast::<T>(),
             dma_addr: self.dma_addr,
+            size: self.size,
+        }
+    }
+}
+
+/// A contiguous slice of DMA-capable memory.
+pub struct DmaSlice<T> {
+    ptr: NonNull<T>,
+    dma_addr: DmaAddr,
+    len: usize,  // Length in number of elements
+    size: usize, // Length in bytes
+}
+
+impl<T> DmaSlice<T> {
+    /// Creates a new `DmaSlice` from the given components.
+    ///
+    /// # Safety
+    ///
+    /// `ptr` must point to a valid memory region of at least `len * size_of::<T>()` bytes, and
+    /// `dma_addr` must correspond to the physical address of that memory region.
+    pub unsafe fn new_unchecked(
+        ptr: NonNull<T>,
+        dma_addr: DmaAddr,
+        len: usize,
+        size: usize,
+    ) -> DmaSlice<T> {
+        DmaSlice {
+            ptr,
+            dma_addr,
+            len,
+            size,
+        }
+    }
+
+    /// Returns the DMA-capable physical address of the slice.
+    pub fn dma_addr(&self) -> DmaAddr {
+        self.dma_addr
+    }
+
+    /// Returns the length of the slice in number of elements.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    /// Returns true if the slice is empty.
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Returns the length of the slice in bytes.
+    pub fn size(&self) -> usize {
+        self.size
+    }
+
+    /// Returns a raw pointer to the slice.
+    pub fn as_ptr(&self) -> *const T {
+        self.ptr.as_ptr()
+    }
+
+    /// Returns a mutable raw pointer to the slice.
+    pub fn as_mut_ptr(&mut self) -> *mut T {
+        self.ptr.as_ptr()
+    }
+
+    /// Returns the slice as a reference to a slice of `T`.
+    pub fn as_slice(&self) -> &[T] {
+        // SAFETY: by construction, ptr points to a valid memory region of at least len * size_of::<T>() bytes
+        unsafe { core::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+    }
+
+    /// Returns the slice as a mutable reference to a slice of `T`.
+    pub fn as_mut_slice(&mut self) -> &mut [T] {
+        // SAFETY: by construction, ptr points to a valid memory region of at least len * size_of::<T>() bytes
+        unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+}
+
+impl<T: DmaSafe> DmaSlice<MaybeUninit<T>> {
+    /// Assumes the slice has been initialized and returns a `DmaSlice<T>`.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that the memory has been properly initialized.
+    pub unsafe fn assume_init(self) -> DmaSlice<T> {
+        DmaSlice {
+            ptr: self.ptr.cast::<T>(),
+            dma_addr: self.dma_addr,
+            len: self.len,
             size: self.size,
         }
     }

@@ -27,6 +27,10 @@ name = "elf"
 version = "0.1.0"
 
 [[package]]
+name = "ext2"
+version = "0.1.0"
+
+[[package]]
 name = "fdt"
 version = "0.1.0"
 dependencies = [
@@ -86,6 +90,7 @@ dependencies = [
  "cc",
  "cpio",
  "elf",
+ "ext2",
  "fdt",
  "lazy_static",
  "paste",
@@ -123,3 +128,6 @@ dependencies = [
 [[package]]
 name = "uapi"
 version = "0.1.0"
+dependencies = [
+ "bitflags",
+]

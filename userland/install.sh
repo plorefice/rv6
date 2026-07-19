@@ -13,3 +13,6 @@ mkdir -p $OUTDIR
 
 # Install the applications
 install -v -m 755 target/riscv64gc-lp64d/$PROFILE/init $OUTDIR/init
+
+# Small greetings file to test file open and read
+echo "Hello, world!" > $OUTDIR/hello.txt

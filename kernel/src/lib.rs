@@ -7,19 +7,25 @@
 
 // We are building a freestanding binary, so no standard library support for us
 #![no_std]
+#![feature(core_io)]
 // Keep things clean and tidy
 #![warn(missing_docs)]
 #![warn(clippy::missing_safety_doc)]
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use alloc::{boxed::Box, string::String};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use fdt::Fdt;
 
 use crate::{
     arch::hal,
+    block::{BLOCK_DEVS, BlockDevCursor},
     drivers::{DriverCtx, irqchip},
-    proc::{ProcessBuilder, sched},
+    proc::{
+        ProcessBuilder,
+        sched::{self, RoundRobinScheduler},
+    },
+    vfs::fd::OpenFlags,
 };
 
 #[macro_use]
@@ -29,6 +35,7 @@ extern crate alloc;
 pub mod macros;
 
 pub mod arch;
+pub mod block;
 pub mod drivers;
 pub mod initrd;
 pub mod ksyms;
@@ -36,6 +43,7 @@ pub mod mm;
 pub mod panic;
 pub mod proc;
 pub mod syscall;
+pub mod vfs;
 
 const RV6_ASCII_LOGO: &str = r#"
 ________________________________________/\\\\\_
@@ -75,13 +83,53 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     // Subsystem initialization
     irqchip::init(&ctx, &fdt).expect("irqchip initialization failed");
     drivers::init(&ctx, &fdt).expect("driver initialization failed");
-    sched::init(Box::new(proc::sched::RoundRobinScheduler::default()));
+    sched::init(Box::new(RoundRobinScheduler::default()));
 
-    // Load initrd
-    let initrd = initrd::load_from_fdt(&fdt).expect("failed to load initrd");
+    // Register disk device and mount root filesystem
+    let blkdev = {
+        let table = BLOCK_DEVS.lock();
+        table.iter().next().expect("no block device found").clone()
+    };
+    let rootfs = match ext2::FileSystem::mount(BlockDevCursor::new(blkdev)) {
+        Ok(fs) => Some(vfs::init_root_fs(vfs::ext2::Fs::new(fs))),
+        Err(e) => {
+            kprintln!("Failed to mount root filesystem: {e}");
+            None
+        }
+    };
+
+    // If rootfs is mounted, try to load /init from it
+    let rootfs_init = rootfs.and_then(|fs| {
+        fs.open("/init", OpenFlags::READ)
+            .and_then(|f| {
+                let mut buf = Vec::new();
+                f.read_to_end(&mut buf)?;
+                Ok(Some(buf))
+            })
+            .unwrap_or_else(|e| {
+                kprintln!("Failed to read /init from root filesystem: {e}");
+                None
+            })
+    });
+
+    // Fallback to initrd if rootfs init fails
+    let init_code = match rootfs_init {
+        Some(buf) => {
+            kprintln!("Loaded /init from rootfs");
+            Some(buf)
+        }
+        None => {
+            kprintln!("Failed to load init from rootfs, falling back to initrd",);
+            let initrd = initrd::load_from_fdt(&fdt).expect("failed to load initrd");
+            initrd.find_file("init").map(|f| f.to_vec())
+        }
+    };
 
     // Run init code
-    let init_code = initrd.find_file("init").expect("init not found");
-    kprintln!("Found init program in initrd, size {}", init_code.len());
-    hal::proc::builder().exec(init_code);
+    if let Some(init_code) = init_code {
+        kprintln!("Found init program, size {}", init_code.len());
+        hal::proc::builder().exec(init_code);
+    } else {
+        panic!("No init program found");
+    }
 }
