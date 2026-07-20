@@ -1,6 +1,7 @@
 #![no_std]
-#![feature(core_io)]
+#![feature(alloc_io)]
 #![feature(allocator_api)]
+#![feature(core_io)]
 
 extern crate alloc;
 

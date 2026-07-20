@@ -91,7 +91,9 @@ impl FileOps for Ns16550 {
         let mut i = 0;
         while i < buf.len() {
             if let Some(b) = self.get() {
-                buf[i] = b;
+                // TODO: this should be handled at a higher level,
+                // but for now we handle it here to avoid issues with the shell.
+                buf[i] = if b == b'\r' { b'\n' } else { b };
                 i += 1;
             } else if i == 0 {
                 return Err(Errno::Again);
