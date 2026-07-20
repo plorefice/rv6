@@ -79,7 +79,7 @@ macro_rules! println {
         $crate::print!("\n");
     };
     ($($arg:tt)*) => {
-        $crate::io::_print(core::format_args!("{}\n", core::format_args!($($arg)*)));
+        $crate::io::_print(core::format_args!("{}\n", core::format_args!($($arg)*)))
     };
 }
 
