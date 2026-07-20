@@ -23,6 +23,7 @@ use crate::{
     proc::StackSpec,
 };
 use fdt::{Fdt, PropEncodedArray};
+use linked_list_allocator::LockedHeap;
 use mmu::PageTableWalker;
 use spin::Mutex;
 
@@ -103,8 +104,7 @@ pub static GFA: Mutex<Option<BitmapAllocator<PAGE_SIZE>>> = Mutex::new(None);
 /// Global heap allocator.
 /// TODO: remove hard-coded constants.
 #[global_allocator]
-static HEAP: BumpAllocator =
-    BumpAllocator::new(HEAP_MEM_OFFSET.as_usize(), PHYS_TO_VIRT_OFFSET.as_usize());
+static HEAP: LockedHeap = LockedHeap::empty();
 
 /// I/O virtual memory allocator.
 static IOMAP: BumpAllocator =
@@ -243,7 +243,10 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     let map_size = PageSize::Kb;
     assert_eq!(HEAP_PREALLOC_SIZE % map_size.size(), 0);
 
-    let heap_prealloc_base = PHYS_TO_VIRT_OFFSET - HEAP_PREALLOC_SIZE;
+    // linked_list_allocator grows upward from the base pointer, so the mapped VA
+    // must match the address passed to `HEAP.init` (unlike the old bump allocator,
+    // which grew downward from PHYS_TO_VIRT_OFFSET into a high mapping).
+    let heap_base = HEAP_MEM_OFFSET;
     let n_pages = HEAP_PREALLOC_SIZE / map_size.size();
 
     let frame = gfa.alloc(n_pages).expect("oom for heap allocation");
@@ -252,7 +255,7 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     unsafe {
         mapper
             .map_range(
-                heap_prealloc_base,
+                heap_base,
                 frame.phys()..frame.phys() + HEAP_PREALLOC_SIZE,
                 map_size,
                 EntryFlags::KERNEL,
@@ -273,6 +276,13 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
 
     // Everything went well, configure this mapper as global
     *MAPPER.lock() = Some(mapper);
+
+    // Configure the global heap allocator to use the preallocated heap memory
+    // SAFETY: `heap_base` is a valid virtual address range that has been mapped
+    //         to physical memory
+    unsafe {
+        HEAP.lock().init(heap_base.as_mut_ptr(), HEAP_PREALLOC_SIZE);
+    }
 }
 
 fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: usize) {
