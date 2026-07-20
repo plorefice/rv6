@@ -3,13 +3,14 @@
 # ----------------------------
 
 TARGET        := "riscv64gc-lp64d"
+PROFILE       := "release"
 OUTDIR        := "out"
 
 CROSS_COMPILE := env_var_or_default("CROSS_COMPILE", "riscv64-elf-")
 OBJCOPY       := CROSS_COMPILE + "objcopy"
 GDB		      := CROSS_COMPILE + "gdb"
 
-RV6_STATICLIB := "kernel/target/" + TARGET + "/debug/librv6.a"
+RV6_STATICLIB := "kernel/target/" + TARGET + "/" + PROFILE + "/librv6.a"
 RV6_DYLIB     := OUTDIR + "/rv6"
 RV6_BIN       := OUTDIR + "/rv6.bin"
 INITRD        := OUTDIR + "/initrd.cpio"
@@ -30,7 +31,7 @@ default: run
 # ----------------------------
 
 kernel:
-	cd kernel && cargo build
+	cd kernel && cargo build {{ if PROFILE == "release" { "--release" } else { "" } }}
 
 kernel-lib: kernel
 	@true  # marker target
