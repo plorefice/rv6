@@ -12,13 +12,16 @@
 //! Freeing a page in a bitmap allocator has `O(1)` complexity, but allocation is more expensive
 //! (`O(n)`) since we need to find a large-enough chunk of free pages.
 
-use core::{mem::size_of, ptr, slice};
+use core::{mem::size_of, slice};
 
 use bitflags::bitflags;
 
-use crate::mm::{
-    addr::{Align, PhysAddr},
-    allocator::{AllocatorError, Frame, FrameAllocator},
+use crate::{
+    arch::hal,
+    mm::{
+        addr::{Align, PhysAddr},
+        allocator::{AllocatorError, Frame, FrameAllocator},
+    },
 };
 
 bitflags! {
@@ -76,7 +79,8 @@ impl<const N: usize> BitmapAllocator<N> {
 
         // SAFETY: `start` is aligned and must point to a valid memory region.
         let descriptors = unsafe {
-            slice::from_raw_parts_mut(start.as_usize() as *mut PageDescriptor, avail_pages)
+            let ptr: *mut PageDescriptor = hal::mm::phys_to_virt(start).as_mut_ptr();
+            slice::from_raw_parts_mut(ptr, avail_pages)
         };
 
         // Initially mark all pages as free
@@ -133,9 +137,11 @@ impl<const N: usize> FrameAllocator<N> for BitmapAllocator<N> {
                 };
             }
 
+            let paddr = self.base_addr + i * N;
             return Some(Frame {
-                paddr: self.base_addr + i * N,
-                ptr: ptr::null_mut(),
+                // SAFETY: `paddr` is guaranteed to be a valid physical address.
+                ptr: unsafe { hal::mm::phys_to_virt(paddr).as_mut_ptr() },
+                paddr,
             });
         }
 

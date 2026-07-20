@@ -18,7 +18,7 @@ use crate::{
     },
     mm::{
         addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
-        allocator::{BumpAllocator, BumpFrameAllocator, FrameAllocator},
+        allocator::{BitmapAllocator, BumpAllocator, BumpFrameAllocator, FrameAllocator},
     },
     proc::StackSpec,
 };
@@ -98,7 +98,7 @@ unsafe extern "C" {
 }
 
 /// Global frame allocator.
-pub static GFA: Mutex<Option<BumpFrameAllocator<PAGE_SIZE>>> = Mutex::new(None);
+pub static GFA: Mutex<Option<BitmapAllocator<PAGE_SIZE>>> = Mutex::new(None);
 
 /// Global heap allocator.
 /// TODO: remove hard-coded constants.
@@ -287,7 +287,8 @@ fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: usize) {
     kprintln!("  [{phys_base:016x} - {phys_end:016x}]");
 
     // SAFETY: `phys_base` and `phys_end` are valid physical addresses
-    *GFA.lock() = Some(unsafe { BumpFrameAllocator::new(phys_base, phys_end) });
+    *GFA.lock() =
+        Some(unsafe { BitmapAllocator::init(phys_base, phys_end).expect("GFA creation failed") });
 }
 
 /// Translates a PA into the corresponding VA.
