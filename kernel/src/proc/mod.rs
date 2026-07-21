@@ -7,7 +7,6 @@ use spin::Mutex;
 
 use crate::{
     arch::hal,
-    drivers::syscon,
     mm::addr::VirtAddr,
     proc::elf::{ElfLoadError, ElfLoader, LoadSegment},
     vfs::fd::FdTable,
@@ -44,6 +43,9 @@ pub struct Process {
 pub enum ProcessState {
     /// The process is currently running and can be scheduled by the scheduler.
     Running,
+
+    /// The process is waiting for an event, such as I/O completion or a signal.
+    Waiting,
 
     /// The process has exited and is waiting for its parent to collect its exit status.
     Zombie {
@@ -492,13 +494,8 @@ pub fn exit_current(exit_code: usize) -> ! {
         reparent_children(&mut proc_table, pid);
     }
 
-    // Transfer control to the scheduler to run the next process
-    sched::run_scheduler();
-
-    // We only reach here if there are no more processes to run, so we halt the system.
-    kprintln!("All processes have exited. Bye!");
-    syscon::poweroff();
-    hal::cpu::halt();
+    // Switch to the next runnable process (may resume a parked waiter via swtch).
+    sched::switch_from_exiting(pid);
 }
 
 fn mark_as_zombie(proc_table: &mut ProcessTable, pid: ProcessId, exit_code: usize) {

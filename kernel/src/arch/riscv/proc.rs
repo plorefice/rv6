@@ -95,6 +95,13 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
     }
 }
 
+/// First entry into a forked child via [`context::switch_context`]: restore the
+/// user trap frame and `sret` into userspace.
+extern "C" fn fork_return() -> ! {
+    let pid = sched::current_process_id().expect("fork_return: no current process");
+    resume_process(pid);
+}
+
 /// Switches execution from the current process to the next process.
 ///
 /// Returns when some other task switches back to `current`.
@@ -335,8 +342,9 @@ impl ProcessBuilder for RiscvProcessBuilder {
                 usp: parent.astate.ti.usp,
             },
             tf: parent.astate.tf.clone(),
+            // First switch into the child lands in `fork_return`, which `sret`s to user.
             ctx: Context {
-                ra: 0,
+                ra: fork_return as *const () as usize,
                 sp: layout.kernel_stack.initial_sp.as_usize(),
                 s: [0; 12],
             },
