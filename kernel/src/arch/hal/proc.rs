@@ -11,27 +11,42 @@ pub fn builder() -> impl ProcessBuilder {
     imp::process_builder()
 }
 
+/// Switches execution from the current process to the next process.
+#[inline]
+pub fn switch(current: ProcessId, next: ProcessId) {
+    imp::switch(current, next)
+}
+
+#[inline]
 /// Resumes execution of the specified process.
 pub fn resume(pid: ProcessId) -> ! {
     imp::resume(pid)
 }
 
 mod imp {
-    use crate::proc::{ProcessBuilder, ProcessId};
+    #[cfg(target_arch = "riscv64")]
+    pub use riscv::*;
 
     #[cfg(target_arch = "riscv64")]
-    pub type AddrSpace = crate::arch::riscv::mm::elf::RiscvAddrSpace;
+    mod riscv {
+        use crate::proc::{ProcessBuilder, ProcessId};
 
-    #[cfg(target_arch = "riscv64")]
-    pub type ProcState = crate::arch::riscv::proc::ProcState;
+        pub type AddrSpace = crate::arch::riscv::mm::elf::RiscvAddrSpace;
+        pub type ProcState = crate::arch::riscv::proc::ProcState;
 
-    #[cfg(target_arch = "riscv64")]
-    pub fn process_builder() -> impl ProcessBuilder {
-        crate::arch::riscv::proc::process_builder()
-    }
+        #[inline]
+        pub fn process_builder() -> impl ProcessBuilder {
+            crate::arch::riscv::proc::process_builder()
+        }
 
-    #[cfg(target_arch = "riscv64")]
-    pub fn resume(pid: ProcessId) -> ! {
-        crate::arch::riscv::proc::resume_process(pid)
+        #[inline]
+        pub fn switch(current: ProcessId, next: ProcessId) {
+            crate::arch::riscv::proc::switch_process(current, next)
+        }
+
+        #[inline]
+        pub fn resume(pid: ProcessId) -> ! {
+            crate::arch::riscv::proc::resume_process(pid)
+        }
     }
 }

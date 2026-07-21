@@ -65,6 +65,48 @@ pub fn init(sched: Box<dyn Scheduler>) {
     *SCHEDULER.lock() = Some(sched);
 }
 
+/// Picks runnable processes and switches to them until the system halts.
+///
+/// Must not be called while holding [`SCHEDULER`] or other locks that a woken
+/// task might need. The scheduler lock is dropped before every switch/idle.
+pub fn scheduler_loop() -> ! {
+    loop {
+        let (prev, next) = {
+            let mut guard = SCHEDULER.lock();
+            let sched = guard.as_mut().expect("scheduler not initialized");
+
+            let prev = sched.current();
+            let Some(next) = sched.schedule() else {
+                // Do not hold SCHEDULER across wfi — IRQs may need it.
+                drop(guard);
+                hal::cpu::local_irq_enable();
+                hal::cpu::idle();
+                hal::cpu::local_irq_disable();
+                continue;
+            };
+            (prev, next)
+        };
+
+        {
+            let pt = PROCESS_TABLE.lock();
+            let proc = pt.get(next).expect("scheduled process not found");
+            assert!(matches!(proc.state, ProcessState::Running));
+        }
+
+        if prev == Some(next) {
+            continue;
+        }
+
+        match prev {
+            // Returns when another task switches back to `prev`.
+            Some(current) => hal::proc::switch(current, next),
+            // No outgoing kernel context to save (e.g. first schedule).
+            // Does not return — re-enter via park once that exists.
+            None => hal::proc::resume(next),
+        }
+    }
+}
+
 /// Runs the scheduler to pick the next process to run and performs a context switch if necessary.
 pub fn run_scheduler() {
     let next = {

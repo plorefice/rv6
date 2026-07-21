@@ -5,6 +5,7 @@ use core::{mem::MaybeUninit, time::Duration};
 use crate::{
     arch::riscv::{
         addr::PhysAddrExt,
+        context,
         instructions::fence_i,
         mm::{
             GFA, PROC_KSTACK_MEM_OFFSET, PROC_KSTACK_MEM_SIZE,
@@ -92,6 +93,40 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
             );
         }
     }
+}
+
+/// Switches execution from the current process to the next process.
+///
+/// Returns when some other task switches back to `current`.
+pub fn switch_process(current: ProcessId, next: ProcessId) {
+    if current == next {
+        return;
+    }
+
+    let (current_ctx, next_ctx, satp, tp) = {
+        let mut table = global_process_table().lock();
+
+        let current_ctx = {
+            let proc = table.get_mut(current).expect("current process not found");
+            &raw mut proc.astate.ctx
+        };
+        let (next_ctx, satp, tp) = {
+            let proc = table.get(next).expect("next process not found");
+            let rpt_pa = proc.aspace.root_page_table_pa();
+            // Preserve SATP mode/ASID; replace only the root PPN (same as resume_process).
+            let satp = (Satp::read_raw() & !0xfff_ffff_ffff_u64) | rpt_pa.page_index() as u64;
+            (
+                &raw const proc.astate.ctx,
+                satp as usize,
+                PROC_KSTACK_MEM_OFFSET.as_usize(),
+            )
+        };
+
+        (current_ctx, next_ctx, satp, tp)
+    };
+
+    // SAFETY: contexts are distinct process-table slots; satp/tp describe `next`.
+    unsafe { context::switch_context(current_ctx, next_ctx, satp, tp) };
 }
 
 /// Resumes execution of the specified process by switching address spaces and restoring its trap frame.

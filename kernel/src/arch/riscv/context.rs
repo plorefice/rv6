@@ -24,14 +24,12 @@ unsafe extern "C" {
 /// - `new_satp` must be a valid SATP value for the incoming task.
 /// - `new_tp` must point at that task's [`crate::arch::riscv::proc::ThreadInfo`].
 /// - The caller must not hold locks that the incoming task might need.
-pub unsafe fn switch_context(current: &mut Context, new: &Context, new_satp: usize, new_tp: usize) {
+pub unsafe fn switch_context(
+    current: *mut Context,
+    new: *const Context,
+    new_satp: usize,
+    new_tp: usize,
+) {
     // SAFETY: caller guarantees valid contexts, SATP, and thread-info pointer.
-    unsafe {
-        swtch(
-            current as *mut Context,
-            new as *const Context,
-            new_satp,
-            new_tp,
-        )
-    };
+    unsafe { swtch(current, new, new_satp, new_tp) };
 }
