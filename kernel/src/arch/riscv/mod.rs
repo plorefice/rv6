@@ -9,6 +9,7 @@ pub use mm::phys_to_virt;
 pub use uaccess::with_user_access;
 
 pub mod addr;
+pub mod context;
 pub mod earlycon;
 pub mod entry;
 pub mod instructions;

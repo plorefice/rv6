@@ -300,6 +300,11 @@ impl ProcessBuilder for RiscvProcessBuilder {
                 usp: parent.astate.ti.usp,
             },
             tf: parent.astate.tf.clone(),
+            ctx: Context {
+                ra: 0,
+                sp: layout.kernel_stack.initial_sp.as_usize(),
+                s: [0; 12],
+            },
         };
 
         // Child returns 0 from fork and resumes after the ecall instruction.
@@ -358,9 +363,31 @@ pub struct ThreadInfo {
     pub usp: usize,
 }
 
+/// A structure representing the saved kernel thread context of a process.
+///
+/// Layout must match the offsets in `swtch.S`.
+#[derive(Clone)]
+#[repr(C)]
+pub struct Context {
+    /// Return address (`ra`).
+    pub ra: usize,
+    /// Stack pointer (`sp`).
+    pub sp: usize,
+    /// Callee-saved registers (`s0`–`s11`).
+    pub s: [usize; 12],
+}
+
+const _: () = {
+    assert!(core::mem::offset_of!(Context, ra) == 0);
+    assert!(core::mem::offset_of!(Context, sp) == 8);
+    assert!(core::mem::offset_of!(Context, s) == 16);
+    assert!(core::mem::size_of::<Context>() == 112);
+};
+
 pub struct ProcState {
     pub ti: ThreadInfo,
     pub tf: TrapFrame,
+    pub ctx: Context,
 }
 
 impl Default for ProcState {
@@ -370,6 +397,11 @@ impl Default for ProcState {
             // SAFETY: TrapFrame is a plain data structure with no uninitialized fields,
             //         so it's safe to create an uninitialized instance.
             tf: unsafe { MaybeUninit::zeroed().assume_init() },
+            ctx: Context {
+                ra: 0,
+                sp: 0,
+                s: [0; 12],
+            },
         }
     }
 }
