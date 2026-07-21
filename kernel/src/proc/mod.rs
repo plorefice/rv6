@@ -488,10 +488,25 @@ pub fn exit_current(exit_code: usize) -> ! {
 
     // Mark the process as a zombie and store its exit code.
     // Also reparent any child processes to the init process (PID 0) to ensure they are not orphaned.
+    let mut wake_parent = None;
     {
         let mut proc_table = PROCESS_TABLE.lock();
         mark_as_zombie(&mut proc_table, pid, exit_code);
         reparent_children(&mut proc_table, pid);
+
+        // Wake up parent process that might be waiting for this child to exit
+        let proc = proc_table.get(pid).expect("invalid PID");
+        if let Some(parent_pid) = proc.parent
+            && let Some(parent_proc) = proc_table.get_mut(parent_pid)
+            && matches!(parent_proc.state, ProcessState::Waiting)
+        {
+            parent_proc.state = ProcessState::Running;
+            wake_parent = Some(parent_pid); // Mark parent to be woken up after releasing the lock
+        }
+    }
+
+    if let Some(parent_pid) = wake_parent {
+        sched::enqueue_process(parent_pid); // parent already marked as Running
     }
 
     // Switch to the next runnable process (may resume a parked waiter via swtch).

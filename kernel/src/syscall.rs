@@ -141,36 +141,68 @@ pub fn sys_fork(args: SysArgs) -> SysResult<usize> {
     Ok(child_pid.pid())
 }
 
+enum WaitPoll {
+    Ready {
+        child_pid: ProcessId,
+        exit_code: usize,
+    },
+    Empty,
+    Pending,
+}
+
 /// Waits for a child process to exit and retrieves its exit code.
 pub fn sys_wait(_: SysArgs) -> SysResult<usize> {
     let parent_pid = sched::current_process_id().expect("no current process");
 
-    let mut proc_table = global_process_table().lock();
+    loop {
+        {
+            let mut proc_table = global_process_table().lock();
+            match poll_wait(&proc_table, parent_pid) {
+                WaitPoll::Ready {
+                    child_pid,
+                    exit_code,
+                } => {
+                    let child = proc_table.take(child_pid).expect("invalid child PID");
+                    hal::proc::builder().destroy(child);
 
-    let (child_pid, exit_code) = find_zombie_child(&proc_table, parent_pid)?;
-    let child = proc_table.take(child_pid).expect("invalid child PID");
+                    let parent = proc_table.get_mut(parent_pid).expect("invalid parent PID");
+                    parent.children.retain(|&pid| pid != child_pid);
 
-    hal::proc::builder().destroy(child);
+                    return Ok(exit_code);
+                }
+                WaitPoll::Empty => return Err(Errno::Child),
+                WaitPoll::Pending => {
+                    // Arm the current process to be woken when a child exits, then park it.
+                    // Do this while holding the process table lock to avoid races.
+                    let parent = proc_table.get_mut(parent_pid).expect("invalid parent PID");
+                    parent.state = ProcessState::Waiting;
+                }
+            }
+        } // unlock proc_table
 
-    let parent = proc_table.get_mut(parent_pid).expect("invalid parent PID");
-    parent.children.retain(|&pid| pid != child_pid);
-
-    Ok(exit_code)
+        sched::park_armed();
+    }
 }
 
-fn find_zombie_child(
-    proc_table: &ProcessTable,
-    parent_pid: ProcessId,
-) -> SysResult<(ProcessId, usize)> {
+fn poll_wait(proc_table: &ProcessTable, parent_pid: ProcessId) -> WaitPoll {
     let parent = proc_table.get(parent_pid).expect("invalid parent PID");
+
+    if parent.children.is_empty() {
+        return WaitPoll::Empty; // No children to wait for
+    }
+
     for &child_pid in &parent.children {
         if let Some(child) = proc_table.get(child_pid)
             && let ProcessState::Zombie { exit_code } = child.state
         {
-            return Ok((child_pid, exit_code));
+            return WaitPoll::Ready {
+                child_pid,
+                exit_code,
+            };
         }
     }
-    Err(Errno::Child)
+
+    WaitPoll::Pending // No zombie children found, but there are still children
 }
 
 /// Adjusts the program break (heap size) for the current process.

@@ -156,6 +156,22 @@ pub fn park_current() {
         p.state = ProcessState::Waiting;
     }
 
+    park_process(pid);
+}
+
+/// Same as [`park_current`], but expects the current process to have been marked
+/// [`ProcessState::Waiting`] already.
+///
+/// Note that we do not enforce that the process is actually marked as waiting, as another process
+/// could have woken it before we got to switch away. In that case, the inner `park_process` will
+/// detect that the process is already running due to a lost wakeup or early wake and will resume
+/// execution immediately.
+pub fn park_armed() {
+    let pid = current_process_id().expect("no current process");
+    park_process(pid);
+}
+
+fn park_process(pid: ProcessId) {
     // Must not be requeued by schedule().
     exit_current(pid);
 
