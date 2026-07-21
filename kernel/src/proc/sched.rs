@@ -87,11 +87,12 @@ pub fn take_next() -> Option<ProcessId> {
     sched.schedule()
 }
 
-/// Runs the scheduler: switch to another runnable process.
+/// Relinquish the CPU and switch to another runnable process.
+/// Has no effect when called from the idle task or if current process is the only runnable one.
 ///
 /// Always uses kernel context switch. Userspace entry is via the process's
 /// `return_to_user` trampoline (or the normal trap epilogue after preemption).
-pub fn run_scheduler() {
+pub fn yield_cpu() {
     let (outgoing, next) = {
         let mut sched = SCHEDULER.lock();
         let sched = match sched.as_mut() {
@@ -99,13 +100,16 @@ pub fn run_scheduler() {
             None => return,
         };
 
-        let outgoing = sched.current();
+        let Some(outgoing) = sched.current() else {
+            // No current process (idle). Let the idle loop call `take_next` to pick a new one.
+            return;
+        };
         let Some(next) = sched.schedule() else {
             // No runnable process (and no current). Caller stays put; idle will wfi.
             return;
         };
 
-        if outgoing == Some(next) {
+        if outgoing == next {
             return;
         }
 
@@ -118,7 +122,7 @@ pub fn run_scheduler() {
         assert!(matches!(proc.state, ProcessState::Running));
     }
 
-    hal::proc::switch(outgoing, Some(next));
+    hal::proc::switch(Some(outgoing), Some(next));
 }
 
 /// Allocates a new process in the process table and returns its unique identifier.

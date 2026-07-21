@@ -193,7 +193,7 @@ extern "C" fn handle_exception(tf: &mut TrapFrame, ti: &ThreadInfo) {
         match irq {
             IrqCause::Timer => {
                 time::schedule_next_tick(Duration::from_millis(25));
-                sched::run_scheduler();
+                sched::yield_cpu(); // Forced preemption
             }
             _ => kprintln!("Unhandled IRQ: {:?}", irq),
         }
