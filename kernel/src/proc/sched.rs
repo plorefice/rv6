@@ -220,11 +220,10 @@ pub fn wake_process(proc_id: ProcessId) {
     {
         let mut pt = PROCESS_TABLE.lock();
         let p = pt.get_mut(proc_id).expect("wake_process: invalid pid");
-        assert!(
-            matches!(p.state, ProcessState::Waiting),
-            "wake_process: expected Waiting"
-        );
-        p.state = ProcessState::Running;
+        match p.state {
+            ProcessState::Waiting => p.state = ProcessState::Running,
+            _ => return, // already running / not a waiter
+        }
     }
     enqueue_process(proc_id);
 }

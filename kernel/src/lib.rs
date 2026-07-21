@@ -43,6 +43,7 @@ pub mod ksyms;
 pub mod mm;
 pub mod panic;
 pub mod proc;
+pub mod sync;
 pub mod syscall;
 pub mod vfs;
 
