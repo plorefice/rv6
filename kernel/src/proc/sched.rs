@@ -11,7 +11,7 @@ use crate::{
 
 /// The scheduler trait, which defines the interface for scheduling processes in the system.
 pub trait Scheduler: Send + Sync {
-    /// Schedules the next process to run and returns its context.
+    /// Schedules the next process to run and returns its id.
     ///
     /// If there is a current process, it is moved to the back of the run queue first
     /// (cooperative yield). Call [`Scheduler::exit_current`] before this when the
@@ -77,12 +77,20 @@ pub fn init(sched: Box<dyn Scheduler>) {
     *SCHEDULER.lock() = Some(sched);
 }
 
-/// Runs the scheduler to pick the next process and transfer control to it.
+/// Pops the next runnable process and makes it current.
 ///
-/// When there is an outgoing process, uses a kernel [`hal::proc::switch`] so a
-/// previously parked process can resume after `park_current`. When there is no
-/// outgoing process, falls back to [`hal::proc::resume`] (first enter / no saved
-/// kernel context).
+/// Used by the idle loop. Requires `current` to be `None` (idle is not a process).
+pub fn take_next() -> Option<ProcessId> {
+    let mut sched = SCHEDULER.lock();
+    let sched = sched.as_mut().expect("scheduler not initialized");
+    debug_assert!(sched.current().is_none());
+    sched.schedule()
+}
+
+/// Runs the scheduler: switch to another runnable process.
+///
+/// Always uses kernel context switch. Userspace entry is via the process's
+/// `return_to_user` trampoline (or the normal trap epilogue after preemption).
 pub fn run_scheduler() {
     let (outgoing, next) = {
         let mut sched = SCHEDULER.lock();
@@ -92,9 +100,9 @@ pub fn run_scheduler() {
         };
 
         let outgoing = sched.current();
-        let next = match sched.schedule() {
-            Some(next) => next,
-            None => return,
+        let Some(next) = sched.schedule() else {
+            // No runnable process (and no current). Caller stays put; idle will wfi.
+            return;
         };
 
         if outgoing == Some(next) {
@@ -110,15 +118,7 @@ pub fn run_scheduler() {
         assert!(matches!(proc.state, ProcessState::Running));
     }
 
-    match outgoing {
-        Some(current) => {
-            // Returns if `current` is switched back to later.
-            hal::proc::switch(current, next);
-        }
-        None => {
-            hal::proc::resume(next);
-        }
-    }
+    hal::proc::switch(outgoing, Some(next));
 }
 
 /// Allocates a new process in the process table and returns its unique identifier.
@@ -131,29 +131,13 @@ pub fn allocate_process(p: Process) -> ProcessId {
 pub fn enqueue_process(proc_id: ProcessId) {
     let mut sched = SCHEDULER.lock();
     let sched = sched.as_mut().expect("scheduler not initialized");
-
-    sched.enqueue(proc_id);
-
-    // Bootstrap: if nothing is running yet, make this process current.
-    if sched.current().is_none() {
-        sched.schedule();
-    }
-}
-
-/// Enqueues a process without changing which process is current.
-///
-/// Used by [`wake_process`] so a waker does not steal `current` from a task that
-/// is still on the CPU in [`park_current`].
-fn enqueue_only(proc_id: ProcessId) {
-    let mut sched = SCHEDULER.lock();
-    let sched = sched.as_mut().expect("scheduler not initialized");
     sched.enqueue(proc_id);
 }
 
 /// Parks the current process until it is woken and scheduled again.
 ///
 /// Marks the process [`ProcessState::Waiting`], removes it from the run queue,
-/// then switches to another runnable process (or idles until one appears).
+/// then switches to another runnable process (or the idle context until one appears).
 /// Returns when some other task wakes this process and switches back to it.
 pub fn park_current() {
     let pid = current_process_id().expect("no current process");
@@ -171,48 +155,47 @@ pub fn park_current() {
     // Must not be requeued by schedule().
     exit_current(pid);
 
-    loop {
-        // Lost-wakeup / early-wake: already Running again before we switched away.
-        {
-            let pt = PROCESS_TABLE.lock();
-            let p = pt.get(pid).expect("parked process missing");
-            if matches!(p.state, ProcessState::Running) {
-                let mut sched = SCHEDULER.lock();
-                let sched = sched.as_mut().expect("scheduler not initialized");
-                sched.set_current(Some(pid));
-                return;
-            }
-        }
-
-        let next = {
+    // Lost-wakeup / early-wake: already Running again before we switched away.
+    {
+        let pt = PROCESS_TABLE.lock();
+        let p = pt.get(pid).expect("parked process missing");
+        if matches!(p.state, ProcessState::Running) {
             let mut sched = SCHEDULER.lock();
             let sched = sched.as_mut().expect("scheduler not initialized");
-            debug_assert!(sched.current().is_none());
-            // current is None, so this only pops the run queue.
-            sched.schedule()
-        };
+            sched.set_current(Some(pid));
+            return;
+        }
+    }
 
-        match next {
-            Some(next_pid) => {
-                {
-                    let pt = PROCESS_TABLE.lock();
-                    let proc = pt.get(next_pid).expect("next process missing");
-                    assert!(matches!(proc.state, ProcessState::Running));
-                }
-                // Returns when someone switches back to us.
-                hal::proc::switch(pid, next_pid);
-                return;
+    let next = {
+        let mut sched = SCHEDULER.lock();
+        let sched = sched.as_mut().expect("scheduler not initialized");
+        debug_assert!(sched.current().is_none());
+        // current is None, so this only pops the run queue.
+        sched.schedule()
+    };
+
+    match next {
+        Some(next_pid) => {
+            {
+                let pt = PROCESS_TABLE.lock();
+                let proc = pt.get(next_pid).expect("next process missing");
+                assert!(matches!(proc.state, ProcessState::Running));
             }
-            None => {
-                hal::cpu::local_irq_enable();
-                hal::cpu::idle();
-                hal::cpu::local_irq_disable();
-            }
+            // Returns when someone switches back to us.
+            hal::proc::switch(Some(pid), Some(next_pid));
+        }
+        None => {
+            // No other runnable process — switch to idle until woken.
+            hal::proc::switch(Some(pid), None);
         }
     }
 }
 
 /// Marks a waiting process runnable and places it on the run queue.
+///
+/// Does not change which process is current, so a waker does not steal `current`
+/// from a task that is still on the CPU in [`park_current`].
 pub fn wake_process(proc_id: ProcessId) {
     {
         let mut pt = PROCESS_TABLE.lock();
@@ -223,19 +206,20 @@ pub fn wake_process(proc_id: ProcessId) {
         );
         p.state = ProcessState::Running;
     }
-    enqueue_only(proc_id);
+    enqueue_process(proc_id);
 }
 
-/// Removes the specified process from the scheduler, typically called when a process exits.
+/// Removes the specified process from the scheduler.
 pub fn exit_current(pid: ProcessId) {
     let mut sched = SCHEDULER.lock();
     let sched = sched.as_mut().expect("scheduler not initialized");
-
     sched.exit_current(pid);
 }
 
-/// Picks the next runnable process after `pid` has left the scheduler, then
-/// switches to it. Used by process exit so a parked waiter can resume via `switch`.
+/// Picks the next runnable process after `pid` has left the scheduler, then switches to it.
+///
+/// Used by process exit so a parked waiter can resume via `switch`. If nothing remains
+/// runnable, powers off.
 pub fn switch_from_exiting(pid: ProcessId) -> ! {
     let next = {
         let mut sched = SCHEDULER.lock();
@@ -251,8 +235,7 @@ pub fn switch_from_exiting(pid: ProcessId) -> ! {
                 let proc = pt.get(next_pid).expect("next process missing");
                 assert!(matches!(proc.state, ProcessState::Running));
             }
-            hal::proc::switch(pid, next_pid);
-            // If we ever get back, nothing left to run.
+            hal::proc::switch(Some(pid), Some(next_pid));
             kprintln!("switch_from_exiting: resumed exiting process");
             hal::cpu::halt();
         }

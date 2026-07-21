@@ -9,7 +9,7 @@ use uapi::{Errno, SysArgs, Sysno};
 use crate::{
     arch::riscv::{
         mmu::dump_active_root_page_table,
-        proc::ThreadInfo,
+        proc::{ThreadInfo, init_idle},
         registers::{Sscratch, Stvec},
     },
     proc, sched,
@@ -270,6 +270,9 @@ pub fn init(hart_id: usize) {
     // SIE stays clear in S-mode; user IRQs come from SPIE → SIE on sret
     // SAFETY: stvec has been initialized to point to `trap_entry`
     unsafe { Sstatus::clear(SstatusFlags::SIE) };
+
+    // Initialize the idle kernel thread for this hart
+    init_idle(hart_id);
 }
 
 /// Allocates and initializes a thread info struct for the kernel thread running on the current hart,

@@ -11,16 +11,10 @@ pub fn builder() -> impl ProcessBuilder {
     imp::process_builder()
 }
 
-/// Switches execution from the current process to the next process.
+/// Switch kernel contexts. `None` is the per-hart idle/scheduler context.
 #[inline]
-pub fn switch(current: ProcessId, next: ProcessId) {
-    imp::switch(current, next)
-}
-
-#[inline]
-/// Resumes execution of the specified process.
-pub fn resume(pid: ProcessId) -> ! {
-    imp::resume(pid)
+pub fn switch(outgoing: Option<ProcessId>, next: Option<ProcessId>) {
+    imp::switch(outgoing, next)
 }
 
 mod imp {
@@ -40,13 +34,8 @@ mod imp {
         }
 
         #[inline]
-        pub fn switch(current: ProcessId, next: ProcessId) {
-            crate::arch::riscv::proc::switch_process(current, next)
-        }
-
-        #[inline]
-        pub fn resume(pid: ProcessId) -> ! {
-            crate::arch::riscv::proc::resume_process(pid)
+        pub fn switch(outgoing: Option<ProcessId>, next: Option<ProcessId>) {
+            crate::arch::riscv::proc::switch(outgoing, next)
         }
     }
 }
