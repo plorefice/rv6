@@ -21,6 +21,7 @@
 
 use core::{
     cell::UnsafeCell,
+    fmt,
     ops::{Deref, DerefMut},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -105,6 +106,28 @@ impl<T> SpinLock<T> {
         self.lock.load(Ordering::Relaxed)
     }
 
+    /// Attempts to acquire the lock with a strong compare-exchange.
+    ///
+    /// Returns [`None`] if the lock is contended.
+    /// Prefer [`lock`](Self::lock) unless implementing a custom acquire loop.
+    #[inline]
+    pub fn try_lock(&self) -> Option<SpinLockGuard<'_, T>> {
+        // The reason for using a strong compare_exchange is explained here:
+        // https://github.com/Amanieu/parking_lot/pull/207#issuecomment-575869107
+        if self
+            .lock
+            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+            .is_ok()
+        {
+            Some(SpinLockGuard {
+                lock: &self.lock,
+                data: self.data.get(),
+            })
+        } else {
+            None
+        }
+    }
+
     /// Attempts to acquire the lock with a weak compare-exchange.
     ///
     /// Returns [`None`] if the lock is contended or if the CAS fails spuriously. Prefer
@@ -132,6 +155,17 @@ impl<T: Default> Default for SpinLock<T> {
     }
 }
 
+impl<T: fmt::Debug> fmt::Debug for SpinLock<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.try_lock() {
+            Some(guard) => write!(f, "SpinLock {{ data: ")
+                .and_then(|()| (*guard).fmt(f))
+                .and_then(|()| write!(f, " }}")),
+            None => write!(f, "SpinLock {{ <locked> }}"),
+        }
+    }
+}
+
 impl<T> Deref for SpinLockGuard<'_, T> {
     type Target = T;
 
@@ -151,6 +185,12 @@ impl<T> DerefMut for SpinLockGuard<'_, T> {
 impl<T> Drop for SpinLockGuard<'_, T> {
     fn drop(&mut self) {
         self.lock.store(false, Ordering::Release);
+    }
+}
+
+impl<'a, T: fmt::Debug> fmt::Debug for SpinLockGuard<'a, T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
     }
 }
 

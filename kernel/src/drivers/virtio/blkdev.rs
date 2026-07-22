@@ -2,7 +2,6 @@ use core::{ffi::CStr, hint, io};
 
 use alloc::string::String;
 use bitflags::bitflags;
-use spin::Mutex;
 
 use crate::{
     block::{BlockDev, BlockIoError},
@@ -14,12 +13,13 @@ use crate::{
         addr::DmaAddr,
         dma::{self, DmaAllocator, DmaAllocatorExt},
     },
+    sync::SpinLock,
 };
 
 /// A virtio block device.
 pub struct VirtioBlkDev<D> {
     dev: D,
-    virtq: Mutex<Virtq>,
+    virtq: SpinLock<Virtq>,
     config: VirtioBlkConfig,
     features: DeviceFeatures,
 }
@@ -45,7 +45,7 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
 
         let mut slf = Self {
             dev,
-            virtq: Mutex::new(virtq),
+            virtq: SpinLock::new(virtq),
             features,
             config: VirtioBlkConfig::default(),
         };

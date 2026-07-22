@@ -21,11 +21,11 @@ use crate::{
         allocator::{BitmapAllocator, BumpAllocator, BumpFrameAllocator, FrameAllocator},
     },
     proc::StackSpec,
+    sync::SpinLock,
 };
 use fdt::{Fdt, PropEncodedArray};
 use linked_list_allocator::LockedHeap;
 use mmu::PageTableWalker;
-use spin::Mutex;
 
 pub mod dma;
 pub mod elf;
@@ -99,7 +99,7 @@ unsafe extern "C" {
 }
 
 /// Global frame allocator.
-pub static GFA: Mutex<Option<BitmapAllocator<PAGE_SIZE>>> = Mutex::new(None);
+pub static GFA: SpinLock<Option<BitmapAllocator<PAGE_SIZE>>> = SpinLock::new(None);
 
 /// Global heap allocator.
 /// TODO: remove hard-coded constants.
@@ -111,7 +111,7 @@ static IOMAP: BumpAllocator =
     BumpAllocator::new(IOMAP_MEM_OFFSET.as_usize(), LOAD_OFFSET.as_usize());
 
 /// Kernel global page mapper.
-static MAPPER: Mutex<Option<PageTableWalker<'static>>> = Mutex::new(None);
+static MAPPER: SpinLock<Option<PageTableWalker<'static>>> = SpinLock::new(None);
 
 /// Finishes up memory initialization, by setting up frame and heap allocators.
 ///

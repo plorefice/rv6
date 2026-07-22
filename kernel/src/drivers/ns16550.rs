@@ -4,7 +4,6 @@ use core::{fmt::Write, hint, num::NonZeroUsize};
 
 use alloc::{collections::VecDeque, sync::Arc};
 use fdt::Node;
-use spin::Mutex;
 use uapi::Errno;
 
 use crate::{
@@ -15,7 +14,7 @@ use crate::{
         addr::{MemoryAddress, PhysAddr},
         mmio::{self, IoMapper, IoMapping},
     },
-    sync::WaitQueue,
+    sync::{SpinLock, WaitQueue},
     vfs::file_ops::FileOps,
 };
 
@@ -128,7 +127,7 @@ impl Write for Ns16550 {
 }
 
 impl FileOps for Ns16550 {
-    fn read(&self, _off: &Mutex<u64>, buf: &mut [u8]) -> Result<usize, Errno> {
+    fn read(&self, _off: &SpinLock<u64>, buf: &mut [u8]) -> Result<usize, Errno> {
         let mut i = 0;
         loop {
             let mut g = self.rx_wq.wait_until(|q| !q.is_empty());
@@ -146,14 +145,14 @@ impl FileOps for Ns16550 {
         }
     }
 
-    fn write(&self, _off: &Mutex<u64>, buf: &[u8]) -> Result<usize, Errno> {
+    fn write(&self, _off: &SpinLock<u64>, buf: &[u8]) -> Result<usize, Errno> {
         for &b in buf {
             self.put_raw(b);
         }
         Ok(buf.len())
     }
 
-    fn seek(&self, _off: &Mutex<u64>, _whence: core::io::SeekFrom) -> Result<u64, Errno> {
+    fn seek(&self, _off: &SpinLock<u64>, _whence: core::io::SeekFrom) -> Result<u64, Errno> {
         Err(Errno::NoSys)
     }
 }

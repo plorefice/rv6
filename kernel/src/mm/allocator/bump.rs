@@ -3,14 +3,13 @@ use core::{
     ptr::null_mut,
 };
 
-use spin::Mutex;
-
 use crate::{
     arch::hal,
     mm::{
         addr::{MemoryAddress, PhysAddr},
         allocator::{Frame, FrameAllocator},
     },
+    sync::SpinLock,
 };
 
 /// A simple bump allocator.
@@ -24,7 +23,7 @@ use crate::{
 /// only when all allocated memory has been released, in which case the allocator is reset.
 #[derive(Debug)]
 pub struct BumpAllocator {
-    inner: Mutex<BumpImpl>,
+    inner: SpinLock<BumpImpl>,
 }
 
 #[derive(Debug)]
@@ -44,7 +43,7 @@ impl BumpAllocator {
     pub const fn new(start: usize, end: usize) -> Self {
         assert!(start <= end);
         Self {
-            inner: Mutex::new(BumpImpl {
+            inner: SpinLock::new(BumpImpl {
                 start,
                 end,
                 ptr: end,

@@ -110,7 +110,7 @@ Follow the lints declared in `kernel/src/lib.rs` — they are the de facto style
   through `arch::hal` traits.
 - Logging: use the macros in `kernel/src/macros.rs` (`kprintln!`, `kprint!`, `kdbg!`, etc.),
   not `println!`.
-- Synchronization: `spin::Mutex` (no_std); `lazy_static` with `spin_no_std` where needed.
+- Synchronization: use primitives under `sync`.
 - Syscalls return `Result<T, Errno>` with a negative-errno convention.
 - No formatting/clippy config files exist — use defaults: `cargo fmt --all` and
   `cargo clippy` (per project).
