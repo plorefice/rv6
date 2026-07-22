@@ -1,4 +1,26 @@
-//! Synchronization primitives for the kernel.
+//! Kernel synchronization primitives.
+//!
+//! This module provides:
+//!
+//! - [`Lock`] — mutex-like interface shared by concrete lock types
+//! - [`LockPolicy`] — selects which lock implementation a generic type (e.g. [`WaitQueue`]) uses
+//! - [`WaitQueue`] — condition-style wait/wake over associated data
+//! - [`IrqSpinLock`] / [`IrqSafe`] — IRQ-safe spinning locks
+//!
+//! # Choosing a lock policy
+//!
+//! | Policy | Concrete lock | Disables local IRQs? | Safe from IRQ handlers? |
+//! |--------|---------------|----------------------|-------------------------|
+//! | [`IrqSafe`] (default for [`WaitQueue`]) | [`IrqSpinLock`] | yes | yes |
+//! | [`ProcessContext`] | `spin::Mutex` | no | **no** |
+//!
+//! Both policies still **spin** while the lock is contended; neither puts the caller to sleep.
+//! [`ProcessContext`] only means “process context only” — it is not a sleeping mutex.
+//!
+//! Use [`IrqSafe`] whenever the same data may be locked from an interrupt handler (typical for
+//! wait queues woken by device IRQs). Use [`ProcessContext`] only for data touched exclusively
+//! from process context with local IRQs disabled or otherwise known not to nest with handlers
+//! that take the same lock.
 
 use core::ops::{Deref, DerefMut};
 
@@ -14,28 +36,45 @@ mod spinlock;
 
 pub use spinlock::*;
 
-/// A trait for locking mechanisms that provide mutually exclusive access to data.
+/// Mutex-like exclusive access to a value of type [`Target`](Lock::Target).
+///
+/// Implementations differ in interrupt safety and whether they disable local IRQs while held
+/// (see [`LockPolicy`]). All current implementations spin on contention.
 pub trait Lock {
-    /// The type of data protected by the lock.
+    /// Type of the value protected by this lock.
     type Target;
 
-    /// The type of guard returned by the lock, which provides access to the protected data.
+    /// RAII guard returned by [`lock`](Lock::lock); unlocks on drop.
     type Guard<'a>: Deref<Target = Self::Target> + DerefMut + 'a
     where
         Self: 'a;
 
-    /// Creates a new instance of the lock, initializing it with the provided data.
+    /// Creates a lock protecting `data`.
     fn new(data: Self::Target) -> Self;
 
-    /// Locks the data, returning a guard that provides access to it.
+    /// Acquires the lock and returns a guard for the protected data.
     ///
-    /// Blocking behavior and other details depend on the specific implementation of the lock.
+    /// Spins until the lock is free. Whether local interrupts are masked for the critical
+    /// section depends on the concrete lock type.
     fn lock(&self) -> Self::Guard<'_>;
 }
 
-/// The underlying lock strategy used by a lock.
+/// Selects the concrete [`Lock`] type used by a generic synchronized structure.
+///
+/// Policies are zero-sized markers. The associated type constructor [`Lock`](LockPolicy::Lock)
+/// builds a lock around any payload `T`, so types like [`WaitQueue`] can protect several fields
+/// with the same strategy:
+///
+/// ```ignore
+/// struct Example<P: LockPolicy> {
+///     a: P::Lock<u32>,
+///     b: P::Lock<VecDeque<u8>>,
+/// }
+/// ```
+///
+/// See the [module-level overview](crate::sync) and the [`IrqSafe`] / [`ProcessContext`] docs.
 pub trait LockPolicy {
-    /// The type of lock that implements this policy.
+    /// Lock type this policy uses for a payload `T`.
     type Lock<T>: Lock<Target = T>;
 }
 
@@ -56,22 +95,34 @@ impl<T> Lock for Mutex<T> {
     }
 }
 
-/// A lock policy for process-context-only that uses a `spin::Mutex` for synchronization.
+/// [`LockPolicy`] for data accessed only from process context.
 ///
-/// It can be used to protect data that is accessed by multiple processes, but does not require
-/// disabling interrupts. As such it must not be used to protect resources that are accessed from
-/// interrupt context.
+/// Uses `spin::Mutex`: callers spin on contention and **local interrupts stay enabled**.
+/// Taking this lock from an interrupt handler can deadlock if the interrupted context already
+/// holds it.
+///
+/// Prefer [`IrqSafe`] when in doubt, especially for wait queues.
 pub struct ProcessContext;
 
 impl LockPolicy for ProcessContext {
     type Lock<T> = Mutex<T>;
 }
 
-/// A wait queue for processes with associated data.
+/// Wait queue pairing protected data with a list of sleeping processes.
 ///
-/// This structure allows processes to wait for certain events or conditions to be met before
-/// they can continue execution. Processes can be added to the wait queue and will be woken up when
-/// the event they are waiting for occurs.
+/// Processes block with [`wait_until`](WaitQueue::wait_until) until a predicate over the data
+/// holds; wakers update the data under [`lock`](WaitQueue::lock) and call
+/// [`wake_one`](WaitQueueGuard::wake_one) / [`wake_all`](WaitQueueGuard::wake_all).
+///
+/// The lock policy `P` applies to both the payload and the sleeper list. The default is
+/// [`IrqSafe`], which is appropriate when waking from interrupt handlers (e.g. a UART RX
+/// queue). Use [`WaitQueue<T, ProcessContext>`] only if every lock and wake stays in process
+/// context.
+///
+/// # Lost wakeups
+///
+/// [`wait_until`](WaitQueue::wait_until) arms the process, drops the lock, then parks via
+/// [`sched::park_armed`]. An early wake before the park is handled by that API.
 pub struct WaitQueue<T, P: LockPolicy = IrqSafe> {
     data: P::Lock<T>,
     sleepers: P::Lock<VecDeque<ProcessId>>,
@@ -84,7 +135,7 @@ impl<T: Default> Default for WaitQueue<T> {
 }
 
 impl<T, P: LockPolicy> WaitQueue<T, P> {
-    /// Creates a new wait queue with the given data.
+    /// Creates a wait queue with the given initial data and an empty sleeper list.
     pub fn new(data: T) -> Self {
         WaitQueue {
             data: P::Lock::new(data),
@@ -92,9 +143,10 @@ impl<T, P: LockPolicy> WaitQueue<T, P> {
         }
     }
 
-    /// Locks the wait queue's data and returns a guard that allows access to it.
+    /// Locks the wait-queue data and returns a guard.
     ///
-    /// This function is useful for accessing or modifying the data associated with the wait queue.
+    /// Use the guard to mutate the payload and to [`wake_one`](WaitQueueGuard::wake_one) /
+    /// [`wake_all`](WaitQueueGuard::wake_all) sleepers.
     pub fn lock(&self) -> WaitQueueGuard<'_, T, P> {
         WaitQueueGuard {
             wq: self,
@@ -102,7 +154,13 @@ impl<T, P: LockPolicy> WaitQueue<T, P> {
         }
     }
 
-    /// Waits until the provided condition is met, blocking the current process if necessary.
+    /// Blocks the current process until `ready` is true for the protected data.
+    ///
+    /// Returns a guard with the data still locked so the caller can consume or update it.
+    ///
+    /// # Panics
+    ///
+    /// Panics if there is no current process (must not be called from the idle context).
     pub fn wait_until(&self, mut ready: impl FnMut(&T) -> bool) -> WaitQueueGuard<'_, T, P> {
         let pid = sched::current_process_id().expect("wait_until: no current process");
 
@@ -116,6 +174,9 @@ impl<T, P: LockPolicy> WaitQueue<T, P> {
         guard
     }
 
+    /// Marks `pid` waiting and enqueues it on this wait queue.
+    ///
+    /// Called while the data lock is held; the caller must drop that lock before parking.
     fn arm(&self, pid: ProcessId) {
         let mut pt = global_process_table().lock();
         let proc = pt.get_mut(pid).expect("arm: invalid process ID");
@@ -128,21 +189,25 @@ impl<T, P: LockPolicy> WaitQueue<T, P> {
     }
 }
 
-/// A guard that provides access to the data in a wait queue while ensuring proper synchronization.
+/// Guard for [`WaitQueue`] data; unlocks on drop.
+///
+/// Derefs to the protected payload. Wake methods may be called while the guard is held.
 pub struct WaitQueueGuard<'a, T, P: LockPolicy> {
     wq: &'a WaitQueue<T, P>,
     inner: <<P as LockPolicy>::Lock<T> as Lock>::Guard<'a>,
 }
 
 impl<'a, T, P: LockPolicy> WaitQueueGuard<'a, T, P> {
-    /// Wakes up one process from the wait queue, if any.
+    /// Dequeues one sleeper and marks it runnable, if any.
+    ///
+    /// Returns the woken process id, or [`None`] if the sleeper list was empty.
     pub fn wake_one(&self) -> Option<ProcessId> {
         let pid = self.wq.sleepers.lock().pop_front()?;
         sched::wake_process(pid);
         Some(pid)
     }
 
-    /// Wakes up all processes in the wait queue.
+    /// Wakes every process currently queued on this wait queue.
     pub fn wake_all(&self) {
         while self.wake_one().is_some() {}
     }

@@ -1,3 +1,13 @@
+//! IRQ-safe spinning locks.
+//!
+//! [`IrqSpinLock`] combines a `spin::Mutex` with [`LocalIrqGuard`](crate::arch::hal::cpu::LocalIrqGuard):
+//! local interrupts are disabled before the mutex is taken and restored when the guard is dropped.
+//! That prevents the classic deadlock where a process holds the lock, an interrupt runs on the
+//! same hart, and the handler tries to take the same lock.
+//!
+//! [`IrqSafe`] is the [`LockPolicy`](crate::sync::LockPolicy) that selects [`IrqSpinLock`] for
+//! generic types such as [`WaitQueue`](crate::sync::WaitQueue).
+
 use core::ops::{Deref, DerefMut};
 
 use crate::{
@@ -5,15 +15,21 @@ use crate::{
     sync::{Lock, LockPolicy},
 };
 
-/// A spinlock that disables interrupts while held.
+/// Spinlock that masks local interrupts for the duration of the critical section.
 ///
-/// This lock is useful for protecting data structures that may be accessed from interrupt context,
-/// ensuring that interrupts are disabled while the lock is held.
+/// Acquisition order is: disable IRQs, then lock the inner mutex. Release order is the reverse
+/// (mutex unlock, then restore IRQs), enforced by [`IrqSpinLockGuard`] field drop order.
+///
+/// Nesting is supported: each acquisition saves and restores the previous IRQ-enable state via
+/// [`LocalIrqGuard`](crate::arch::hal::cpu::LocalIrqGuard).
 pub struct IrqSpinLock<T> {
     inner: spin::Mutex<T>,
 }
 
-/// A guard that holds an `IrqSpinLock` and restores the previous interrupt state when dropped.
+/// Guard for [`IrqSpinLock`]; unlocks the mutex and restores local IRQ state on drop.
+///
+/// Field order is load-bearing: `guard` must be declared before `_irq_guard` so the mutex is
+/// released while interrupts are still disabled.
 pub struct IrqSpinLockGuard<'a, T: 'a> {
     // IMPORTANT: keep this field first, so that it is dropped before `_irq_guard`.
     guard: spin::MutexGuard<'a, T>,
@@ -27,7 +43,7 @@ impl<T: Default> Default for IrqSpinLock<T> {
 }
 
 impl<T> IrqSpinLock<T> {
-    /// Creates a new `IrqSpinLock` protecting the given data.
+    /// Creates an IRQ-safe spinlock protecting `data`.
     pub const fn new(data: T) -> Self {
         IrqSpinLock {
             inner: spin::Mutex::new(data),
@@ -36,10 +52,9 @@ impl<T> IrqSpinLock<T> {
 }
 
 impl<T> IrqSpinLock<T> {
-    /// Locks the `IrqSpinLock`, disabling interrupts and returning a guard that allows access
-    /// to the inner data.
+    /// Disables local IRQs, acquires the lock, and returns a guard for the protected data.
     ///
-    /// Interrupts will be restored to their previous state when the guard is dropped.
+    /// Interrupts are restored to their previous state when the guard is dropped.
     pub fn lock(&self) -> IrqSpinLockGuard<'_, T> {
         let _irq_guard = LocalIrqGuard::new();
         let guard = self.inner.lock();
@@ -78,10 +93,10 @@ impl<T> Lock for IrqSpinLock<T> {
     }
 }
 
-/// A lock policy for interrupt context that uses an `IrqSpinLock` for synchronization.
+/// [`LockPolicy`] that uses [`IrqSpinLock`] for every payload type.
 ///
-/// This lock policy is suitable for protecting data that may be accessed from interrupt context,
-/// as it disables interrupts while the lock is held.
+/// Suitable for shared state accessed from both process context and interrupt handlers.
+/// This is the default policy for [`WaitQueue`](super::WaitQueue).
 pub struct IrqSafe;
 
 impl LockPolicy for IrqSafe {
