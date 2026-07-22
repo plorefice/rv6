@@ -56,7 +56,15 @@ pub fn request_irq(irq: u32, handler: Arc<dyn IrqHandler>) {
 
 /// Dispatch an interrupt to the registered handler.
 pub fn dispatch_irq(irq: u32) -> IrqReturn {
-    if let Some(handler) = &HANDLERS.lock()[irq as usize] {
+    let handler = {
+        let handlers = HANDLERS.lock();
+        if irq as usize >= handlers.len() {
+            return IrqReturn::Unhandled;
+        }
+        handlers[irq as usize].clone()
+    };
+
+    if let Some(handler) = handler {
         handler.handle()
     } else {
         IrqReturn::Unhandled
