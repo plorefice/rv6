@@ -10,6 +10,10 @@ use crate::{
     sched,
 };
 
+mod spinlock;
+
+pub use spinlock::*;
+
 /// A wait queue for processes with associated data.
 ///
 /// This structure allows processes to wait for certain events or conditions to be met before
