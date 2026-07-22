@@ -2,9 +2,10 @@
 //!
 //! This module provides:
 //!
-//! - [`Lock`] — mutex-like interface shared by concrete lock types
+//! - [`Lock`] — exclusive-lock interface shared by concrete lock types
 //! - [`LockPolicy`] — selects which lock implementation a generic type (e.g. [`WaitQueue`]) uses
 //! - [`WaitQueue`] — condition-style wait/wake over associated data
+//! - [`SpinLock`] — plain spinning lock (not IRQ-safe)
 //! - [`IrqSpinLock`] / [`IrqSafe`] — IRQ-safe spinning locks
 //!
 //! # Choosing a lock policy
@@ -12,20 +13,18 @@
 //! | Policy | Concrete lock | Disables local IRQs? | Safe from IRQ handlers? |
 //! |--------|---------------|----------------------|-------------------------|
 //! | [`IrqSafe`] (default for [`WaitQueue`]) | [`IrqSpinLock`] | yes | yes |
-//! | [`ProcessContext`] | `spin::Mutex` | no | **no** |
+//! | [`ProcessContext`] | [`SpinLock`] | no | **no** |
 //!
 //! Both policies still **spin** while the lock is contended; neither puts the caller to sleep.
 //! [`ProcessContext`] only means “process context only” — it is not a sleeping mutex.
 //!
 //! Use [`IrqSafe`] whenever the same data may be locked from an interrupt handler (typical for
 //! wait queues woken by device IRQs). Use [`ProcessContext`] only for data touched exclusively
-//! from process context with local IRQs disabled or otherwise known not to nest with handlers
-//! that take the same lock.
+//! from process context where a handler cannot take the same lock.
 
 use core::ops::{Deref, DerefMut};
 
 use alloc::collections::VecDeque;
-use spin::{Mutex, MutexGuard};
 
 use crate::{
     proc::{ProcessId, ProcessState, global_process_table},
@@ -36,7 +35,7 @@ mod spinlock;
 
 pub use spinlock::*;
 
-/// Mutex-like exclusive access to a value of type [`Target`](Lock::Target).
+/// Exclusive access to a value of type [`Target`](Lock::Target).
 ///
 /// Implementations differ in interrupt safety and whether they disable local IRQs while held
 /// (see [`LockPolicy`]). All current implementations spin on contention.
@@ -78,26 +77,9 @@ pub trait LockPolicy {
     type Lock<T>: Lock<Target = T>;
 }
 
-impl<T> Lock for Mutex<T> {
-    type Target = T;
-
-    type Guard<'a>
-        = MutexGuard<'a, T>
-    where
-        Self: 'a;
-
-    fn new(data: Self::Target) -> Self {
-        Mutex::new(data)
-    }
-
-    fn lock(&self) -> Self::Guard<'_> {
-        self.lock()
-    }
-}
-
 /// [`LockPolicy`] for data accessed only from process context.
 ///
-/// Uses `spin::Mutex`: callers spin on contention and **local interrupts stay enabled**.
+/// Uses [`SpinLock`]: callers spin on contention and **local interrupts stay enabled**.
 /// Taking this lock from an interrupt handler can deadlock if the interrupted context already
 /// holds it.
 ///
@@ -105,7 +87,7 @@ impl<T> Lock for Mutex<T> {
 pub struct ProcessContext;
 
 impl LockPolicy for ProcessContext {
-    type Lock<T> = Mutex<T>;
+    type Lock<T> = SpinLock<T>;
 }
 
 /// Wait queue pairing protected data with a list of sleeping processes.
