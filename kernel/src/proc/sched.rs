@@ -1,12 +1,12 @@
 //! Process scheduling.
 
 use alloc::{boxed::Box, collections::VecDeque};
-use spin::Mutex;
 
 use crate::{
     arch::hal,
     drivers::syscon,
     proc::{PROCESS_TABLE, Process, ProcessId, ProcessState},
+    sync::IrqSpinLock,
 };
 
 /// The scheduler trait, which defines the interface for scheduling processes in the system.
@@ -69,8 +69,8 @@ impl Scheduler for RoundRobinScheduler {
     }
 }
 
-// Global scheduler instance, protected by a mutex for safe concurrent access.
-static SCHEDULER: Mutex<Option<Box<dyn Scheduler>>> = Mutex::new(None);
+// Global scheduler instance, protected by a spinlock for safe concurrent access.
+static SCHEDULER: IrqSpinLock<Option<Box<dyn Scheduler>>> = IrqSpinLock::new(None);
 
 /// Initializes the scheduler subsystem with the given scheduler implementation.
 pub fn init(sched: Box<dyn Scheduler>) {

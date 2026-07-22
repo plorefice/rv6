@@ -8,9 +8,11 @@ use core::{
 use alloc::{boxed::Box, collections::VecDeque};
 use fdt::{Fdt, StringList};
 pub use sifive_plic::*;
-use spin::{Mutex, MutexGuard};
 
-use crate::drivers::{DriverCtx, DriverError, DynDriverInfo};
+use crate::{
+    drivers::{DriverCtx, DriverError, DynDriverInfo},
+    sync::{IrqSpinLock, IrqSpinLockGuard},
+};
 
 mod sifive_plic;
 
@@ -38,8 +40,8 @@ pub trait InterruptController: Sync + Send {
     fn complete(&self, irq: u32);
 }
 
-/// Global IRQ chip.
-static PLIC: Mutex<Option<Box<dyn InterruptController>>> = Mutex::new(None);
+/// Global IRQ chip, protected by a spinlock for safe concurrent access.
+static PLIC: IrqSpinLock<Option<Box<dyn InterruptController>>> = IrqSpinLock::new(None);
 
 /// Initializes the platform IRQ chip(s).
 pub fn init<'d>(ctx: &DriverCtx, fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
@@ -82,7 +84,7 @@ where
 
 /// Guard for accessing the global IRQ chip.
 pub struct IrqChipGuard<'a> {
-    inner: MutexGuard<'a, Option<Box<dyn InterruptController>>>,
+    inner: IrqSpinLockGuard<'a, Option<Box<dyn InterruptController>>>,
 }
 
 impl Deref for IrqChipGuard<'_> {

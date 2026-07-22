@@ -3,12 +3,12 @@
 use core::{error::Error, fmt};
 
 use alloc::vec::Vec;
-use spin::Mutex;
 
 use crate::{
     arch::hal,
     mm::addr::VirtAddr,
     proc::elf::{ElfLoadError, ElfLoader, LoadSegment},
+    sync::IrqSpinLock,
     vfs::fd::FdTable,
 };
 
@@ -247,8 +247,8 @@ impl ProcessTable {
     }
 }
 
-// Global process table, protected by a mutex for safe concurrent access.
-static PROCESS_TABLE: Mutex<ProcessTable> = Mutex::new(ProcessTable::new());
+// Global process table, protected by a spinlock for safe concurrent access.
+static PROCESS_TABLE: IrqSpinLock<ProcessTable> = IrqSpinLock::new(ProcessTable::new());
 
 /// A trait to implement a user space process builder and executor.
 pub trait ProcessBuilder {
@@ -533,7 +533,7 @@ fn reparent_children(proc_table: &mut ProcessTable, pid: ProcessId) {
     }
 }
 
-/// Returns a reference to the global process table, protected by a mutex for safe concurrent access.
-pub fn global_process_table() -> &'static Mutex<ProcessTable> {
+/// Returns a reference to the global process table, protected by a spinlock for safe concurrent access.
+pub fn global_process_table() -> &'static IrqSpinLock<ProcessTable> {
     &PROCESS_TABLE
 }

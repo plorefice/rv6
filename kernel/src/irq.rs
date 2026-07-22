@@ -1,9 +1,8 @@
 //! Kernel interrupt handling and management.
 
 use alloc::sync::Arc;
-use spin::Mutex;
 
-use crate::drivers::irqchip;
+use crate::{drivers::irqchip, sync::IrqSpinLock};
 
 /// Callbacks for handling interrupts.
 pub trait IrqHandler: Send + Sync + 'static {
@@ -39,7 +38,8 @@ impl IrqHandler for Arc<dyn IrqHandler> {
 }
 
 /// Global interrupt handler registry.
-static HANDLERS: Mutex<[Option<Arc<dyn IrqHandler>>; 1024]> = Mutex::new([const { None }; 1024]);
+static HANDLERS: IrqSpinLock<[Option<Arc<dyn IrqHandler>>; 1024]> =
+    IrqSpinLock::new([const { None }; 1024]);
 
 /// Register an interrupt handler for a given IRQ number and enable the interrupt in the global IRQ chip.
 ///
