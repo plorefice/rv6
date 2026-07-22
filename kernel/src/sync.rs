@@ -17,7 +17,7 @@ pub use spinlock::*;
 /// A trait for locking mechanisms that provide mutually exclusive access to data.
 pub trait Lock {
     /// The type of data protected by the lock.
-    type Target: ?Sized;
+    type Target;
 
     /// The type of guard returned by the lock, which provides access to the protected data.
     type Guard<'a>: Deref<Target = Self::Target> + DerefMut + 'a
@@ -25,9 +25,7 @@ pub trait Lock {
         Self: 'a;
 
     /// Creates a new instance of the lock, initializing it with the provided data.
-    fn new(data: Self::Target) -> Self
-    where
-        Self::Target: Sized;
+    fn new(data: Self::Target) -> Self;
 
     /// Locks the data, returning a guard that provides access to it.
     ///
@@ -38,10 +36,10 @@ pub trait Lock {
 /// The underlying lock strategy used by a lock.
 pub trait LockPolicy {
     /// The type of lock that implements this policy.
-    type Lock<T: ?Sized>: Lock<Target = T> + ?Sized;
+    type Lock<T>: Lock<Target = T>;
 }
 
-impl<T: ?Sized> Lock for Mutex<T> {
+impl<T> Lock for Mutex<T> {
     type Target = T;
 
     type Guard<'a>
@@ -49,10 +47,7 @@ impl<T: ?Sized> Lock for Mutex<T> {
     where
         Self: 'a;
 
-    fn new(data: Self::Target) -> Self
-    where
-        Self::Target: Sized,
-    {
+    fn new(data: Self::Target) -> Self {
         Mutex::new(data)
     }
 
@@ -69,7 +64,7 @@ impl<T: ?Sized> Lock for Mutex<T> {
 pub struct ProcessContext;
 
 impl LockPolicy for ProcessContext {
-    type Lock<T: ?Sized> = Mutex<T>;
+    type Lock<T> = Mutex<T>;
 }
 
 /// A wait queue for processes with associated data.

@@ -9,12 +9,12 @@ use crate::{
 ///
 /// This lock is useful for protecting data structures that may be accessed from interrupt context,
 /// ensuring that interrupts are disabled while the lock is held.
-pub struct IrqSpinLock<T: ?Sized> {
+pub struct IrqSpinLock<T> {
     inner: spin::Mutex<T>,
 }
 
 /// A guard that holds an `IrqSpinLock` and restores the previous interrupt state when dropped.
-pub struct IrqSpinLockGuard<'a, T: 'a + ?Sized> {
+pub struct IrqSpinLockGuard<'a, T: 'a> {
     // IMPORTANT: keep this field first, so that it is dropped before `_irq_guard`.
     guard: spin::MutexGuard<'a, T>,
     _irq_guard: LocalIrqGuard,
@@ -35,7 +35,7 @@ impl<T> IrqSpinLock<T> {
     }
 }
 
-impl<T: ?Sized> IrqSpinLock<T> {
+impl<T> IrqSpinLock<T> {
     /// Locks the `IrqSpinLock`, disabling interrupts and returning a guard that allows access
     /// to the inner data.
     ///
@@ -47,7 +47,7 @@ impl<T: ?Sized> IrqSpinLock<T> {
     }
 }
 
-impl<'a, T: ?Sized> Deref for IrqSpinLockGuard<'a, T> {
+impl<'a, T> Deref for IrqSpinLockGuard<'a, T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -55,13 +55,13 @@ impl<'a, T: ?Sized> Deref for IrqSpinLockGuard<'a, T> {
     }
 }
 
-impl<'a, T: ?Sized> DerefMut for IrqSpinLockGuard<'a, T> {
+impl<'a, T> DerefMut for IrqSpinLockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.guard
     }
 }
 
-impl<T: ?Sized> Lock for IrqSpinLock<T> {
+impl<T> Lock for IrqSpinLock<T> {
     type Target = T;
 
     type Guard<'a>
@@ -69,10 +69,7 @@ impl<T: ?Sized> Lock for IrqSpinLock<T> {
     where
         Self: 'a;
 
-    fn new(data: Self::Target) -> Self
-    where
-        Self::Target: Sized,
-    {
+    fn new(data: Self::Target) -> Self {
         IrqSpinLock::new(data)
     }
 
@@ -88,5 +85,5 @@ impl<T: ?Sized> Lock for IrqSpinLock<T> {
 pub struct IrqSafe;
 
 impl LockPolicy for IrqSafe {
-    type Lock<T: ?Sized> = IrqSpinLock<T>;
+    type Lock<T> = IrqSpinLock<T>;
 }
