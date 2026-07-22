@@ -72,9 +72,9 @@ impl LockPolicy for ProcessContext {
 /// This structure allows processes to wait for certain events or conditions to be met before
 /// they can continue execution. Processes can be added to the wait queue and will be woken up when
 /// the event they are waiting for occurs.
-pub struct WaitQueue<T> {
-    data: Mutex<T>,
-    sleepers: Mutex<VecDeque<ProcessId>>,
+pub struct WaitQueue<T, P: LockPolicy = IrqSafe> {
+    data: P::Lock<T>,
+    sleepers: P::Lock<VecDeque<ProcessId>>,
 }
 
 impl<T: Default> Default for WaitQueue<T> {
@@ -83,19 +83,19 @@ impl<T: Default> Default for WaitQueue<T> {
     }
 }
 
-impl<T> WaitQueue<T> {
+impl<T, P: LockPolicy> WaitQueue<T, P> {
     /// Creates a new wait queue with the given data.
-    pub const fn new(data: T) -> Self {
+    pub fn new(data: T) -> Self {
         WaitQueue {
-            data: Mutex::new(data),
-            sleepers: Mutex::new(VecDeque::new()),
+            data: P::Lock::new(data),
+            sleepers: P::Lock::new(VecDeque::new()),
         }
     }
 
     /// Locks the wait queue's data and returns a guard that allows access to it.
     ///
     /// This function is useful for accessing or modifying the data associated with the wait queue.
-    pub fn lock(&self) -> WaitQueueGuard<'_, T> {
+    pub fn lock(&self) -> WaitQueueGuard<'_, T, P> {
         WaitQueueGuard {
             wq: self,
             inner: self.data.lock(),
@@ -103,7 +103,7 @@ impl<T> WaitQueue<T> {
     }
 
     /// Waits until the provided condition is met, blocking the current process if necessary.
-    pub fn wait_until(&self, mut ready: impl FnMut(&T) -> bool) -> WaitQueueGuard<'_, T> {
+    pub fn wait_until(&self, mut ready: impl FnMut(&T) -> bool) -> WaitQueueGuard<'_, T, P> {
         let pid = sched::current_process_id().expect("wait_until: no current process");
 
         let mut guard = self.lock();
@@ -129,12 +129,12 @@ impl<T> WaitQueue<T> {
 }
 
 /// A guard that provides access to the data in a wait queue while ensuring proper synchronization.
-pub struct WaitQueueGuard<'a, T> {
-    wq: &'a WaitQueue<T>,
-    inner: MutexGuard<'a, T>,
+pub struct WaitQueueGuard<'a, T, P: LockPolicy> {
+    wq: &'a WaitQueue<T, P>,
+    inner: <<P as LockPolicy>::Lock<T> as Lock>::Guard<'a>,
 }
 
-impl<'a, T> WaitQueueGuard<'a, T> {
+impl<'a, T, P: LockPolicy> WaitQueueGuard<'a, T, P> {
     /// Wakes up one process from the wait queue, if any.
     pub fn wake_one(&self) -> Option<ProcessId> {
         let pid = self.wq.sleepers.lock().pop_front()?;
@@ -148,7 +148,7 @@ impl<'a, T> WaitQueueGuard<'a, T> {
     }
 }
 
-impl<T> Deref for WaitQueueGuard<'_, T> {
+impl<T, P: LockPolicy> Deref for WaitQueueGuard<'_, T, P> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -156,7 +156,7 @@ impl<T> Deref for WaitQueueGuard<'_, T> {
     }
 }
 
-impl<T> DerefMut for WaitQueueGuard<'_, T> {
+impl<T, P: LockPolicy> DerefMut for WaitQueueGuard<'_, T, P> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
