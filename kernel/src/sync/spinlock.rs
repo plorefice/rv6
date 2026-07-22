@@ -1,6 +1,9 @@
 use core::ops::{Deref, DerefMut};
 
-use crate::arch::hal::cpu::LocalIrqGuard;
+use crate::{
+    arch::hal::cpu::LocalIrqGuard,
+    sync::{Lock, LockPolicy},
+};
 
 /// A spinlock that disables interrupts while held.
 ///
@@ -56,4 +59,34 @@ impl<'a, T: ?Sized> DerefMut for IrqSpinLockGuard<'a, T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.guard
     }
+}
+
+impl<T: ?Sized> Lock for IrqSpinLock<T> {
+    type Target = T;
+
+    type Guard<'a>
+        = IrqSpinLockGuard<'a, T>
+    where
+        Self: 'a;
+
+    fn new(data: Self::Target) -> Self
+    where
+        Self::Target: Sized,
+    {
+        IrqSpinLock::new(data)
+    }
+
+    fn lock(&self) -> Self::Guard<'_> {
+        self.lock()
+    }
+}
+
+/// A lock policy for interrupt context that uses an `IrqSpinLock` for synchronization.
+///
+/// This lock policy is suitable for protecting data that may be accessed from interrupt context,
+/// as it disables interrupts while the lock is held.
+pub struct IrqSafe;
+
+impl LockPolicy for IrqSafe {
+    type Lock<T: ?Sized> = IrqSpinLock<T>;
 }

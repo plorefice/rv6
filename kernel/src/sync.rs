@@ -14,6 +14,64 @@ mod spinlock;
 
 pub use spinlock::*;
 
+/// A trait for locking mechanisms that provide mutually exclusive access to data.
+pub trait Lock {
+    /// The type of data protected by the lock.
+    type Target: ?Sized;
+
+    /// The type of guard returned by the lock, which provides access to the protected data.
+    type Guard<'a>: Deref<Target = Self::Target> + DerefMut + 'a
+    where
+        Self: 'a;
+
+    /// Creates a new instance of the lock, initializing it with the provided data.
+    fn new(data: Self::Target) -> Self
+    where
+        Self::Target: Sized;
+
+    /// Locks the data, returning a guard that provides access to it.
+    ///
+    /// Blocking behavior and other details depend on the specific implementation of the lock.
+    fn lock(&self) -> Self::Guard<'_>;
+}
+
+/// The underlying lock strategy used by a lock.
+pub trait LockPolicy {
+    /// The type of lock that implements this policy.
+    type Lock<T: ?Sized>: Lock<Target = T> + ?Sized;
+}
+
+impl<T: ?Sized> Lock for Mutex<T> {
+    type Target = T;
+
+    type Guard<'a>
+        = MutexGuard<'a, T>
+    where
+        Self: 'a;
+
+    fn new(data: Self::Target) -> Self
+    where
+        Self::Target: Sized,
+    {
+        Mutex::new(data)
+    }
+
+    fn lock(&self) -> Self::Guard<'_> {
+        self.lock()
+    }
+}
+
+/// A lock policy for process-context-only that uses a `spin::Mutex` for synchronization.
+///
+/// It can be used to protect data that is accessed by multiple processes, but does not require
+/// disabling interrupts. As such it must not be used to protect resources that are accessed from
+/// interrupt context.
+pub struct ProcessContext;
+
+impl LockPolicy for ProcessContext {
+    type Lock<T: ?Sized> = Mutex<T>;
+}
+
 /// A wait queue for processes with associated data.
 ///
 /// This structure allows processes to wait for certain events or conditions to be met before
