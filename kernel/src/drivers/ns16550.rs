@@ -2,7 +2,7 @@
 
 use core::{fmt::Write, hint, num::NonZeroUsize};
 
-use alloc::sync::Arc;
+use alloc::{collections::VecDeque, sync::Arc};
 use fdt::Node;
 use spin::Mutex;
 use uapi::Errno;
@@ -10,10 +10,12 @@ use uapi::Errno;
 use crate::{
     console, driver_info,
     drivers::{Driver, DriverCtx},
+    irq::{self, IrqHandler, IrqReturn},
     mm::{
         addr::{MemoryAddress, PhysAddr},
         mmio::{self, IoMapper, IoMapping},
     },
+    sync::WaitQueue,
     vfs::file_ops::FileOps,
 };
 
@@ -27,6 +29,7 @@ driver_info! {
 /// Device driver of the 16550 UART IC.
 pub struct Ns16550 {
     regmap: IoMapping,
+    rx_wq: WaitQueue<VecDeque<u8>>,
 }
 
 impl Driver for Ns16550 {
@@ -41,11 +44,22 @@ impl Driver for Ns16550 {
 
         let regmap = mmio::mapper().iomap(pa_base, size).unwrap();
 
-        let slf = Self { regmap };
+        let slf = Arc::new(Self {
+            regmap,
+            rx_wq: WaitQueue::new(VecDeque::new()),
+        });
+
+        // Configure the interrupt controller to enable interrupts for the UART
+        let irqn = node
+            .property::<u32>("interrupts")
+            .ok_or(DriverError::MissingRequiredProperty("interrupts"))?;
+
+        irq::request_irq(irqn, slf.clone());
+        slf.enable_interrupts();
 
         kprintln!("ns16550: UART at 0x{:x}", base);
 
-        console::register(Arc::new(slf));
+        console::register(slf);
 
         Ok(())
     }
@@ -53,10 +67,11 @@ impl Driver for Ns16550 {
 
 impl Ns16550 {
     const RTHR: usize = 0;
+    const IER: usize = 1;
     const LSR: usize = 5;
 
     /// Writes a single byte to the serial interface.
-    pub fn put(&self, val: u8) {
+    pub fn put_raw(&self, val: u8) {
         while self.regmap.read::<u8>(Self::LSR) & 0b0010_0000 == 0 {
             hint::spin_loop();
         }
@@ -64,13 +79,39 @@ impl Ns16550 {
     }
 
     /// Returns the next received byte, or `None` if the Rx queue is empty.
-    pub fn get(&self) -> Option<u8> {
+    #[inline]
+    pub fn get_raw(&self) -> Option<u8> {
         self.data_ready().then(|| self.regmap.read(Self::RTHR))
     }
 
     /// Returns true if there is data available in the Rx FIFO.
+    #[inline]
     pub fn data_ready(&self) -> bool {
         self.regmap.read::<u8>(Self::LSR) & 0x1 != 0
+    }
+
+    /// Enables data ready interrupts for the UART.
+    #[inline]
+    pub fn enable_interrupts(&self) {
+        self.regmap.write::<u8>(Self::IER, 1);
+    }
+
+    /// Disables data ready interrupts for the UART.
+    #[inline]
+    pub fn disable_interrupts(&self) {
+        self.regmap.write::<u8>(Self::IER, 0);
+    }
+}
+
+impl IrqHandler for Ns16550 {
+    fn handle(&self) -> IrqReturn {
+        let mut g = self.rx_wq.lock();
+        while let Some(b) = self.get_raw() {
+            g.push_back(b);
+        }
+        g.wake_all();
+
+        IrqReturn::Handled
     }
 }
 
@@ -78,9 +119,9 @@ impl Write for Ns16550 {
     fn write_str(&mut self, s: &str) -> core::fmt::Result {
         for b in s.bytes() {
             if b == b'\n' {
-                self.put(b'\r');
+                self.put_raw(b'\r');
             }
-            self.put(b);
+            self.put_raw(b);
         }
         Ok(())
     }
@@ -89,24 +130,25 @@ impl Write for Ns16550 {
 impl FileOps for Ns16550 {
     fn read(&self, _off: &Mutex<u64>, buf: &mut [u8]) -> Result<usize, Errno> {
         let mut i = 0;
-        while i < buf.len() {
-            if let Some(b) = self.get() {
+        loop {
+            let mut g = self.rx_wq.wait_until(|q| !q.is_empty());
+
+            while let Some(b) = g.pop_front() {
                 // TODO: this should be handled at a higher level,
                 // but for now we handle it here to avoid issues with the shell.
                 buf[i] = if b == b'\r' { b'\n' } else { b };
+
                 i += 1;
-            } else if i == 0 {
-                return Err(Errno::Again);
-            } else {
-                break;
+                if i >= buf.len() {
+                    return Ok(i);
+                }
             }
         }
-        Ok(i)
     }
 
     fn write(&self, _off: &Mutex<u64>, buf: &[u8]) -> Result<usize, Errno> {
         for &b in buf {
-            self.put(b);
+            self.put_raw(b);
         }
         Ok(buf.len())
     }

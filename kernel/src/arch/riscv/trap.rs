@@ -12,6 +12,8 @@ use crate::{
         proc::{ThreadInfo, init_idle},
         registers::{Sscratch, Stvec},
     },
+    drivers::irqchip,
+    irq::IrqReturn,
     proc, sched,
     syscall::{self, UserPtr},
 };
@@ -194,6 +196,18 @@ extern "C" fn handle_exception(tf: &mut TrapFrame, ti: &ThreadInfo) {
             IrqCause::Timer => {
                 time::schedule_next_tick(Duration::from_millis(25));
                 sched::yield_cpu(); // Forced preemption
+            }
+            IrqCause::External => {
+                if let Some(irq) = { irqchip::global().claim() } {
+                    match crate::irq::dispatch_irq(irq) {
+                        IrqReturn::Handled => {
+                            irqchip::global().complete(irq);
+                        }
+                        IrqReturn::Unhandled => {
+                            panic!("Unhandled external IRQ: {}", irq);
+                        }
+                    }
+                }
             }
             _ => kprintln!("Unhandled IRQ: {:?}", irq),
         }

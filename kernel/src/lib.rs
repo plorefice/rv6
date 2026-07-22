@@ -39,6 +39,7 @@ pub mod block;
 pub mod console;
 pub mod drivers;
 pub mod initrd;
+pub mod irq;
 pub mod ksyms;
 pub mod mm;
 pub mod panic;
