@@ -178,6 +178,7 @@ impl<T, P: LockPolicy> WaitQueue<T, P> {
     ///
     /// Called while the data lock is held; the caller must drop that lock before parking.
     fn arm(&self, pid: ProcessId) {
+        let mut sleepers = self.sleepers.lock();
         let mut pt = global_process_table().lock();
         let proc = pt.get_mut(pid).expect("arm: invalid process ID");
         debug_assert!(
@@ -185,7 +186,7 @@ impl<T, P: LockPolicy> WaitQueue<T, P> {
             "arm: expected Running"
         );
         proc.state = ProcessState::Waiting;
-        self.sleepers.lock().push_back(pid);
+        sleepers.push_back(pid);
     }
 }
 
