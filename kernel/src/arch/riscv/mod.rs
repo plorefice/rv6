@@ -9,6 +9,7 @@ pub use mm::phys_to_virt;
 pub use uaccess::with_user_access;
 
 pub mod addr;
+pub mod context;
 pub mod earlycon;
 pub mod entry;
 pub mod instructions;
@@ -31,6 +32,11 @@ pub type ArchUserExecutor = proc::RiscvUserProcessExecutor;
 
 /// The architecture-specific user memory layout.
 pub type ArchUserMemoryLayout = proc::RiscvProcessMemoryLayout;
+
+/// Idles the CPU until the next interrupt occurs.
+pub fn idle() {
+    instructions::wfi();
+}
 
 /// Halts execution on the current hart forever.
 pub fn halt() -> ! {

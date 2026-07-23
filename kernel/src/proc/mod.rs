@@ -3,13 +3,12 @@
 use core::{error::Error, fmt};
 
 use alloc::vec::Vec;
-use spin::Mutex;
 
 use crate::{
     arch::hal,
-    drivers::syscon,
     mm::addr::VirtAddr,
     proc::elf::{ElfLoadError, ElfLoader, LoadSegment},
+    sync::IrqSpinLock,
     vfs::fd::FdTable,
 };
 
@@ -44,6 +43,9 @@ pub struct Process {
 pub enum ProcessState {
     /// The process is currently running and can be scheduled by the scheduler.
     Running,
+
+    /// The process is waiting for an event, such as I/O completion or a signal.
+    Waiting,
 
     /// The process has exited and is waiting for its parent to collect its exit status.
     Zombie {
@@ -245,8 +247,8 @@ impl ProcessTable {
     }
 }
 
-// Global process table, protected by a mutex for safe concurrent access.
-static PROCESS_TABLE: Mutex<ProcessTable> = Mutex::new(ProcessTable::new());
+// Global process table, protected by a spinlock for safe concurrent access.
+static PROCESS_TABLE: IrqSpinLock<ProcessTable> = IrqSpinLock::new(ProcessTable::new());
 
 /// A trait to implement a user space process builder and executor.
 pub trait ProcessBuilder {
@@ -486,19 +488,29 @@ pub fn exit_current(exit_code: usize) -> ! {
 
     // Mark the process as a zombie and store its exit code.
     // Also reparent any child processes to the init process (PID 0) to ensure they are not orphaned.
+    let mut wake_parent = None;
     {
         let mut proc_table = PROCESS_TABLE.lock();
         mark_as_zombie(&mut proc_table, pid, exit_code);
         reparent_children(&mut proc_table, pid);
+
+        // Wake up parent process that might be waiting for this child to exit
+        let proc = proc_table.get(pid).expect("invalid PID");
+        if let Some(parent_pid) = proc.parent
+            && let Some(parent_proc) = proc_table.get_mut(parent_pid)
+            && matches!(parent_proc.state, ProcessState::Waiting)
+        {
+            parent_proc.state = ProcessState::Running;
+            wake_parent = Some(parent_pid); // Mark parent to be woken up after releasing the lock
+        }
     }
 
-    // Transfer control to the scheduler to run the next process
-    sched::run_scheduler();
+    if let Some(parent_pid) = wake_parent {
+        sched::enqueue_process(parent_pid); // parent already marked as Running
+    }
 
-    // We only reach here if there are no more processes to run, so we halt the system.
-    kprintln!("All processes have exited. Bye!");
-    syscon::poweroff();
-    hal::cpu::halt();
+    // Switch to the next runnable process (may resume a parked waiter via swtch).
+    sched::switch_from_exiting(pid);
 }
 
 fn mark_as_zombie(proc_table: &mut ProcessTable, pid: ProcessId, exit_code: usize) {
@@ -521,7 +533,7 @@ fn reparent_children(proc_table: &mut ProcessTable, pid: ProcessId) {
     }
 }
 
-/// Returns a reference to the global process table, protected by a mutex for safe concurrent access.
-pub fn global_process_table() -> &'static Mutex<ProcessTable> {
+/// Returns a reference to the global process table, protected by a spinlock for safe concurrent access.
+pub fn global_process_table() -> &'static IrqSpinLock<ProcessTable> {
     &PROCESS_TABLE
 }

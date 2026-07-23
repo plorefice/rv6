@@ -69,6 +69,8 @@ pub enum Errno {
     BadF = 9,
     /// No child processes
     Child = 10,
+    /// Resource temporarily unavailable
+    Again = 11,
     /// Out of memory
     NoMem = 12,
     /// Not a directory
@@ -90,6 +92,7 @@ impl From<isize> for Errno {
             5 => Errno::Io,
             9 => Errno::BadF,
             10 => Errno::Child,
+            11 => Errno::Again,
             12 => Errno::NoMem,
             20 => Errno::NotDir,
             21 => Errno::IsDir,
@@ -108,6 +111,7 @@ impl From<Errno> for io::Error {
             Errno::Io => io::ErrorKind::InputOutputError,
             Errno::BadF => io::ErrorKind::InvalidInput,
             Errno::Child => io::ErrorKind::Other,
+            Errno::Again => io::ErrorKind::WouldBlock,
             Errno::NoMem => io::ErrorKind::OutOfMemory,
             Errno::NotDir => io::ErrorKind::NotADirectory,
             Errno::IsDir => io::ErrorKind::IsADirectory,
@@ -126,6 +130,7 @@ impl fmt::Display for Errno {
             Errno::Io => "I/O error",
             Errno::BadF => "Bad file descriptor",
             Errno::Child => "No child processes",
+            Errno::Again => "Resource temporarily unavailable",
             Errno::NoMem => "Out of memory",
             Errno::NotDir => "Not a directory",
             Errno::IsDir => "Is a directory",

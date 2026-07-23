@@ -1,10 +1,10 @@
 use core::io;
 
-use alloc::ffi::CString;
+use alloc::{ffi::CString, io::Read};
 use uapi::OpenFlags;
 
 use crate::{
-    io::{OwnedFd, Read},
+    io::OwnedFd,
     syscall::{sys_close, sys_open},
 };
 

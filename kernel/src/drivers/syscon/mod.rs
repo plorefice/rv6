@@ -1,11 +1,12 @@
 //! System controller drivers.
 
 use alloc::boxed::Box;
-use spin::Mutex;
 
 mod generic;
 
 pub use generic::*;
+
+use crate::sync::SpinLock;
 
 /// Common operations for system controllers.
 pub trait Syscon: Sync + Send {
@@ -17,7 +18,7 @@ pub trait Syscon: Sync + Send {
 }
 
 /// SYSCON functionality provider.
-static SYSCON: Mutex<Option<Box<dyn Syscon>>> = Mutex::new(None);
+static SYSCON: SpinLock<Option<Box<dyn Syscon>>> = SpinLock::new(None);
 
 /// Registers a new system controller as global provider.
 ///

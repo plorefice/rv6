@@ -36,12 +36,15 @@ pub mod macros;
 
 pub mod arch;
 pub mod block;
+pub mod console;
 pub mod drivers;
 pub mod initrd;
+pub mod irq;
 pub mod ksyms;
 pub mod mm;
 pub mod panic;
 pub mod proc;
+pub mod sync;
 pub mod syscall;
 pub mod vfs;
 

@@ -18,13 +18,14 @@ use crate::{
     },
     mm::{
         addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
-        allocator::{BumpAllocator, BumpFrameAllocator, FrameAllocator},
+        allocator::{BitmapAllocator, BumpAllocator, BumpFrameAllocator, FrameAllocator},
     },
     proc::StackSpec,
+    sync::SpinLock,
 };
 use fdt::{Fdt, PropEncodedArray};
+use linked_list_allocator::LockedHeap;
 use mmu::PageTableWalker;
-use spin::Mutex;
 
 pub mod dma;
 pub mod elf;
@@ -98,20 +99,19 @@ unsafe extern "C" {
 }
 
 /// Global frame allocator.
-pub static GFA: Mutex<Option<BumpFrameAllocator<PAGE_SIZE>>> = Mutex::new(None);
+pub static GFA: SpinLock<Option<BitmapAllocator<PAGE_SIZE>>> = SpinLock::new(None);
 
 /// Global heap allocator.
 /// TODO: remove hard-coded constants.
 #[global_allocator]
-static HEAP: BumpAllocator =
-    BumpAllocator::new(HEAP_MEM_OFFSET.as_usize(), PHYS_TO_VIRT_OFFSET.as_usize());
+static HEAP: LockedHeap = LockedHeap::empty();
 
 /// I/O virtual memory allocator.
 static IOMAP: BumpAllocator =
     BumpAllocator::new(IOMAP_MEM_OFFSET.as_usize(), LOAD_OFFSET.as_usize());
 
 /// Kernel global page mapper.
-static MAPPER: Mutex<Option<PageTableWalker<'static>>> = Mutex::new(None);
+static MAPPER: SpinLock<Option<PageTableWalker<'static>>> = SpinLock::new(None);
 
 /// Finishes up memory initialization, by setting up frame and heap allocators.
 ///
@@ -243,7 +243,10 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     let map_size = PageSize::Kb;
     assert_eq!(HEAP_PREALLOC_SIZE % map_size.size(), 0);
 
-    let heap_prealloc_base = PHYS_TO_VIRT_OFFSET - HEAP_PREALLOC_SIZE;
+    // linked_list_allocator grows upward from the base pointer, so the mapped VA
+    // must match the address passed to `HEAP.init` (unlike the old bump allocator,
+    // which grew downward from PHYS_TO_VIRT_OFFSET into a high mapping).
+    let heap_base = HEAP_MEM_OFFSET;
     let n_pages = HEAP_PREALLOC_SIZE / map_size.size();
 
     let frame = gfa.alloc(n_pages).expect("oom for heap allocation");
@@ -252,7 +255,7 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
     unsafe {
         mapper
             .map_range(
-                heap_prealloc_base,
+                heap_base,
                 frame.phys()..frame.phys() + HEAP_PREALLOC_SIZE,
                 map_size,
                 EntryFlags::KERNEL,
@@ -273,6 +276,13 @@ pub fn setup_late(fdt: &Fdt, early_rpt: VirtAddr) {
 
     // Everything went well, configure this mapper as global
     *MAPPER.lock() = Some(mapper);
+
+    // Configure the global heap allocator to use the preallocated heap memory
+    // SAFETY: `heap_base` is a valid virtual address range that has been mapped
+    //         to physical memory
+    unsafe {
+        HEAP.lock().init(heap_base.as_mut_ptr(), HEAP_PREALLOC_SIZE);
+    }
 }
 
 fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: usize) {
@@ -287,7 +297,8 @@ fn setup_frame_allocator(ptw: &PageTableWalker, base: PhysAddr, len: usize) {
     kprintln!("  [{phys_base:016x} - {phys_end:016x}]");
 
     // SAFETY: `phys_base` and `phys_end` are valid physical addresses
-    *GFA.lock() = Some(unsafe { BumpFrameAllocator::new(phys_base, phys_end) });
+    *GFA.lock() =
+        Some(unsafe { BitmapAllocator::init(phys_base, phys_end).expect("GFA creation failed") });
 }
 
 /// Translates a PA into the corresponding VA.

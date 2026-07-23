@@ -1,21 +1,47 @@
 //! Interrupt controller drivers.
 
-use core::iter::{self, FromIterator};
+use core::{
+    iter::{self, FromIterator},
+    ops::{Deref, DerefMut},
+};
 
 use alloc::{boxed::Box, collections::VecDeque};
 use fdt::{Fdt, StringList};
 pub use sifive_plic::*;
-use spin::Mutex;
 
-use crate::drivers::{DriverCtx, DriverError, DynDriverInfo};
+use crate::{
+    drivers::{DriverCtx, DriverError, DynDriverInfo},
+    sync::{IrqSpinLock, IrqSpinLockGuard},
+};
 
 mod sifive_plic;
 
 /// An interrupt controller.
-pub trait InterruptController: Sync + Send {}
+pub trait InterruptController: Sync + Send {
+    /// Sets the priority of the given interrupt.
+    fn set_priority(&self, irq: u32, priority: u32);
 
-/// Global IRQ chip.
-static PLIC: Mutex<Option<Box<dyn InterruptController>>> = Mutex::new(None);
+    /// Sets the threshold for the interrupt controller.
+    /// Interrupts with priority less than or equal to the threshold will be masked.
+    fn set_threshold(&self, threshold: u32);
+
+    /// Enables the given interrupt line.
+    fn enable(&self, irq: u32);
+
+    /// Disables the given interrupt line.
+    fn disable(&self, irq: u32);
+
+    /// Claims the next pending interrupt.
+    /// Returns the interrupt number if there is a pending interrupt, or `None` if there are
+    /// no pending interrupts.
+    fn claim(&self) -> Option<u32>;
+
+    /// Completes the handling of the given interrupt.
+    fn complete(&self, irq: u32);
+}
+
+/// Global IRQ chip, protected by a spinlock for safe concurrent access.
+static PLIC: IrqSpinLock<Option<Box<dyn InterruptController>>> = IrqSpinLock::new(None);
 
 /// Initializes the platform IRQ chip(s).
 pub fn init<'d>(ctx: &DriverCtx, fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>> {
@@ -54,4 +80,34 @@ where
     } else {
         kprintln!("Error: only one platform irqchip is supported!")
     }
+}
+
+/// Guard for accessing the global IRQ chip.
+pub struct IrqChipGuard<'a> {
+    inner: IrqSpinLockGuard<'a, Option<Box<dyn InterruptController>>>,
+}
+
+impl Deref for IrqChipGuard<'_> {
+    type Target = dyn InterruptController;
+
+    fn deref(&self) -> &Self::Target {
+        self.inner
+            .as_ref()
+            .expect("IRQ chip not initialized")
+            .deref()
+    }
+}
+
+impl DerefMut for IrqChipGuard<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.inner
+            .as_mut()
+            .expect("IRQ chip not initialized")
+            .deref_mut()
+    }
+}
+
+/// Returns an exclusive guard to the global IRQ chip.
+pub fn global() -> IrqChipGuard<'static> {
+    IrqChipGuard { inner: PLIC.lock() }
 }

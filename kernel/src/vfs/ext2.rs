@@ -4,11 +4,11 @@ use core::io::SeekFrom;
 
 use alloc::sync::Arc;
 use ext2::{FileSystem, Inode};
-use spin::Mutex;
 use uapi::Errno;
 
 use crate::{
     block::BlockDevCursor,
+    sync::SpinLock,
     vfs::{
         fd::{OpenFile, OpenFlags},
         file_ops::FileOps,
@@ -17,14 +17,14 @@ use crate::{
 
 /// A wrapper around the EXT2 filesystem.
 pub struct Fs {
-    fs: Arc<Mutex<FileSystem<BlockDevCursor>>>,
+    fs: Arc<SpinLock<FileSystem<BlockDevCursor>>>,
 }
 
 impl Fs {
     /// Creates a new `Fs` instance from the given EXT2 filesystem.
     pub fn new(fs: FileSystem<BlockDevCursor>) -> Self {
         Self {
-            fs: Arc::new(Mutex::new(fs)),
+            fs: Arc::new(SpinLock::new(fs)),
         }
     }
 
@@ -41,12 +41,12 @@ impl Fs {
 
 /// An implementation of the `FileOps` trait for files in the EXT2 filesystem.
 pub struct Ext2OpenFile {
-    fs: Arc<Mutex<FileSystem<BlockDevCursor>>>,
+    fs: Arc<SpinLock<FileSystem<BlockDevCursor>>>,
     inode: Inode,
 }
 
 impl FileOps for Ext2OpenFile {
-    fn read(&self, off: &Mutex<u64>, buf: &mut [u8]) -> Result<usize, Errno> {
+    fn read(&self, off: &SpinLock<u64>, buf: &mut [u8]) -> Result<usize, Errno> {
         let mut fs = self.fs.lock();
         let offset = *off.lock();
         match fs.read_at(&self.inode, offset, buf) {
@@ -58,11 +58,11 @@ impl FileOps for Ext2OpenFile {
         }
     }
 
-    fn write(&self, _off: &Mutex<u64>, _buf: &[u8]) -> Result<usize, Errno> {
+    fn write(&self, _off: &SpinLock<u64>, _buf: &[u8]) -> Result<usize, Errno> {
         Err(Errno::Inval) // Not implemented yet
     }
 
-    fn seek(&self, _off: &Mutex<u64>, _whence: SeekFrom) -> Result<u64, Errno> {
+    fn seek(&self, _off: &SpinLock<u64>, _whence: SeekFrom) -> Result<u64, Errno> {
         Err(Errno::Inval) // Not implemented yet
     }
 }

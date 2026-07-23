@@ -14,11 +14,13 @@ fn main() {
 
         cc.file("src/arch/riscv/head.S")
             .file("src/arch/riscv/trap.S")
+            .file("src/arch/riscv/swtch.S")
             .file("src/ksyms.S")
             .compile("libcpu.a");
 
         println!("cargo:rerun-if-changed=src/arch/riscv/head.S");
         println!("cargo:rerun-if-changed=src/arch/riscv/trap.S");
+        println!("cargo:rerun-if-changed=src/arch/riscv/swtch.S");
         println!("cargo:rerun-if-changed=src/ksyms.S");
         println!("cargo:rerun-if-changed=linkers/riscv.ld");
     }

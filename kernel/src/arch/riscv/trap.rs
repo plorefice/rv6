@@ -9,9 +9,11 @@ use uapi::{Errno, SysArgs, Sysno};
 use crate::{
     arch::riscv::{
         mmu::dump_active_root_page_table,
-        proc::ThreadInfo,
+        proc::{ThreadInfo, init_idle},
         registers::{Sscratch, Stvec},
     },
+    drivers::irqchip,
+    irq::IrqReturn,
     proc, sched,
     syscall::{self, UserPtr},
 };
@@ -193,7 +195,19 @@ extern "C" fn handle_exception(tf: &mut TrapFrame, ti: &ThreadInfo) {
         match irq {
             IrqCause::Timer => {
                 time::schedule_next_tick(Duration::from_millis(25));
-                sched::run_scheduler();
+                sched::yield_cpu(); // Forced preemption
+            }
+            IrqCause::External => {
+                if let Some(irq) = { irqchip::global().claim() } {
+                    match crate::irq::dispatch_irq(irq) {
+                        IrqReturn::Handled => {
+                            irqchip::global().complete(irq);
+                        }
+                        IrqReturn::Unhandled => {
+                            panic!("Unhandled external IRQ: {}", irq);
+                        }
+                    }
+                }
             }
             _ => kprintln!("Unhandled IRQ: {:?}", irq),
         }
@@ -270,6 +284,9 @@ pub fn init(hart_id: usize) {
     // SIE stays clear in S-mode; user IRQs come from SPIE → SIE on sret
     // SAFETY: stvec has been initialized to point to `trap_entry`
     unsafe { Sstatus::clear(SstatusFlags::SIE) };
+
+    // Initialize the idle kernel thread for this hart
+    init_idle(hart_id);
 }
 
 /// Allocates and initializes a thread info struct for the kernel thread running on the current hart,

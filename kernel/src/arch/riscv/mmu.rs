@@ -509,28 +509,28 @@ impl<'a> PageTableWalker<'a> {
 
         let n_pages = len / page_size.size();
         let frames_per_page = page_size.size() / PAGE_SIZE;
-        let n_frames = n_pages * frames_per_page;
 
-        let frame = allocator
-            .alloc(n_frames)
-            .ok_or(MapError::AllocationFailed)?;
-
+        // Allocate one contiguous run per leaf so address-space teardown can free by
+        // leaf PPN. For 4K pages this is `alloc(1)`; huge pages still need a contiguous
+        // `alloc(frames_per_page)` matching that single leaf.
+        let mut first_pa = None;
         for i in 0..n_pages {
+            let frame = allocator
+                .alloc(frames_per_page)
+                .ok_or(MapError::AllocationFailed)?;
+            if first_pa.is_none() {
+                first_pa = Some(frame.phys());
+            }
+
             let offset = i * page_size.size();
 
             // SAFETY: assuming caller has upheld the safety contract
             unsafe {
-                self.map(
-                    vaddr + offset,
-                    frame.phys() + i * frames_per_page * PAGE_SIZE,
-                    page_size,
-                    flags,
-                    allocator,
-                )?;
+                self.map(vaddr + offset, frame.phys(), page_size, flags, allocator)?;
             }
         }
 
-        Ok(frame.phys())
+        Ok(first_pa.expect("n_pages is non-zero"))
     }
 
     /// Sets up identity mapping for a range of addresses, meaning that `vaddr == paddr` for all

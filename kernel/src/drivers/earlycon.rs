@@ -2,10 +2,9 @@
 
 use core::{fmt, io::SeekFrom};
 
-use spin::Mutex;
 use uapi::Errno;
 
-use crate::vfs::file_ops::FileOps;
+use crate::{sync::SpinLock, vfs::file_ops::FileOps};
 
 /// The global early console instance.
 static EARLY_CONSOLE: spin::Once<&'static dyn EarlyCon> = spin::Once::new();
@@ -27,16 +26,16 @@ pub trait EarlyCon: Send + Sync {
 }
 
 impl<T: EarlyCon> FileOps for T {
-    fn read(&self, _off: &Mutex<u64>, _buf: &mut [u8]) -> Result<usize, Errno> {
+    fn read(&self, _off: &SpinLock<u64>, _buf: &mut [u8]) -> Result<usize, Errno> {
         Err(Errno::Inval)
     }
 
-    fn write(&self, _off: &Mutex<u64>, buf: &[u8]) -> Result<usize, Errno> {
+    fn write(&self, _off: &SpinLock<u64>, buf: &[u8]) -> Result<usize, Errno> {
         self.write(buf);
         Ok(buf.len())
     }
 
-    fn seek(&self, _off: &Mutex<u64>, _whence: SeekFrom) -> Result<u64, Errno> {
+    fn seek(&self, _off: &SpinLock<u64>, _whence: SeekFrom) -> Result<u64, Errno> {
         Err(Errno::Inval)
     }
 }

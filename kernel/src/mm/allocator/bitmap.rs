@@ -5,20 +5,29 @@
 //!
 //! Each page can either be marked as free, as a part of a larger chunk of allocated memory or
 //! as the last (or only) page in a chunk. Discriminating between these last two states allows to
-//! free a memory chunk by knowing only its pointer and not its size.
+//! free a memory chunk by knowing only its base address and not its size.
+//!
+//! # Freeing
+//!
+//! [`FrameAllocator::free`] must be called with the **base** address returned by
+//! [`FrameAllocator::alloc`]. Freeing a page from the middle of a multi-page allocation,
+//! freeing an address outside the managed range, or double-freeing panics.
 //!
 //! # Complexity
 //!
-//! Freeing a page in a bitmap allocator has `O(1)` complexity, but allocation is more expensive
-//! (`O(n)`) since we need to find a large-enough chunk of free pages.
+//! Freeing a chunk is `O(k)` in the number of pages in that chunk. Allocation is `O(n)` in the
+//! number of managed pages, since we need to find a large-enough run of free pages.
 
-use core::{mem::size_of, ptr, slice};
+use core::{mem::size_of, slice};
 
 use bitflags::bitflags;
 
-use crate::mm::{
-    addr::{Align, PhysAddr},
-    allocator::{AllocatorError, Frame, FrameAllocator},
+use crate::{
+    arch::hal,
+    mm::{
+        addr::{Align, PhysAddr},
+        allocator::{AllocatorError, Frame, FrameAllocator},
+    },
 };
 
 bitflags! {
@@ -76,7 +85,8 @@ impl<const N: usize> BitmapAllocator<N> {
 
         // SAFETY: `start` is aligned and must point to a valid memory region.
         let descriptors = unsafe {
-            slice::from_raw_parts_mut(start.as_usize() as *mut PageDescriptor, avail_pages)
+            let ptr: *mut PageDescriptor = hal::mm::phys_to_virt(start).as_mut_ptr();
+            slice::from_raw_parts_mut(ptr, avail_pages)
         };
 
         // Initially mark all pages as free
@@ -96,6 +106,10 @@ impl<const N: usize> BitmapAllocator<N> {
 
 impl<const N: usize> FrameAllocator<N> for BitmapAllocator<N> {
     fn alloc(&mut self, count: usize) -> Option<Frame> {
+        if count == 0 {
+            return None;
+        }
+
         let mut i: usize = 0;
 
         'outer: while i < self.num_pages {
@@ -133,9 +147,11 @@ impl<const N: usize> FrameAllocator<N> for BitmapAllocator<N> {
                 };
             }
 
+            let paddr = self.base_addr + i * N;
             return Some(Frame {
-                paddr: self.base_addr + i * N,
-                ptr: ptr::null_mut(),
+                // SAFETY: `paddr` is guaranteed to be a valid physical address.
+                ptr: unsafe { hal::mm::phys_to_virt(paddr).as_mut_ptr() },
+                paddr,
             });
         }
 
@@ -143,25 +159,48 @@ impl<const N: usize> FrameAllocator<N> for BitmapAllocator<N> {
     }
 
     fn free(&mut self, frame: Frame) {
-        let offset = (frame.phys() - self.base_addr).as_usize() / N;
+        let paddr = frame.phys();
+
+        assert!(
+            paddr.is_aligned(N),
+            "Trying to free an unaligned address: {paddr:#x}"
+        );
+
+        if paddr < self.base_addr {
+            panic!("Trying to free a page outside the managed range: {paddr:#x}");
+        }
+
+        let offset = (paddr - self.base_addr).as_usize() / N;
+        if offset >= self.num_pages {
+            panic!("Trying to free a page outside the managed range: {paddr:#x}");
+        }
+
+        if self.descriptors[offset].flags.is_empty() {
+            panic!("Trying to free an unallocated page!");
+        }
+
+        // Non-terminal pages of a chunk are marked TAKEN only. If the previous page is TAKEN,
+        // this address sits in the middle (or at the end) of a larger allocation.
+        if offset > 0 && self.descriptors[offset - 1].flags.contains(PageFlags::TAKEN) {
+            panic!("Trying to free from the middle of an allocation!");
+        }
 
         for i in offset..self.num_pages {
             let flags = &mut self.descriptors[i].flags;
-
             let is_last = flags.contains(PageFlags::LAST);
 
-            // Sanity check
-            if *flags == PageFlags::empty() {
-                panic!("Trying to free an unallocated page!");
+            if flags.is_empty() {
+                panic!("Corrupted allocator state: hole in allocation at page {i}");
             }
 
-            // Clear page status
             *flags = PageFlags::empty();
 
             if is_last {
-                break;
+                return;
             }
         }
+
+        panic!("Corrupted allocator state: allocation missing LAST marker");
     }
 }
 
@@ -361,6 +400,56 @@ mod tests {
             None,
             "requested memory shou  ld not have fit"
         );
+    }
+
+    #[test]
+    fn zero_count_allocation() {
+        let (_, mut allocator) = create_allocator();
+        assert!(allocator.alloc(0).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "Trying to free from the middle of an allocation!")]
+    fn free_mid_chunk() {
+        let (_, mut allocator) = create_allocator();
+
+        let base = allocator.alloc(4).expect("allocation failed");
+        // SAFETY: freeing only for the panic check; address is within the managed range.
+        let mid = unsafe { Frame::unmapped(base.phys() + PAGE_SIZE) };
+        allocator.free(mid);
+    }
+
+    #[test]
+    #[should_panic(expected = "Trying to free from the middle of an allocation!")]
+    fn free_last_page_of_chunk() {
+        let (_, mut allocator) = create_allocator();
+
+        let base = allocator.alloc(4).expect("allocation failed");
+        // SAFETY: freeing only for the panic check; address is within the managed range.
+        let last = unsafe { Frame::unmapped(base.phys() + 3 * PAGE_SIZE) };
+        allocator.free(last);
+    }
+
+    #[test]
+    #[should_panic(expected = "Trying to free an unallocated page!")]
+    fn double_free() {
+        let (_, mut allocator) = create_allocator();
+
+        let frame = allocator.alloc(1).expect("allocation failed");
+        // SAFETY: reconstruct a frame with the same physical address after the first free.
+        let paddr = frame.phys();
+        allocator.free(frame);
+        allocator.free(unsafe { Frame::unmapped(paddr) });
+    }
+
+    #[test]
+    #[should_panic(expected = "Trying to free a page outside the managed range")]
+    fn free_below_managed_range() {
+        let (base, mut allocator) = create_allocator();
+
+        // Descriptor region / below avail_mem_start
+        // SAFETY: intentionally out of range to exercise the check.
+        allocator.free(unsafe { Frame::unmapped(PhysAddr::new_unchecked(base)) });
     }
 
     // --- Test types and utilities ---

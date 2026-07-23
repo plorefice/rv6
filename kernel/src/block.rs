@@ -12,6 +12,8 @@ use core::{
 
 use alloc::{sync::Arc, vec::Vec};
 
+use crate::sync::IrqSpinLock;
+
 /// An error that can occur during block I/O operations.
 #[derive(Debug)]
 pub enum BlockIoError {
@@ -129,7 +131,7 @@ impl BlockDevTable {
 }
 
 /// Global block device table, protected by a spinlock for thread-safe access.
-pub static BLOCK_DEVS: spin::Mutex<BlockDevTable> = spin::Mutex::new(BlockDevTable::new());
+pub static BLOCK_DEVS: IrqSpinLock<BlockDevTable> = IrqSpinLock::new(BlockDevTable::new());
 
 /// A byte-oriented cursor for reading from a block device.
 ///
