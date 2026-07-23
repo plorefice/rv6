@@ -23,8 +23,8 @@ use crate::{
     },
     mm::addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
     proc::{
-        BreakError, Process, ProcessBuilder, ProcessId, ProcessMemoryLayout, ProcessStackLayout,
-        ProcessState, StackSpec, UserProcessExecutor,
+        BreakError, Process, ProcessBuilder, ProcessId, ProcessKind, ProcessMemoryLayout,
+        ProcessStackLayout, ProcessState, StackSpec, UserProcessExecutor,
         elf::{ElfLoadError, ElfLoader, SegmentFlags},
         global_process_table, sched,
     },
@@ -472,6 +472,7 @@ impl ProcessBuilder for RiscvProcessBuilder {
         let pid = { global_process_table().lock().alloc_pid() };
 
         Process {
+            kind: parent.kind,
             state: ProcessState::Running,
             aspace,
             astate,

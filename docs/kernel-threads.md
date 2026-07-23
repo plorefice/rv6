@@ -306,7 +306,7 @@ migration above.
 
 ### Phase 2
 
-- [ ] Add `ProcessKind::{User, Kernel}` (or equivalent) to `Process`
+- [x] Add `ProcessKind::{User, Kernel}` (or equivalent) to `Process`
 - [ ] Kthread stack allocation + `ThreadInfo` setup
 - [ ] `kthread_trampoline` + `kthread_exit`
 - [ ] `spawn_kthread`

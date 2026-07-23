@@ -17,6 +17,9 @@ pub mod sched;
 
 /// A user process.
 pub struct Process {
+    /// The kind of process, which can be either a user process or a kernel thread.
+    pub kind: ProcessKind,
+
     /// The current execution state.
     pub state: ProcessState,
 
@@ -73,6 +76,15 @@ impl fmt::Display for Pid {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0)
     }
+}
+
+/// A discriminant between user and kernel processes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessKind {
+    /// The process is a user-space process, running in user mode with its own address space.
+    User,
+    /// The process is a kernel thread, running in kernel mode and sharing the kernel address space.
+    Kernel,
 }
 
 /// The execution state of a process.
@@ -415,6 +427,7 @@ pub trait ProcessBuilder {
 
         // Create the process and add it to the scheduler
         let proc = Process {
+            kind: ProcessKind::User,
             state: ProcessState::Running,
             aspace,
             astate: hal::proc::ProcArchState::default(),
