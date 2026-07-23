@@ -5,18 +5,32 @@
 //! - [`Lock`] — exclusive-lock interface shared by concrete lock types
 //! - [`LockPolicy`] — selects which lock implementation a generic type (e.g. [`WaitQueue`]) uses
 //! - [`WaitQueue`] — condition-style wait/wake over associated data
+//! - [`Mutex`] — sleeping exclusive lock (process context only)
 //! - [`SpinLock`] — plain spinning lock (not IRQ-safe)
 //! - [`IrqSpinLock`] / [`IrqSafe`] — IRQ-safe spinning locks
 //!
+//! # Spinning vs sleeping
+//!
+//! | Lock | On contention | Safe from IRQ handlers? |
+//! |------|---------------|-------------------------|
+//! | [`SpinLock`] / [`IrqSpinLock`] | spin | [`IrqSpinLock`] only |
+//! | [`Mutex`] | sleep (park) | **no** |
+//!
+//! Use [`Mutex`] for process-context data where holders may block for a long time. Use spinlocks
+//! for short critical sections and for state touched from interrupt handlers.
+//!
 //! # Choosing a lock policy
+//!
+//! [`LockPolicy`] selects the **spinning** lock used inside generic types such as [`WaitQueue`]:
 //!
 //! | Policy | Concrete lock | Disables local IRQs? | Safe from IRQ handlers? |
 //! |--------|---------------|----------------------|-------------------------|
 //! | [`IrqSafe`] (default for [`WaitQueue`]) | [`IrqSpinLock`] | yes | yes |
 //! | [`ProcessContext`] | [`SpinLock`] | no | **no** |
 //!
-//! Both policies still **spin** while the lock is contended; neither puts the caller to sleep.
-//! [`ProcessContext`] only means “process context only” — it is not a sleeping mutex.
+//! Both policies still **spin** while that lock is contended. Prefer [`Mutex`] when you need a
+//! sleeping exclusive lock; [`ProcessContext`] only means “process context only” for the
+//! underlying spinlock, not “sleep on contention”.
 //!
 //! Use [`IrqSafe`] whenever the same data may be locked from an interrupt handler (typical for
 //! wait queues woken by device IRQs). Use [`ProcessContext`] only for data touched exclusively
@@ -31,14 +45,16 @@ use crate::{
     sched,
 };
 
+mod mutex;
 mod spinlock;
 
+pub use mutex::*;
 pub use spinlock::*;
 
 /// Exclusive access to a value of type [`Target`](Lock::Target).
 ///
-/// Implementations differ in interrupt safety and whether they disable local IRQs while held
-/// (see [`LockPolicy`]). All current implementations spin on contention.
+/// Implementations differ in interrupt safety, whether they disable local IRQs while held, and
+/// whether contended callers spin or sleep (see [`SpinLock`], [`IrqSpinLock`], [`Mutex`]).
 pub trait Lock {
     /// Type of the value protected by this lock.
     type Target;
@@ -53,8 +69,8 @@ pub trait Lock {
 
     /// Acquires the lock and returns a guard for the protected data.
     ///
-    /// Spins until the lock is free. Whether local interrupts are masked for the critical
-    /// section depends on the concrete lock type.
+    /// Behavior on contention (spin vs sleep) and whether local interrupts are masked depend on
+    /// the concrete lock type.
     fn lock(&self) -> Self::Guard<'_>;
 }
 
@@ -83,7 +99,8 @@ pub trait LockPolicy {
 /// Taking this lock from an interrupt handler can deadlock if the interrupted context already
 /// holds it.
 ///
-/// Prefer [`IrqSafe`] when in doubt, especially for wait queues.
+/// This is not a sleeping mutex — for that, use [`Mutex`]. Prefer [`IrqSafe`] when in doubt,
+/// especially for wait queues.
 pub struct ProcessContext;
 
 impl LockPolicy for ProcessContext {
