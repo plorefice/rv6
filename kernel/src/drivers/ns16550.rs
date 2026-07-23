@@ -28,7 +28,7 @@ driver_info! {
 /// Device driver of the 16550 UART IC.
 pub struct Ns16550 {
     regmap: IoMapping,
-    rx_wq: WaitQueue<VecDeque<u8>>,
+    rx_data: WaitQueue<VecDeque<u8>>,
 }
 
 impl Driver for Ns16550 {
@@ -45,7 +45,7 @@ impl Driver for Ns16550 {
 
         let slf = Arc::new(Self {
             regmap,
-            rx_wq: WaitQueue::new(VecDeque::new()),
+            rx_data: WaitQueue::new(VecDeque::new()),
         });
 
         // Configure the interrupt controller to enable interrupts for the UART
@@ -104,7 +104,7 @@ impl Ns16550 {
 
 impl IrqHandler for Ns16550 {
     fn handle(&self) -> IrqReturn {
-        let mut g = self.rx_wq.lock();
+        let mut g = self.rx_data.lock();
         while let Some(b) = self.get_raw() {
             g.push_back(b);
         }
@@ -130,7 +130,7 @@ impl FileOps for Ns16550 {
     fn read(&self, _off: &SpinLock<u64>, buf: &mut [u8]) -> Result<usize, Errno> {
         let mut i = 0;
         loop {
-            let mut g = self.rx_wq.wait_until(|q| !q.is_empty());
+            let mut g = self.rx_data.wait_until(|q| !q.is_empty());
 
             while let Some(b) = g.pop_front() {
                 // TODO: this should be handled at a higher level,
