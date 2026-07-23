@@ -299,10 +299,10 @@ fn init_kernel_thread_info(hart_id: usize) {
 
     // SAFETY: kti_ptr is valid by design
     unsafe {
-        kti_ptr.write_volatile(ThreadInfo {
-            ksp: ksl.initial_sp.as_usize(),
-            usp: 0, // not used for this idle kernel thread
-        })
+        kti_ptr.write_volatile(ThreadInfo::user(
+            ksl.initial_sp.as_usize(),
+            0, // not used for this idle kernel thread
+        ))
     };
 
     // Write this address in tp

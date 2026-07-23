@@ -286,6 +286,26 @@ impl ProcessTable {
         }
     }
 
+    /// Removes all exited kernel threads from the table.
+    ///
+    /// Callers must only destroy these after the thread has switched away from its stack
+    /// (typically from idle).
+    pub fn take_zombie_kthreads(&mut self) -> Vec<Process> {
+        let mut ids = Vec::new();
+        for (idx, slot) in self.slots.iter().enumerate() {
+            if let Some(p) = slot.process.as_ref()
+                && matches!(p.kind, ProcessKind::Kernel)
+                && matches!(p.state, ProcessState::Zombie { .. })
+            {
+                ids.push(ProcessId {
+                    idx,
+                    generation: slot.generation,
+                });
+            }
+        }
+        ids.into_iter().filter_map(|id| self.take(id)).collect()
+    }
+
     /// Allocates a new unique logical process identifier.
     ///
     /// Never returns [`Pid::INIT`] (reserved for userspace init via [`ProcessBuilder::spawn_init`]).
@@ -575,6 +595,46 @@ fn fork_process(parent_pid: ProcessId) -> (ProcessId, Pid) {
     (child_id, logical_pid)
 }
 
+/// Exits the current kernel thread and switches to idle.
+///
+/// Marks the thread as a zombie without reparenting children or waking a parent.
+/// Idle reaps the zombie and frees its heap-backed stack after this switch returns there.
+///
+/// # Panics
+///
+/// Panics if there is no current process or if the current process is not a kernel thread.
+pub fn kthread_exit() -> ! {
+    let pid = sched::current_process_id().expect("kthread_exit: no current process");
+
+    {
+        let mut proc_table = PROCESS_TABLE.lock();
+        let proc = proc_table.get_mut(pid).expect("kthread_exit: invalid PID");
+        assert!(
+            matches!(proc.kind, ProcessKind::Kernel),
+            "kthread_exit: current process is not a kernel thread"
+        );
+        proc.state = ProcessState::Zombie { exit_code: 0 };
+    }
+
+    sched::exit_current(pid);
+    // Return to idle (not `switch_from_exiting`) so idle can reap the heap stack.
+    hal::proc::switch(Some(pid), None);
+    panic!("kthread_exit: resumed after switch to idle");
+}
+
+/// Reaps exited kernel threads and frees their heap-backed stacks.
+///
+/// Must run on a stack other than the zombies' own (idle calls this each loop).
+pub fn reap_zombie_kthreads() {
+    let zombies = {
+        let mut table = PROCESS_TABLE.lock();
+        table.take_zombie_kthreads()
+    };
+    for proc in zombies {
+        hal::proc::builder().destroy(proc);
+    }
+}
+
 /// Exits the currently running process and transfers control to the scheduler.
 /// This function does not return, as the current process is terminated.
 pub fn exit_current(exit_code: usize) -> ! {
@@ -645,4 +705,13 @@ pub fn init_process_id() -> ProcessId {
         .lock()
         .init_id()
         .expect("init process not set")
+}
+
+/// Spawns a kernel thread that runs `entry(arg)` in S-mode on a private kernel stack.
+///
+/// Uses the shared global kernel page tables and a heap-backed stack. Does not switch to the
+/// new thread; the caller (or idle) must schedule it. If `entry` returns, the trampoline
+/// calls [`kthread_exit`].
+pub fn spawn_kthread(entry: fn(usize), arg: usize) -> ProcessId {
+    hal::proc::spawn_kthread(entry, arg)
 }

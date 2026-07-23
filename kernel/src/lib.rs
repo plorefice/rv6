@@ -131,9 +131,17 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     // Run init code
     if let Some(init_code) = init_code {
         kprintln!("Found init program, size {}", init_code.len());
+
+        // Smoke: enqueue a kthread before user init so exit always has a successor.
+        let _ = proc::spawn_kthread(kthread_smoke, 0);
         let _init_id = hal::proc::builder().spawn_init(init_code);
         hal::proc::enter_scheduler();
     } else {
         panic!("No init program found");
     }
+}
+
+/// Temporary Phase 2 smoke test: runs as a kernel thread then exits via the trampoline.
+fn kthread_smoke(_arg: usize) {
+    kprintln!("kthread_smoke: running with current process");
 }

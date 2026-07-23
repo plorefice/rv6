@@ -35,7 +35,8 @@ Canonical constants are defined in `kernel/src/arch/riscv/mm/mod.rs`.
   0xffff_ffe0_0000_0000  ├──────────────────────────────┤  IOMAP_MEM_OFFSET
                          │  Direct map of physical DRAM │
   0xffff_ffd0_0000_0000  ├──────────────────────────────┤  PHYS_TO_VIRT_OFFSET
-                         │  Kernel heap (grows down)    │
+                         │  Kernel heap (grows up)      │
+                         │  (kthread stacks live here)  │
   0xffff_ffc0_0041_2000  ├──────────────────────────────┤  HEAP_MEM_OFFSET
                          │  [guard page]                │
   0xffff_ffc0_0041_1000  ├──────────────────────────────┤  PROC_KSTACK end
@@ -67,7 +68,7 @@ Canonical constants are defined in `kernel/src/arch/riscv/mm/mod.rs`.
 | `USER_TOP` / `KERNEL_BASE` | `0xffff_ffc0_0000_0000` | User/kernel policy boundary (start of upper half) |
 | `KSTACK_MEM_OFFSET` | `0xffff_ffc0_0000_0000` | Per-hart kernel stacks |
 | `PROC_KSTACK_MEM_OFFSET` | `0xffff_ffc0_0040_1000` | Per-process kernel stack |
-| `HEAP_MEM_OFFSET` | `0xffff_ffc0_0041_2000` | Low end of kernel heap VA window |
+| `HEAP_MEM_OFFSET` | `0xffff_ffc0_0041_2000` | Low end of kernel heap VA window (kthread stacks) |
 | `PHYS_TO_VIRT_OFFSET` | `0xffff_ffd0_0000_0000` | DRAM direct-map base |
 | `IOMAP_MEM_OFFSET` | `0xffff_ffe0_0000_0000` | MMIO mapping window |
 | `LOAD_OFFSET` | `0xffff_ffff_8000_0000` | Linked kernel image base |
@@ -155,7 +156,7 @@ Mapped per address space with `RW | ACCESS | GLOBAL` (no `USER`). Unlike other
 kernel mappings, these frames are **owned by the process** and freed on
 `destroy_aspace`.
 
-Another **4 KiB guard** separates this stack from the heap VA window.
+Another **4 KiB guard** separates this stack from the kernel heap.
 
 ### Kernel heap: `HEAP_MEM_OFFSET` … `PHYS_TO_VIRT_OFFSET`
 
@@ -164,17 +165,21 @@ Another **4 KiB guard** separates this stack from the heap VA window.
 | Low bound | `0xffff_ffc0_0041_2000` (`HEAP_MEM_OFFSET`) |
 | High bound | `0xffff_ffd0_0000_0000` (`PHYS_TO_VIRT_OFFSET`) |
 
-Implemented as a bump allocator (`HEAP`) that **allocates downward** from
-`PHYS_TO_VIRT_OFFSET` toward `HEAP_MEM_OFFSET` (Rust `#[global_allocator]`).
-
-Only the top **1 MiB** is pre-mapped in `setup_late`:
+Implemented as `linked_list_allocator` (`HEAP`) that **grows upward** from
+`HEAP_MEM_OFFSET`. The low **1 MiB** is pre-mapped in `setup_late` at
+`HEAP_MEM_OFFSET` (matching the address passed to `HEAP.init`).
 
 ```text
-[PHYS_TO_VIRT_OFFSET − 1 MiB, PHYS_TO_VIRT_OFFSET)  →  HEAP_PREALLOC_SIZE
+[HEAP_MEM_OFFSET, HEAP_MEM_OFFSET + 1 MiB)  →  HEAP_PREALLOC_SIZE
 ```
 
-i.e. `0xffff_ffcf_fff0_0000` … `0xffff_ffd0_0000_0000`. Further growth would
+i.e. `0xffff_ffc0_0041_2000` … `0xffff_ffc0_0051_2000`. Further growth would
 require on-demand mapping (noted as TODO in code).
+
+**Kernel-thread stacks** are ordinary heap allocations (`KThreadStack`: page-aligned
+64 KiB via `alloc_zeroed`), not a dedicated VA pool. They share the global kernel
+page tables with idle; there are no guard pages between adjacent heap stacks.
+Idle reaps zombie kthreads and drops their stacks after they have switched away.
 
 ### Direct map: `PHYS_TO_VIRT_OFFSET` + DRAM
 

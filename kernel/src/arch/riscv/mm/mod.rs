@@ -64,7 +64,10 @@ pub const PROC_KSTACK_MEM_OFFSET: VirtAddr = unsafe {
 };
 pub const PROC_KSTACK_MEM_SIZE: usize = 64 * 1024; // 64 KB
 
-/// Base address for the kernel heap.
+/// Base address for the kernel heap (after the per-process kstack + guard).
+///
+/// Kernel-thread stacks are allocated from this heap (shared kernel page tables), not a
+/// dedicated VA pool.
 // SAFETY: constant
 pub const HEAP_MEM_OFFSET: VirtAddr = unsafe {
     VirtAddr::new_unchecked(PROC_KSTACK_MEM_OFFSET.as_usize() + PROC_KSTACK_MEM_SIZE + PAGE_SIZE)

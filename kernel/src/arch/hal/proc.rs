@@ -23,6 +23,12 @@ pub fn enter_scheduler() -> ! {
     imp::enter_scheduler()
 }
 
+/// Spawns a kernel thread and enqueues it for scheduling.
+#[inline]
+pub fn spawn_kthread(entry: fn(usize), arg: usize) -> ProcessId {
+    imp::spawn_kthread(entry, arg)
+}
+
 mod imp {
     #[cfg(target_arch = "riscv64")]
     pub use riscv::*;
@@ -47,6 +53,11 @@ mod imp {
         #[inline]
         pub fn enter_scheduler() -> ! {
             crate::arch::riscv::proc::enter_scheduler()
+        }
+
+        #[inline]
+        pub fn spawn_kthread(entry: fn(usize), arg: usize) -> ProcessId {
+            crate::arch::riscv::proc::spawn_kthread(entry, arg)
         }
     }
 }

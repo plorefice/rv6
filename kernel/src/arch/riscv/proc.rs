@@ -1,10 +1,12 @@
 //! RISC-V implementation of process management.
 
 use core::{
+    alloc::Layout,
     mem::MaybeUninit,
     sync::atomic::{AtomicUsize, Ordering},
-    time::Duration,
 };
+
+use alloc::vec::Vec;
 
 use crate::{
     arch::riscv::{
@@ -18,17 +20,64 @@ use crate::{
         },
         mmu::{self, EntryFlags, PAGE_SIZE},
         registers::{Satp, SstatusFlags},
-        time,
         trap::TrapFrame,
     },
     mm::addr::{Align, MemoryAddress, PhysAddr, VirtAddr},
     proc::{
-        BreakError, Process, ProcessBuilder, ProcessId, ProcessKind, ProcessMemoryLayout,
-        ProcessStackLayout, ProcessState, StackSpec, UserProcessExecutor,
-        elf::{ElfLoadError, ElfLoader, SegmentFlags},
+        BreakError, Process, ProcessBuilder, ProcessHeap, ProcessId, ProcessKind,
+        ProcessMemoryLayout, ProcessStackLayout, ProcessState, StackSpec, UserProcessExecutor,
+        elf::{ElfLoadError, ElfLoader},
         global_process_table, sched,
     },
+    vfs::fd::FdTable,
 };
+
+/// Page-aligned private stack for a kernel thread, allocated from the global heap.
+///
+/// Lives in the shared kernel VAS (no dedicated stack VA pool). Dropped only after the
+/// thread has switched away (idle reaps zombie kthreads).
+pub struct KThreadStack {
+    ptr: *mut u8,
+    layout: Layout,
+}
+
+// SAFETY: the allocation is exclusive to this stack until `Drop`.
+unsafe impl Send for KThreadStack {}
+
+impl KThreadStack {
+    /// Allocates a zeroed [`PROC_KSTACK_MEM_SIZE`] stack, page-aligned.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the heap cannot satisfy the allocation.
+    pub fn new() -> Self {
+        let layout = Layout::from_size_align(PROC_KSTACK_MEM_SIZE, PAGE_SIZE)
+            .expect("kthread stack layout");
+        // SAFETY: `layout` has non-zero size; the returned block is exclusive to us.
+        let ptr = unsafe { alloc::alloc::alloc_zeroed(layout) };
+        assert!(!ptr.is_null(), "oom allocating kthread stack");
+        Self { ptr, layout }
+    }
+
+    /// Low (base) virtual address of the stack; [`ThreadInfo`] is stored here.
+    pub fn base_va(&self) -> VirtAddr {
+        VirtAddr::new(self.ptr as usize)
+    }
+
+    /// Initial stack pointer (high end, 16-byte aligned).
+    pub fn initial_sp(&self) -> usize {
+        (self.ptr as usize + PROC_KSTACK_MEM_SIZE) & !0xf
+    }
+}
+
+impl Drop for KThreadStack {
+    fn drop(&mut self) {
+        // SAFETY: `ptr` was allocated with `layout` in `new` and is not in use after switch-away.
+        unsafe {
+            alloc::alloc::dealloc(self.ptr, self.layout);
+        }
+    }
+}
 
 /// A structure containing information required by the core for task handling.
 #[derive(Clone)]
@@ -38,6 +87,32 @@ pub struct ThreadInfo {
     pub ksp: usize,
     /// Pointer to the top of the user stack.
     pub usp: usize,
+    /// Kernel-thread entry point (`fn(usize)`), or `0` for user processes.
+    pub entry: usize,
+    /// Argument passed to a kernel-thread entry point.
+    pub arg: usize,
+}
+
+impl ThreadInfo {
+    /// Creates thread info for a user process (no kthread entry).
+    pub const fn user(ksp: usize, usp: usize) -> Self {
+        Self {
+            ksp,
+            usp,
+            entry: 0,
+            arg: 0,
+        }
+    }
+
+    /// Creates thread info for a kernel thread.
+    pub const fn kernel(ksp: usize, entry: usize, arg: usize) -> Self {
+        Self {
+            ksp,
+            usp: 0,
+            entry,
+            arg,
+        }
+    }
 }
 
 /// A structure representing the saved kernel thread context of a process.
@@ -65,16 +140,21 @@ const _: () = {
 pub struct ProcState {
     /// Kernel/user stack pointers for trap entry.
     pub ti: ThreadInfo,
+    /// Virtual address of the stack-resident [`ThreadInfo`] (loaded into `tp` on switch).
+    pub ti_va: usize,
     /// Saved user trap frame (for `sret` via the `return_to_user` trampoline).
     pub tf: TrapFrame,
     /// Saved kernel context (for [`context::switch_context`]).
     pub ctx: Context,
+    /// Heap-backed private stack for [`ProcessKind::Kernel`]; `None` for user processes.
+    pub kstack: Option<KThreadStack>,
 }
 
 impl Default for ProcState {
     fn default() -> Self {
         Self {
-            ti: ThreadInfo { ksp: 0, usp: 0 },
+            ti: ThreadInfo::user(0, 0),
+            ti_va: 0,
             // SAFETY: TrapFrame is plain data with no uninit niches.
             tf: unsafe { MaybeUninit::zeroed().assume_init() },
             ctx: Context {
@@ -82,6 +162,7 @@ impl Default for ProcState {
                 sp: 0,
                 s: [0; 12],
             },
+            kstack: None,
         }
     }
 }
@@ -112,6 +193,15 @@ fn initial_context(ksp: usize) -> Context {
     }
 }
 
+/// Initial kernel context: first `switch` into this kthread lands in [`kthread_trampoline`].
+fn initial_kthread_context(ksp: usize) -> Context {
+    Context {
+        ra: kthread_trampoline as *const () as usize,
+        sp: ksp & !0xf,
+        s: [0; 12],
+    }
+}
+
 /// Build a trap frame that [`resume_process`] can `sret` into userspace with.
 fn initial_trapframe(entry: VirtAddr, usp: VirtAddr) -> TrapFrame {
     // SAFETY: TrapFrame is plain data; zero is a valid starting point.
@@ -137,8 +227,11 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
     ) -> ProcessId {
         let ksp = stack_layout.kernel_stack.initial_sp.as_usize();
         let usp = stack_layout.user_stack.initial_sp.as_usize();
+        let ti_va = stack_layout.kernel_stack.start.as_usize();
+        let ti = ThreadInfo::user(ksp, usp);
 
-        proc.astate.ti = ThreadInfo { ksp, usp };
+        proc.astate.ti = ti.clone();
+        proc.astate.ti_va = ti_va;
         proc.astate.tf = initial_trapframe(entry, stack_layout.user_stack.initial_sp);
         proc.astate.ctx = initial_context(ksp);
 
@@ -153,7 +246,7 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
                 .kernel_stack
                 .start
                 .as_mut_ptr::<ThreadInfo>()
-                .write_volatile(ThreadInfo { ksp, usp });
+                .write_volatile(ti);
             fence_i();
             mmu::switch_page_table(kernel_rpt);
         }
@@ -163,6 +256,72 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
         sched::enqueue_process(pid);
         pid
     }
+}
+
+/// Spawns a kernel thread on the shared kernel address space and enqueues it.
+///
+/// The private stack is allocated from the global heap. The first schedule of this thread
+/// lands in [`kthread_trampoline`], which calls `entry(arg)` and then
+/// [`crate::proc::kthread_exit`] if the entry returns.
+pub fn spawn_kthread(entry: fn(usize), arg: usize) -> ProcessId {
+    let stack = KThreadStack::new();
+    let ksp = stack.initial_sp();
+    let ti_va = stack.base_va().as_usize();
+    let ti = ThreadInfo::kernel(ksp, entry as usize, arg);
+
+    // SAFETY: `base_va` is the start of our exclusive heap allocation.
+    unsafe {
+        stack
+            .base_va()
+            .as_mut_ptr::<ThreadInfo>()
+            .write_volatile(ti.clone());
+        fence_i();
+    }
+
+    let logical_pid = global_process_table().lock().alloc_pid();
+    let proc = Process {
+        kind: ProcessKind::Kernel,
+        state: ProcessState::Running,
+        aspace: RiscvAddrSpace::shared_kernel(),
+        astate: ProcState {
+            ti,
+            ti_va,
+            // SAFETY: TrapFrame is unused for kthreads; zero is fine.
+            tf: unsafe { MaybeUninit::zeroed().assume_init() },
+            ctx: initial_kthread_context(ksp),
+            kstack: Some(stack),
+        },
+        pid: logical_pid,
+        parent: None,
+        children: Vec::new(),
+        heap: ProcessHeap::new(VirtAddr::new(0)),
+        fds: FdTable::empty(),
+    };
+
+    let pid = sched::allocate_process(proc);
+    sched::enqueue_process(pid);
+    pid
+}
+
+/// First entry into a kernel thread via `switch`: run `entry(arg)`, then exit.
+extern "C" fn kthread_trampoline() -> ! {
+    let (entry, arg) = {
+        let tp: usize;
+        // SAFETY: `tp` holds the current task's ThreadInfo while running a scheduled process.
+        unsafe {
+            core::arch::asm!("mv {}, tp", out(reg) tp, options(nomem, nostack));
+        }
+        // SAFETY: `tp` points at the stack-resident ThreadInfo written by `spawn_kthread`.
+        let ti = unsafe { &*(tp as *const ThreadInfo) };
+        let entry: fn(usize) = {
+            // SAFETY: entry was stored as a `fn(usize)` by `spawn_kthread`.
+            unsafe { core::mem::transmute(ti.entry) }
+        };
+        (entry, ti.arg)
+    };
+
+    entry(arg);
+    crate::proc::kthread_exit();
 }
 
 /// First (and subsequent trampoline) entry into a process via `switch`: `sret` to userspace.
@@ -183,6 +342,7 @@ pub fn enter_scheduler() -> ! {
 /// [`switch`]`(Some(_), None)` returns here.
 extern "C" fn idle_main() -> ! {
     loop {
+        crate::proc::reap_zombie_kthreads();
         let next = sched::take_next();
         match next {
             Some(pid) => {
@@ -231,11 +391,9 @@ pub fn switch(outgoing: Option<ProcessId>, next: Option<ProcessId>) {
             Some(pid) => {
                 let proc = table.get(pid).expect("next process not found");
                 let satp = satp_with_root(proc.aspace.root_page_table_pa());
-                (
-                    &raw const proc.astate.ctx,
-                    satp,
-                    PROC_KSTACK_MEM_OFFSET.as_usize(),
-                )
+                let tp = proc.astate.ti_va;
+                assert!(tp != 0, "process ThreadInfo VA not initialized");
+                (&raw const proc.astate.ctx, satp, tp)
             }
             None => {
                 let satp = IDLE_SATP.load(Ordering::Relaxed);
@@ -261,7 +419,7 @@ fn resume_process(pid: ProcessId) -> ! {
         assert!(matches!(proc.state, ProcessState::Running));
         let tf = core::ptr::from_ref(&proc.astate.tf);
         let satp = satp_with_root(proc.aspace.root_page_table_pa());
-        let ti = PROC_KSTACK_MEM_OFFSET.as_usize();
+        let ti = proc.astate.ti_va;
         let ksp = proc.astate.ti.ksp;
         (satp, tf, ti, ksp)
     };
@@ -423,6 +581,11 @@ impl ProcessBuilder for RiscvProcessBuilder {
     }
 
     fn fork(&self, parent: &Process) -> Process {
+        assert!(
+            matches!(parent.kind, ProcessKind::User),
+            "cannot fork a kernel thread"
+        );
+
         let mut aspace = match self.loader().new_user_addr_space() {
             Ok(aspace) => aspace,
             Err(e) => {
@@ -454,14 +617,14 @@ impl ProcessBuilder for RiscvProcessBuilder {
         }
 
         let ksp = layout.kernel_stack.initial_sp.as_usize();
+        let ti_va = layout.kernel_stack.start.as_usize();
         let mut astate = ProcState {
-            ti: ThreadInfo {
-                ksp,
-                usp: parent.astate.ti.usp,
-            },
+            ti: ThreadInfo::user(ksp, parent.astate.ti.usp),
+            ti_va,
             tf: parent.astate.tf.clone(),
             // First switch into the child lands in `return_to_user`, which `sret`s to user.
             ctx: initial_context(ksp),
+            kstack: None,
         };
 
         // Child returns 0 from fork and resumes after the ecall instruction.
@@ -472,7 +635,7 @@ impl ProcessBuilder for RiscvProcessBuilder {
         let pid = { global_process_table().lock().alloc_pid() };
 
         Process {
-            kind: parent.kind,
+            kind: ProcessKind::User,
             state: ProcessState::Running,
             aspace,
             astate,
@@ -485,6 +648,13 @@ impl ProcessBuilder for RiscvProcessBuilder {
     }
 
     fn destroy(&self, mut process: Process) {
+        // Shared-kernel address spaces must not free the global root; dropping `kstack`
+        // returns the heap-backed private stack (idle only calls this after switch-away).
+        if !process.aspace.is_owned() {
+            process.astate.kstack = None;
+            return;
+        }
+
         let rpt_pa = process.aspace.root_page_table_pa();
         let proc_kstack_start = PROC_KSTACK_MEM_OFFSET;
         let proc_kstack_end = PROC_KSTACK_MEM_OFFSET + PROC_KSTACK_MEM_SIZE;

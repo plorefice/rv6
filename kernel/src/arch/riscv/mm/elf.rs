@@ -5,12 +5,13 @@ use crate::{
         self,
         riscv::{
             self,
-            addr::VirtAddrExt,
+            addr::{PhysAddrExt, VirtAddrExt},
             mm::{GFA, MAPPER},
             mmu::{
                 self, EntryFlags, PAGE_SIZE, PageSize, PageTable, PageTableWalker,
                 dump_active_root_page_table,
             },
+            registers::Satp,
         },
     },
     mm::{
@@ -81,7 +82,7 @@ impl ElfLoader for RiscvLoader {
 
         Ok(RiscvAddrSpace {
             rpt_pa: user_rpt_pa,
-            pt_walker: user_mapper,
+            pt_walker: Some(user_mapper),
         })
     }
 
@@ -114,7 +115,7 @@ impl ElfLoader for RiscvLoader {
         flags: elf::SegmentFlags,
     ) -> Result<(), Self::Error> {
         self.map_range_alloc(
-            &mut aspace.pt_walker,
+            aspace.page_table_walker(),
             vaddr,
             len,
             EntryFlags::from_segment_flags(flags) | EntryFlags::USER | EntryFlags::ACCESS,
@@ -136,7 +137,7 @@ impl ElfLoader for RiscvLoader {
         // Change permissions of already mapped pages
         // SAFETY: caller must ensure that vaddr and len are page-aligned and valid
         unsafe {
-            aspace.pt_walker.update_mapping(
+            aspace.page_table_walker().update_mapping(
                 vaddr,
                 len,
                 EntryFlags::from_segment_flags(flags) | EntryFlags::USER | EntryFlags::ACCESS,
@@ -199,27 +200,56 @@ impl ElfLoader for RiscvLoader {
     }
 }
 
-/// RISC-V user address space implementation for ELF loading.
+/// RISC-V address space: either an owned user root, or a shared handle to the global kernel root.
 #[derive(Debug)]
 pub struct RiscvAddrSpace {
-    pub rpt_pa: PhysAddr,
-    pub pt_walker: PageTableWalker<'static>,
+    rpt_pa: PhysAddr,
+    /// `None` for a shared-kernel handle that must not own or destroy the root.
+    pt_walker: Option<PageTableWalker<'static>>,
 }
 
 impl RiscvAddrSpace {
+    /// Non-owning handle to the live global kernel page tables.
+    ///
+    /// Used by kernel threads that share the kernel VAS. Teardown must never free this root.
+    pub fn shared_kernel() -> Self {
+        Self {
+            rpt_pa: PhysAddr::from_ppn(Satp::read_ppn() as usize),
+            pt_walker: None,
+        }
+    }
+
+    /// Returns whether this address space owns its root page table.
+    pub fn is_owned(&self) -> bool {
+        self.pt_walker.is_some()
+    }
+
     /// Returns the physical address of the root page table for this address space.
     pub fn root_page_table_pa(&self) -> PhysAddr {
         self.rpt_pa
     }
 
     /// Returns a reference to the root page table for this address space.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is a shared-kernel handle with no walker.
     pub fn page_table(&self) -> &PageTable {
-        self.pt_walker.page_table()
+        self.pt_walker
+            .as_ref()
+            .expect("shared kernel address space has no page table walker")
+            .page_table()
     }
 
     /// Returns a mutable reference to the page table walker for this address space.
+    ///
+    /// # Panics
+    ///
+    /// Panics if this is a shared-kernel handle with no walker.
     pub fn page_table_walker(&mut self) -> &mut PageTableWalker<'static> {
-        &mut self.pt_walker
+        self.pt_walker
+            .as_mut()
+            .expect("shared kernel address space has no page table walker")
     }
 
     /// Temporarily switches to this address space, runs the given closure, and then switches back.

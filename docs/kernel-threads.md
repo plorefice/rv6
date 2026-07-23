@@ -161,13 +161,13 @@ code):
    if a kthread must isolate kernel mappings (not required for v1).
 
 Prefer (1) for the first cut: less memory, matches “kernel thread = runs in
-kernel VAS.”
+kernel VAS.” **Implemented:** `RiscvAddrSpace::shared_kernel()` + a
+page-aligned private stack allocated from the global heap (`KThreadStack`).
 
 ### Stack and context
 
-- Allocate a per-kthread kernel stack (reuse `PROC_KSTACK` layout / allocator
-  used for user process kstacks, or a dedicated kthread stack pool — same VA
-  window is fine if indexed by pid/slot).
+- Allocate a per-kthread kernel stack from the heap (`PROC_KSTACK_MEM_SIZE`,
+  page-aligned via `alloc_zeroed`). Ownership lives on `ProcState::kstack`.
 - Place `ThreadInfo` at the stack base as for user processes (`ksp` set, `usp`
   unused / zero).
 - Initial `Context`:
@@ -189,10 +189,9 @@ kthread_trampoline:
 
 1. Mark process `Zombie` (or a kernel-specific exited state).
 2. `exit_current` / remove from run queue.
-3. Free kthread resources when safe (stack, table slot) — may defer to a reaper
-   if freeing while still on that stack is awkward; v1 can park forever in a
-   “dead” state or switch to idle then free from idle (implementation detail).
-4. `switch` to another runnable task or idle (`None`).
+3. `switch` to idle (`None`) so reclaim does not run on the dying stack.
+4. Idle’s `reap_zombie_kthreads` takes Kernel zombies and `destroy`s them
+   (drops the heap `KThreadStack`).
 
 Kernel threads do **not** go through `return_to_user` / `resume_process`’s
 `sret`-to-user path. Idle/`switch` already restores `Context` via `swtch`; for
@@ -307,10 +306,10 @@ migration above.
 ### Phase 2
 
 - [x] Add `ProcessKind::{User, Kernel}` (or equivalent) to `Process`
-- [ ] Kthread stack allocation + `ThreadInfo` setup
-- [ ] `kthread_trampoline` + `kthread_exit`
-- [ ] `spawn_kthread`
-- [ ] Idle/`switch`: confirm SATP/tp for kthreads (kernel tables)
+- [x] Kthread stack allocation + `ThreadInfo` setup
+- [x] `kthread_trampoline` + `kthread_exit`
+- [x] `spawn_kthread`
+- [x] Idle/`switch`: confirm SATP/tp for kthreads (kernel tables)
 - [ ] Implement `kernel_init`; slim down `kmain`
 - [ ] Ensure park/wake/`Mutex` work under `kernel_init` (e.g. contended test later)
 - [ ] `just run`: mount, load `/init`, spawn user, kthread exits, user runs
@@ -319,7 +318,7 @@ migration above.
 
 - [ ] Migrate `FileOps` offset and `ext2::Fs` to `Mutex`
 - [ ] Virtio used-buffer IRQ + sleep instead of busy-wait
-- [ ] Reap/free kthread stacks and table slots cleanly
+- [x] Reap/free kthread stacks and table slots cleanly (idle + heap `Drop`)
 - [ ] Hide kernel threads from any user-facing process listing / `wait` targets
 
 ---
@@ -343,9 +342,9 @@ These can be decided during coding without changing the overall design:
 
 1. **Exact `Process` field layout** — `kind: ProcessKind` vs separate optional
    `kthread: Option<KThreadInfo>` for entry/arg.
-2. **Stack VA allocation** — reuse per-process kstack slots vs a small static
-   pool for early kthreads.
-3. **Exit/reap** — immediate free vs zombie kthread until idle reaps.
+2. **Stack VA allocation** — **done:** heap-backed `KThreadStack` under shared root
+   (no fixed slot pool).
+3. **Exit/reap** — **done:** `kthread_exit` → idle; idle reaps Kernel zombies.
 4. **HAL surface** — how much of trampoline/`spawn_kthread` lives in
    `arch::riscv::proc` vs generic `proc` (prefer arch for context/stack, generic
    for spawn/exit policy).
