@@ -12,8 +12,8 @@ identity” shortcut (Phase 1) is **out of scope** — we go straight to kthread
 Related code today:
 
 - Boot: `kernel/src/lib.rs` (`kmain`)
-- Process model / `ProcessBuilder::exec`: `kernel/src/proc/mod.rs`
-- Idle + `enter_user`: `kernel/src/arch/riscv/proc.rs`
+- Process model / `ProcessBuilder::spawn_user`: `kernel/src/proc/mod.rs`
+- Idle + `enqueue_user` / `enter_scheduler`: `kernel/src/arch/riscv/proc.rs`
 - Scheduling / park / wake: `kernel/src/proc/sched.rs`
 - Sleeping locks: `kernel/src/sync/mutex.rs`, `kernel/src/sync.rs` (`WaitQueue`)
 
@@ -32,9 +32,9 @@ Today `kmain` does the following **before** any process exists:
    process, then enters `idle_main()` forever.
 
 So VFS and any future `Mutex` around filesystem state cannot be used safely
-during boot. Separately, `enter_user` conflates “spawn userspace init” with
-“become the idle loop,” which prevents a kernel thread from creating a user
-process and then exiting.
+during boot. Separately, before Phase 0, process creation conflated “spawn
+userspace init” with “become the idle loop,” which prevented a kernel thread
+from creating a user process and then exiting. Phase 0 splits those.
 
 ---
 
@@ -95,24 +95,20 @@ Target
 
 ### Problem
 
-`RiscvUserProcessExecutor::enter_user` both installs the first user process and
-calls `idle_main()`. Nothing else can enqueue a process and continue running.
+Previously, `RiscvUserProcessExecutor::enter_user` both installed the first user
+process and called `idle_main()`. Nothing else could enqueue a process and
+continue running.
 
-### API
+### API (implemented)
 
 | Function | Role |
 |----------|------|
-| `spawn_user(bytes) -> ProcessId` | Build address space, load ELF, set up stacks / trap frame / initial context (`ra = return_to_user`), `allocate_process`, `enqueue_process`. Returns the pid. Does **not** call idle. |
-| `enter_scheduler() -> !` | Enters `idle_main()` on the boot/idle context. |
-| `ProcessBuilder::exec` (optional) | Thin wrapper: `spawn_user` then `enter_scheduler`, for any leftover call sites. Prefer not using it from `kmain`. |
+| `spawn_user(bytes) -> ProcessId` | On `ProcessBuilder`: build address space, load ELF, set up stacks, call arch `enqueue_user`. Returns the pid. Does **not** call idle. |
+| `enqueue_user(proc, entry, stack) -> ProcessId` | On `UserProcessExecutor`: trap frame / context / kstack `ThreadInfo`, `allocate_process`, `enqueue_process`. |
+| `enter_scheduler() -> !` | HAL + riscv: enters `idle_main()` on the boot/idle context. |
 
-Implementation sketch:
-
-- Move the body of today’s `enter_user` (through enqueue) into `spawn_user`
-  (or into `ProcessBuilder` + arch executor helpers).
-- `enter_user` either disappears or becomes `spawn_user` + `enter_scheduler`.
-- Idle remains the only path that calls `switch(None, Some(pid))` for the first
-  run of a freshly spawned task.
+Idle remains the only path that calls `switch(None, Some(pid))` for the first
+run of a freshly spawned task. `ProcessBuilder::exec` was removed.
 
 ### Invariants after Phase 0
 
@@ -301,10 +297,10 @@ migration above.
 
 ### Phase 0
 
-- [ ] Extract `spawn_user` from `enter_user` / `ProcessBuilder::exec`
-- [ ] Add `enter_scheduler() -> !` wrapping `idle_main`
-- [ ] Update any callers; keep a compatibility `exec` if useful
-- [ ] Smoke: `just run` still boots user `/init` (temporarily still from `kmain`
+- [x] Extract `spawn_user` / `enqueue_user` from former `enter_user` / `exec`
+- [x] Add `enter_scheduler() -> !` wrapping `idle_main`
+- [x] Update `kmain` to `spawn_user` + `enter_scheduler` (dropped `exec`)
+- [x] Smoke: `just run` still boots user `/init` (temporarily still from `kmain`
       via `spawn_user` + `enter_scheduler`)
 
 ### Phase 2

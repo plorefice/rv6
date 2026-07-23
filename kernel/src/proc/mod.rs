@@ -295,11 +295,14 @@ pub trait ProcessBuilder {
     /// Destroys the given process, cleaning up any resources associated with it.
     fn destroy(&self, process: Process);
 
-    /// Loads and executes a process given its ELF representation.
+    /// Loads a user process from its ELF image and enqueues it for scheduling.
+    ///
+    /// Returns the new process id. Does not enter the idle loop; the caller must
+    /// invoke the architecture idle/scheduler entry separately (e.g. after boot).
     ///
     /// The default implementation is fine for most cases. Each implementor can override it
-    /// for finer grained control over process execution.
-    fn exec(&self, bytes: impl AsRef<[u8]>) -> ! {
+    /// for finer grained control over process creation.
+    fn spawn_user(&self, bytes: impl AsRef<[u8]>) -> ProcessId {
         let bytes = bytes.as_ref();
 
         // Create a new user address space
@@ -349,26 +352,32 @@ pub trait ProcessBuilder {
             fds: FdTable::with_stdio(),
         };
 
-        // Start execution of the new process
         // SAFETY: we have just created and loaded the address space for this process
-        unsafe { self.executor().enter_user(proc, plan.entry, stack_layout) };
+        unsafe { self.executor().enqueue_user(proc, plan.entry, stack_layout) }
     }
 }
 
-/// Trait for executing user processes on the current architecture.
+/// Trait for preparing and enqueuing user processes on the current architecture.
 pub trait UserProcessExecutor {
     /// The type representing the process's address space.
     /// This is typically the same as the `AddrSpace` associated type from `ElfLoader`.
     type AddrSpace;
 
-    /// Enters user mode for the specified address space, starting execution of the
-    /// process at the given entry point and stack layout.
+    /// Prepares arch state for `proc` and enqueues it; returns its process id.
+    ///
+    /// Does not enter user mode or the idle loop. The first schedule of this process
+    /// lands in the return-to-user trampoline.
     ///
     /// # Safety
     ///
     /// The caller must ensure that the address space is properly set up for user execution,
     /// and that the entry point and stack pointers are valid for the user process.
-    unsafe fn enter_user(&self, proc: Process, entry: VirtAddr, stack: ProcessStackLayout) -> !;
+    unsafe fn enqueue_user(
+        &self,
+        proc: Process,
+        entry: VirtAddr,
+        stack: ProcessStackLayout,
+    ) -> ProcessId;
 }
 
 /// Specification of a user stack layout.

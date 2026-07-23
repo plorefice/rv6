@@ -129,12 +129,12 @@ pub struct RiscvUserProcessExecutor;
 impl UserProcessExecutor for RiscvUserProcessExecutor {
     type AddrSpace = RiscvAddrSpace;
 
-    unsafe fn enter_user(
+    unsafe fn enqueue_user(
         &self,
         mut proc: Process,
         entry: VirtAddr,
         stack_layout: ProcessStackLayout,
-    ) -> ! {
+    ) -> ProcessId {
         let ksp = stack_layout.kernel_stack.initial_sp.as_usize();
         let usp = stack_layout.user_stack.initial_sp.as_usize();
 
@@ -161,9 +161,7 @@ impl UserProcessExecutor for RiscvUserProcessExecutor {
         let pid = sched::allocate_process(proc);
         // Do not make it current here — idle will schedule it via `switch(None, Some(pid))`.
         sched::enqueue_process(pid);
-
-        // Bootstrap: run the idle loop, which switches into `pid` via return_to_user.
-        idle_main();
+        pid
     }
 }
 
@@ -173,9 +171,14 @@ extern "C" fn return_to_user() -> ! {
     resume_process(pid);
 }
 
+/// Enters the idle/scheduler loop on the boot stack and never returns.
+pub fn enter_scheduler() -> ! {
+    idle_main();
+}
+
 /// Idle loop: schedule a runnable process or `wfi`.
 ///
-/// Entered from [`UserProcessExecutor::enter_user`] on the boot stack. The first
+/// Entered from [`enter_scheduler`] on the boot stack. The first
 /// [`switch`]`(None, Some(_))` saves that stack into [`IDLE_CTX`]; later
 /// [`switch`]`(Some(_), None)` returns here.
 extern "C" fn idle_main() -> ! {

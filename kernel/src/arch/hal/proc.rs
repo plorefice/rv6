@@ -17,6 +17,12 @@ pub fn switch(outgoing: Option<ProcessId>, next: Option<ProcessId>) {
     imp::switch(outgoing, next)
 }
 
+/// Enters the idle/scheduler loop and never returns.
+#[inline]
+pub fn enter_scheduler() -> ! {
+    imp::enter_scheduler()
+}
+
 mod imp {
     #[cfg(target_arch = "riscv64")]
     pub use riscv::*;
@@ -36,6 +42,11 @@ mod imp {
         #[inline]
         pub fn switch(outgoing: Option<ProcessId>, next: Option<ProcessId>) {
             crate::arch::riscv::proc::switch(outgoing, next)
+        }
+
+        #[inline]
+        pub fn enter_scheduler() -> ! {
+            crate::arch::riscv::proc::enter_scheduler()
         }
     }
 }
