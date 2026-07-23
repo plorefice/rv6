@@ -50,9 +50,8 @@ from creating a user process and then exiting. Phase 0 splits those.
 3. Reorder boot so `kmain` only finishes driver/sched init, spawns
    `kernel_init`, and enters the idle loop. All mount / `/init` load / user
    spawn happens inside `kernel_init`.
-4. Keep **user `/init` as the first user process** (the process that looks like
-   pid-1 for future `wait`/`fork` semantics). Kernel init must not be mistaken
-   for userspace init.
+4. Keep **user `/init` as logical `Pid::INIT` (1)** for `wait`/`fork` / orphan
+   reparenting. Kernel init must not be mistaken for userspace init.
 
 ## Non-goals (first cut)
 
@@ -84,7 +83,7 @@ Target
                               │
                               ├─ switch → kernel_init
                               │              ├─ mount / load /init
-                              │              ├─ spawn_user(elf)
+                              │              ├─ spawn_init(elf)
                               │              └─ kthread_exit
                               └─ switch → user /init (return_to_user)
 ```
@@ -103,7 +102,8 @@ continue running.
 
 | Function | Role |
 |----------|------|
-| `spawn_user(bytes) -> ProcessId` | On `ProcessBuilder`: build address space, load ELF, set up stacks, call arch `enqueue_user`. Returns the pid. Does **not** call idle. |
+| `spawn_user(bytes) -> ProcessId` | On `ProcessBuilder`: build address space, load ELF, set up stacks, call arch `enqueue_user`. Allocates a normal logical `Pid` (≥ 2). Does **not** call idle. |
+| `spawn_init(bytes) -> ProcessId` | Like `spawn_user`, but assigns `Pid::INIT` (1) and caches the table handle for orphan reparenting. |
 | `enqueue_user(proc, entry, stack) -> ProcessId` | On `UserProcessExecutor`: trap frame / context / kstack `ThreadInfo`, `allocate_process`, `enqueue_process`. |
 | `enter_scheduler() -> !` | HAL + riscv: enters `idle_main()` on the boot/idle context. |
 
@@ -238,13 +238,14 @@ initial `Context.ra` differs by kind. Optional assert in idle: next process is
 ### Who is “init”?
 
 - **Kernel init** — first kthread; loads and spawns userspace; then exits.
-- **User init** — first `ProcessKind::User` (typically `/init`); this is the
-  process future `wait` without a parent, orphan reparenting, etc. should treat
-  as init.
+- **User init** — userspace `/init`, spawned via `spawn_init`; this is the process future
+  `wait` without a parent, orphan reparenting, etc. should treat as init.
 
-Do not assign userspace meaning to the kthread’s pid. If pid allocation is
-dense from zero, document that “init” is “first user process,” not “pid == 1,”
-until a stable init pid convention exists.
+Logical PIDs (`Pid`) are shared by user and kernel processes and allocated
+incrementally (no recycling yet). **`Pid::INIT` (1) is reserved for userspace
+init**; other processes (including kthreads) get PIDs starting at 2. Do not assign
+userspace meaning to a kthread’s PID. Cache init’s table handle with
+`ProcessTable::set_init_id` / `proc::init_process_id()` (done inside `spawn_init`).
 
 ---
 
@@ -256,7 +257,7 @@ Runs as a kernel thread with `current` set:
 2. Mount ext2; `vfs::init_root_fs` on success.
 3. Try `root_fs().open("/init")` + `read_to_end`.
 4. On failure, load initrd from FDT and find `"init"`.
-5. On success, `spawn_user(bytes)`.
+5. On success, `spawn_init(bytes)` (assigns [`Pid::INIT`], registers init handle).
 6. On total failure, panic (or orderly shutdown via syscon).
 7. `kthread_exit` (user `/init` continues via idle).
 

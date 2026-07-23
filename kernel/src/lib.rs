@@ -131,7 +131,7 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     // Run init code
     if let Some(init_code) = init_code {
         kprintln!("Found init program, size {}", init_code.len());
-        let _pid = hal::proc::builder().spawn_user(init_code);
+        let _init_id = hal::proc::builder().spawn_init(init_code);
         hal::proc::enter_scheduler();
     } else {
         panic!("No init program found");

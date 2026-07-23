@@ -468,10 +468,14 @@ impl ProcessBuilder for RiscvProcessBuilder {
         astate.tf.a0 = 0;
         astate.tf.epc += 4;
 
+        // Reserve a PID for the child process
+        let pid = { global_process_table().lock().alloc_pid() };
+
         Process {
             state: ProcessState::Running,
             aspace,
             astate,
+            pid,
             parent: None, // Parent will be set by the caller, we don't have access to the parent's PID here
             children: Default::default(),
             heap: parent.heap,       // Inherit the heap from the parent
