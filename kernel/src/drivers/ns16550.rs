@@ -142,6 +142,11 @@ impl FileOps for Ns16550 {
                     return Ok(i);
                 }
             }
+
+            // At least one byte was read, return it. Otherwise, wait for more data.
+            if i > 0 {
+                return Ok(i);
+            }
         }
     }
 
