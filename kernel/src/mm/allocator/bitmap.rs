@@ -181,7 +181,11 @@ impl<const N: usize> FrameAllocator<N> for BitmapAllocator<N> {
 
         // Non-terminal pages of a chunk are marked TAKEN only. If the previous page is TAKEN,
         // this address sits in the middle (or at the end) of a larger allocation.
-        if offset > 0 && self.descriptors[offset - 1].flags.contains(PageFlags::TAKEN) {
+        if offset > 0
+            && self.descriptors[offset - 1]
+                .flags
+                .contains(PageFlags::TAKEN)
+        {
             panic!("Trying to free from the middle of an allocation!");
         }
 

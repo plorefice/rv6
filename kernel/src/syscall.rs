@@ -136,9 +136,9 @@ pub fn sys_exit(args: SysArgs) -> ! {
 pub fn sys_fork(args: SysArgs) -> SysResult<usize> {
     let _flags = args.get(0);
 
-    let child_pid = proc::fork_current_process();
-    sched::enqueue_process(child_pid);
-    Ok(child_pid.pid())
+    let (child_id, child_pid) = proc::fork_current_process();
+    sched::enqueue_process(child_id);
+    Ok(child_pid.as_usize())
 }
 
 enum WaitPoll {

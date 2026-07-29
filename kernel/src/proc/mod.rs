@@ -17,6 +17,9 @@ pub mod sched;
 
 /// A user process.
 pub struct Process {
+    /// The kind of process, which can be either a user process or a kernel thread.
+    pub kind: ProcessKind,
+
     /// The current execution state.
     pub state: ProcessState,
 
@@ -25,6 +28,9 @@ pub struct Process {
 
     /// The address space of the process, which defines its virtual memory layout.
     pub aspace: hal::proc::AddrSpace,
+
+    /// The unique process identifier (PID) for this process.
+    pub pid: Pid,
 
     /// The parent process ID, if any. This is used to track the process hierarchy.
     pub parent: Option<ProcessId>,
@@ -37,6 +43,48 @@ pub struct Process {
 
     /// Open file descriptors for the process.
     pub fds: FdTable,
+}
+
+/// Logical process identifier.
+///
+/// This is a unique, stable identifier for a process in the system. It is assigned at creation
+/// and persists for the lifetime of the process. It is mainly used to reference a process
+/// in system calls from user space.
+///
+/// [`ProcessId`] identifies a slot in the process table; [`Pid`] is the numerical id exposed to
+/// userspace and used for init identification ([`Pid::INIT`] == 1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Pid(usize);
+
+impl Pid {
+    /// Logical PID reserved for the userspace init process.
+    pub const INIT: Pid = Pid(1);
+
+    /// Returns the raw numerical value of this PID.
+    pub const fn as_usize(self) -> usize {
+        self.0
+    }
+}
+
+impl From<Pid> for usize {
+    fn from(pid: Pid) -> Self {
+        pid.as_usize()
+    }
+}
+
+impl fmt::Display for Pid {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+/// A discriminant between user and kernel processes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ProcessKind {
+    /// The process is a user-space process, running in user mode with its own address space.
+    User,
+    /// The process is a kernel thread, running in kernel mode and sharing the kernel address space.
+    Kernel,
 }
 
 /// The execution state of a process.
@@ -150,24 +198,14 @@ pub struct ProcessId {
     generation: usize,
 }
 
-impl ProcessId {
-    /// The initial process ID, typically assigned to the first process created in the system.
-    pub const INIT_PID: ProcessId = ProcessId {
-        idx: 0,
-        generation: 0,
-    };
-
-    /// Returns the index of the process in the process table.
-    pub fn pid(self) -> usize {
-        self.idx
-    }
-}
-
 /// The process table, which stores all processes in the system and allows for allocation,
 /// retrieval, and deallocation of processes.
 pub struct ProcessTable {
     slots: Vec<ProcessSlot>,
     free: Vec<usize>,
+    next_pid: usize,
+    /// Cached table handle for the userspace init process ([`Pid::INIT`]).
+    init_id: Option<ProcessId>,
 }
 
 /// A versioned slot in the process table, which can either be occupied by a process or free.
@@ -189,6 +227,8 @@ impl ProcessTable {
         ProcessTable {
             slots: Vec::new(),
             free: Vec::new(),
+            next_pid: 2, // 0 unused, 1 reserved for init (`Pid::INIT`)
+            init_id: None,
         }
     }
 
@@ -245,6 +285,54 @@ impl ProcessTable {
             None
         }
     }
+
+    /// Removes all exited kernel threads from the table.
+    ///
+    /// Callers must only destroy these after the thread has switched away from its stack
+    /// (typically from idle).
+    pub fn take_zombie_kthreads(&mut self) -> Vec<Process> {
+        let mut ids = Vec::new();
+        for (idx, slot) in self.slots.iter().enumerate() {
+            if let Some(p) = slot.process.as_ref()
+                && matches!(p.kind, ProcessKind::Kernel)
+                && matches!(p.state, ProcessState::Zombie { .. })
+            {
+                ids.push(ProcessId {
+                    idx,
+                    generation: slot.generation,
+                });
+            }
+        }
+        ids.into_iter().filter_map(|id| self.take(id)).collect()
+    }
+
+    /// Allocates a new unique logical process identifier.
+    ///
+    /// Never returns [`Pid::INIT`] (reserved for userspace init via [`ProcessBuilder::spawn_init`]).
+    pub fn alloc_pid(&mut self) -> Pid {
+        debug_assert_ne!(self.next_pid, Pid::INIT.as_usize());
+        let pid = Pid(self.next_pid);
+        self.next_pid += 1;
+        pid
+    }
+
+    /// Caches the process-table handle for userspace init.
+    ///
+    /// # Panics
+    ///
+    /// Debug builds panic if init was already registered, `id` is missing from the table, or the
+    /// process does not have logical [`Pid::INIT`].
+    pub fn set_init_id(&mut self, id: ProcessId) {
+        debug_assert!(self.init_id.is_none(), "init process already registered");
+        let proc = self.get(id).expect("init process not in table");
+        debug_assert_eq!(proc.pid, Pid::INIT, "init must have logical Pid::INIT");
+        self.init_id = Some(id);
+    }
+
+    /// Returns the cached [`ProcessId`] of the userspace init process, if it has been set.
+    pub fn init_id(&self) -> Option<ProcessId> {
+        self.init_id
+    }
 }
 
 // Global process table, protected by a spinlock for safe concurrent access.
@@ -295,11 +383,30 @@ pub trait ProcessBuilder {
     /// Destroys the given process, cleaning up any resources associated with it.
     fn destroy(&self, process: Process);
 
-    /// Loads and executes a process given its ELF representation.
+    /// Loads a user process from its ELF image and enqueues it for scheduling.
+    ///
+    /// Returns the new process id. Does not enter the idle loop; the caller must
+    /// invoke the architecture idle/scheduler entry separately (e.g. after boot).
     ///
     /// The default implementation is fine for most cases. Each implementor can override it
-    /// for finer grained control over process execution.
-    fn exec(&self, bytes: impl AsRef<[u8]>) -> ! {
+    /// for finer grained control over process creation.
+    fn spawn_user(&self, bytes: impl AsRef<[u8]>) -> ProcessId {
+        let logical_pid = PROCESS_TABLE.lock().alloc_pid();
+        self.spawn_user_with_pid(bytes, logical_pid)
+    }
+
+    /// Spawns the userspace init process with logical [`Pid::INIT`] and registers it for
+    /// orphan reparenting.
+    ///
+    /// Must be called at most once. Prefer this over [`Self::spawn_user`] for `/init`.
+    fn spawn_init(&self, bytes: impl AsRef<[u8]>) -> ProcessId {
+        let id = self.spawn_user_with_pid(bytes, Pid::INIT);
+        PROCESS_TABLE.lock().set_init_id(id);
+        id
+    }
+
+    /// Shared spawn path used by [`Self::spawn_user`] and [`Self::spawn_init`].
+    fn spawn_user_with_pid(&self, bytes: impl AsRef<[u8]>, logical_pid: Pid) -> ProcessId {
         let bytes = bytes.as_ref();
 
         // Create a new user address space
@@ -340,35 +447,43 @@ pub trait ProcessBuilder {
 
         // Create the process and add it to the scheduler
         let proc = Process {
+            kind: ProcessKind::User,
             state: ProcessState::Running,
             aspace,
             astate: hal::proc::ProcArchState::default(),
+            pid: logical_pid,
             parent: None,
             children: Vec::new(),
             heap: ProcessHeap::new(plan.heap_start),
             fds: FdTable::with_stdio(),
         };
 
-        // Start execution of the new process
         // SAFETY: we have just created and loaded the address space for this process
-        unsafe { self.executor().enter_user(proc, plan.entry, stack_layout) };
+        unsafe { self.executor().enqueue_user(proc, plan.entry, stack_layout) }
     }
 }
 
-/// Trait for executing user processes on the current architecture.
+/// Trait for preparing and enqueuing user processes on the current architecture.
 pub trait UserProcessExecutor {
     /// The type representing the process's address space.
     /// This is typically the same as the `AddrSpace` associated type from `ElfLoader`.
     type AddrSpace;
 
-    /// Enters user mode for the specified address space, starting execution of the
-    /// process at the given entry point and stack layout.
+    /// Prepares arch state for `proc` and enqueues it; returns its process id.
+    ///
+    /// Does not enter user mode or the idle loop. The first schedule of this process
+    /// lands in the return-to-user trampoline.
     ///
     /// # Safety
     ///
     /// The caller must ensure that the address space is properly set up for user execution,
     /// and that the entry point and stack pointers are valid for the user process.
-    unsafe fn enter_user(&self, proc: Process, entry: VirtAddr, stack: ProcessStackLayout) -> !;
+    unsafe fn enqueue_user(
+        &self,
+        proc: Process,
+        entry: VirtAddr,
+        stack: ProcessStackLayout,
+    ) -> ProcessId;
 }
 
 /// Specification of a user stack layout.
@@ -453,15 +568,16 @@ where
 }
 
 /// Forks the currently running process, creating a new child process that is a duplicate of the parent.
-/// Returns the `ProcessId` of the newly created child process.
-pub fn fork_current_process() -> ProcessId {
+///
+/// Returns the child's process-table handle and its logical [`Pid`].
+pub fn fork_current_process() -> (ProcessId, Pid) {
     let parent_pid =
         sched::current_process_id().expect("sys_fork called without a current process");
 
     fork_process(parent_pid)
 }
 
-fn fork_process(parent_pid: ProcessId) -> ProcessId {
+fn fork_process(parent_pid: ProcessId) -> (ProcessId, Pid) {
     let child_proc = {
         let mut proc_table = PROCESS_TABLE.lock();
         let parent_proc = proc_table.get_mut(parent_pid).expect("invalid parent PID");
@@ -469,13 +585,54 @@ fn fork_process(parent_pid: ProcessId) -> ProcessId {
         child_proc.parent = Some(parent_pid);
         child_proc
     };
-    let child_pid = sched::allocate_process(child_proc);
+    let logical_pid = child_proc.pid;
+    let child_id = sched::allocate_process(child_proc);
     {
         let mut proc_table = PROCESS_TABLE.lock();
         let parent_proc = proc_table.get_mut(parent_pid).expect("invalid parent PID");
-        parent_proc.children.push(child_pid);
+        parent_proc.children.push(child_id);
     }
-    child_pid
+    (child_id, logical_pid)
+}
+
+/// Exits the current kernel thread and switches to idle.
+///
+/// Marks the thread as a zombie without reparenting children or waking a parent.
+/// Idle reaps the zombie and frees its heap-backed stack after this switch returns there.
+///
+/// # Panics
+///
+/// Panics if there is no current process or if the current process is not a kernel thread.
+pub fn kthread_exit() -> ! {
+    let pid = sched::current_process_id().expect("kthread_exit: no current process");
+
+    {
+        let mut proc_table = PROCESS_TABLE.lock();
+        let proc = proc_table.get_mut(pid).expect("kthread_exit: invalid PID");
+        assert!(
+            matches!(proc.kind, ProcessKind::Kernel),
+            "kthread_exit: current process is not a kernel thread"
+        );
+        proc.state = ProcessState::Zombie { exit_code: 0 };
+    }
+
+    sched::exit_current(pid);
+    // Return to idle (not `switch_from_exiting`) so idle can reap the heap stack.
+    hal::proc::switch(Some(pid), None);
+    panic!("kthread_exit: resumed after switch to idle");
+}
+
+/// Reaps exited kernel threads and frees their heap-backed stacks.
+///
+/// Must run on a stack other than the zombies' own (idle calls this each loop).
+pub fn reap_zombie_kthreads() {
+    let zombies = {
+        let mut table = PROCESS_TABLE.lock();
+        table.take_zombie_kthreads()
+    };
+    for proc in zombies {
+        hal::proc::builder().destroy(proc);
+    }
 }
 
 /// Exits the currently running process and transfers control to the scheduler.
@@ -487,7 +644,7 @@ pub fn exit_current(exit_code: usize) -> ! {
     sched::exit_current(pid);
 
     // Mark the process as a zombie and store its exit code.
-    // Also reparent any child processes to the init process (PID 0) to ensure they are not orphaned.
+    // Also reparent any child processes to userspace init to ensure they are not orphaned.
     let mut wake_parent = None;
     {
         let mut proc_table = PROCESS_TABLE.lock();
@@ -522,12 +679,12 @@ fn reparent_children(proc_table: &mut ProcessTable, pid: ProcessId) {
     let parent_proc = proc_table.get_mut(pid).expect("invalid PID");
     let children = core::mem::take(&mut parent_proc.children);
 
+    let init_id = proc_table.init_id().expect("init process not found");
+
     for child_pid in children {
         if let Some(child_proc) = proc_table.get_mut(child_pid) {
-            child_proc.parent = Some(ProcessId::INIT_PID);
-            let init_proc = proc_table
-                .get_mut(ProcessId::INIT_PID)
-                .expect("init process not found");
+            child_proc.parent = Some(init_id);
+            let init_proc = proc_table.get_mut(init_id).expect("init process not found");
             init_proc.children.push(child_pid);
         }
     }
@@ -536,4 +693,25 @@ fn reparent_children(proc_table: &mut ProcessTable, pid: ProcessId) {
 /// Returns a reference to the global process table, protected by a spinlock for safe concurrent access.
 pub fn global_process_table() -> &'static IrqSpinLock<ProcessTable> {
     &PROCESS_TABLE
+}
+
+/// Returns the process-table handle for userspace init.
+///
+/// # Panics
+///
+/// Panics if init has not been spawned yet.
+pub fn init_process_id() -> ProcessId {
+    PROCESS_TABLE
+        .lock()
+        .init_id()
+        .expect("init process not set")
+}
+
+/// Spawns a kernel thread that runs `entry(arg)` in S-mode on a private kernel stack.
+///
+/// Uses the shared global kernel page tables and a heap-backed stack. Does not switch to the
+/// new thread; the caller (or idle) must schedule it. If `entry` returns, the trampoline
+/// calls [`kthread_exit`].
+pub fn spawn_kthread(entry: fn(usize), arg: usize) -> ProcessId {
+    hal::proc::spawn_kthread(entry, arg)
 }

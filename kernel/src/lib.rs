@@ -14,18 +14,13 @@
 #![warn(clippy::undocumented_unsafe_blocks)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
-use alloc::{boxed::Box, string::String, vec::Vec};
+use alloc::{boxed::Box, string::String};
 use fdt::Fdt;
 
 use crate::{
     arch::hal,
-    block::{BLOCK_DEVS, BlockDevCursor},
     drivers::{DriverCtx, irqchip},
-    proc::{
-        ProcessBuilder,
-        sched::{self, RoundRobinScheduler},
-    },
-    vfs::fd::OpenFlags,
+    proc::sched::{self, RoundRobinScheduler},
 };
 
 #[macro_use]
@@ -38,6 +33,7 @@ pub mod arch;
 pub mod block;
 pub mod console;
 pub mod drivers;
+pub mod init;
 pub mod initrd;
 pub mod irq;
 pub mod ksyms;
@@ -88,51 +84,7 @@ pub unsafe extern "C" fn kmain(fdt_data: *const u8) -> ! {
     drivers::init(&ctx, &fdt).expect("driver initialization failed");
     sched::init(Box::new(RoundRobinScheduler::default()));
 
-    // Register disk device and mount root filesystem
-    let blkdev = {
-        let table = BLOCK_DEVS.lock();
-        table.iter().next().expect("no block device found").clone()
-    };
-    let rootfs = match ext2::FileSystem::mount(BlockDevCursor::new(blkdev)) {
-        Ok(fs) => Some(vfs::init_root_fs(vfs::ext2::Fs::new(fs))),
-        Err(e) => {
-            kprintln!("Failed to mount root filesystem: {e}");
-            None
-        }
-    };
-
-    // If rootfs is mounted, try to load /init from it
-    let rootfs_init = rootfs.and_then(|fs| {
-        fs.open("/init", OpenFlags::READ)
-            .and_then(|f| {
-                let mut buf = Vec::new();
-                f.read_to_end(&mut buf)?;
-                Ok(Some(buf))
-            })
-            .unwrap_or_else(|e| {
-                kprintln!("Failed to read /init from root filesystem: {e}");
-                None
-            })
-    });
-
-    // Fallback to initrd if rootfs init fails
-    let init_code = match rootfs_init {
-        Some(buf) => {
-            kprintln!("Loaded /init from rootfs");
-            Some(buf)
-        }
-        None => {
-            kprintln!("Failed to load init from rootfs, falling back to initrd",);
-            let initrd = initrd::load_from_fdt(&fdt).expect("failed to load initrd");
-            initrd.find_file("init").map(|f| f.to_vec())
-        }
-    };
-
-    // Run init code
-    if let Some(init_code) = init_code {
-        kprintln!("Found init program, size {}", init_code.len());
-        hal::proc::builder().exec(init_code);
-    } else {
-        panic!("No init program found");
-    }
+    // Hand off mount / `/init` load / user spawn to the first kernel thread, then idle forever.
+    proc::spawn_kthread(init::kernel_init, fdt_data as usize);
+    hal::proc::enter_scheduler();
 }

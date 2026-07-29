@@ -6,7 +6,7 @@ use alloc::{sync::Arc, vec::Vec};
 use bitflags::bitflags;
 use uapi::Errno;
 
-use crate::{console, sync::SpinLock, vfs::file_ops::FileOps};
+use crate::{console, sync::Mutex, vfs::file_ops::FileOps};
 
 /// A file descriptor, which is an index into a process's file descriptor table.
 #[repr(transparent)]
@@ -88,7 +88,7 @@ impl FdTable {
 
 /// An open file, which is a reference-counted wrapper around a file descriptor.
 pub struct OpenFile {
-    offset: SpinLock<u64>,
+    offset: Mutex<u64>,
     flags: OpenFlags,
     inner: Arc<dyn FileOps>,
 }
@@ -97,7 +97,7 @@ impl OpenFile {
     /// Creates a new `OpenFile` with the given flags and inner file operations.
     pub fn new(inner: Arc<dyn FileOps>, flags: OpenFlags) -> Self {
         Self {
-            offset: SpinLock::new(0),
+            offset: Mutex::new(0),
             flags,
             inner,
         }
@@ -106,7 +106,7 @@ impl OpenFile {
     /// Creates a new `OpenFile` for the console device.
     pub fn console() -> Self {
         Self {
-            offset: SpinLock::new(0),
+            offset: Mutex::new(0),
             flags: OpenFlags::READ | OpenFlags::WRITE,
             inner: console::get(),
         }
