@@ -346,13 +346,26 @@ These can be decided during coding without changing the overall design:
    `arch::riscv::proc`; generic `proc` exposes `spawn_kthread` / `kthread_exit` /
    `reap_zombie_kthreads`.
 
-### Known limitation (not fixed here)
+### S-mode trap entry (fixed)
 
-`trap_entry` reloads `sp` from `ThreadInfo::ksp` even for S-mode traps. For a
-kernel thread that is already running on that stack, a fault would overwrite its
-frames and corrupt `unwind_stack_frame` diagnostics. Interrupts are masked while
-kthreads run today, so this only affects fault diagnostics until kthread
-preemption is added.
+`trap_entry` branches on trap origin (`sscratch == 0` ⇒ S-mode):
+
+- **U-mode** — stash user `sp` in `ThreadInfo::usp`, load `ThreadInfo::ksp`,
+  push the trap frame on the process kernel stack (unchanged).
+- **S-mode** — keep the interrupted `sp` and nest the trap frame on the current
+  stack. `ThreadInfo` is left untouched. Before calling `handle_exception`,
+  reload the interrupted frame pointer into `s0` so `unwind_stack_frame` can
+  walk into the interrupted frames. This preserves kthread (and in-kernel
+  user-process) frames for diagnostics, and is a prerequisite for kthread
+  preemption. Interrupts remain masked while kthreads run today; enabling
+  `SIE` for kthreads is still a separate follow-up.
+
+Because S-mode traps now consume the interrupted stack, a fault raised *while*
+reporting a fault would recurse until the stack is exhausted. Two guards
+prevent that: `walk_stack_frame` validates each frame pointer (kernel address,
+aligned, strictly ascending, bounded frame count) instead of trusting the
+chain, and `handle_exception` halts on the second fatal exception rather than
+re-running the diagnostics.
 
 ---
 

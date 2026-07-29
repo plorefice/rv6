@@ -140,6 +140,13 @@ Today only hart 0 runs; `setup_late` maps a single 64 KiB stack at the base.
 Stacks grow downward. A **4 KiB unmapped guard** follows the 64-hart window
 before the process kernel stack.
 
+The boot/idle context (`kmain` / `idle_main`) runs on the linker-provided
+`.data` boot stack (`_estack`…`_sstack`), not on this per-hart region. The
+per-hart stack hosts the idle `ThreadInfo` (loaded into `tp` / `IDLE_TP`).
+S-mode traps nest on the interrupted stack (boot stack for idle, heap
+`KThreadStack` for kthreads, `PROC_KSTACK` for in-kernel user traps), so the
+per-hart region is no longer used as a separate trap stack.
+
 ### Per-process kernel stack: `PROC_KSTACK_MEM_OFFSET`
 
 | | |

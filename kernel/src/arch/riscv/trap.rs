@@ -1,6 +1,7 @@
 //! RISC-V exception handling.
 
 use core::arch::asm;
+use core::sync::atomic::{AtomicBool, Ordering};
 use core::time::Duration;
 
 use stackframe::unwind_stack_frame;
@@ -10,7 +11,7 @@ use crate::{
     arch::riscv::{
         mmu::dump_active_root_page_table,
         proc::{ThreadInfo, init_idle},
-        registers::{Sscratch, Stvec},
+        registers::{Sscratch, SstatusFlags, Stvec},
     },
     drivers::irqchip,
     irq::IrqReturn,
@@ -22,6 +23,9 @@ use super::*;
 
 // {m,s}cause register flags
 const CAUSE_IRQ_FLAG_MASK: usize = 1 << 63;
+
+/// Set once a fatal exception is being reported, to catch faults in the reporting itself.
+static FATAL_EXCEPTION: AtomicBool = AtomicBool::new(false);
 
 /// Possible interrupt causes on a RISC-V CPU.
 #[repr(usize)]
@@ -177,7 +181,11 @@ extern "C" fn handle_exception(tf: &mut TrapFrame, ti: &ThreadInfo) {
     // Invariant: when handling a trap, we are always in kernel mode, so sscratch should be 0
     debug_assert!(Sscratch::read() == 0);
 
-    {
+    // Only snapshot into the process arch-state for traps from U-mode. An S-mode
+    // trap (kthread fault, nested IRQ, etc.) must not overwrite the saved user
+    // trap frame that `resume_process` / `sys_fork` rely on.
+    let from_user = (tf.status as u64 & SstatusFlags::SPP.bits()) == 0;
+    if from_user {
         let mut gpt = proc::global_process_table().lock();
         if let Some(pid) = sched::current_process_id() {
             let proc = gpt.get_mut(pid).expect("current process doesn't exist");
@@ -230,6 +238,14 @@ extern "C" fn handle_exception(tf: &mut TrapFrame, ti: &ThreadInfo) {
                 return;
             }
             ex => kprintln!("=> Unhandled exception: {:?}, tval {:016x}", ex, tf.tval),
+        }
+
+        // The diagnostics below run on the interrupted stack. If they fault, the trap is
+        // taken again on the same stack, so recursing would exhaust it (and trample
+        // whatever lies beneath) instead of stopping. Report once and halt.
+        if FATAL_EXCEPTION.swap(true, Ordering::Relaxed) {
+            kprintln!("=> Fault while reporting a fault. Halting!");
+            halt();
         }
 
         // Debug facilities
