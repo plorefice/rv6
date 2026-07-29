@@ -12,8 +12,9 @@ identity” shortcut (Phase 1) is **out of scope** — we go straight to kthread
 Related code today:
 
 - Boot: `kernel/src/lib.rs` (`kmain`)
+- Kernel init thread: `kernel/src/init.rs` (`kernel_init`)
 - Process model / `ProcessBuilder::spawn_user`: `kernel/src/proc/mod.rs`
-- Idle + `enqueue_user` / `enter_scheduler`: `kernel/src/arch/riscv/proc.rs`
+- Idle + `enqueue_user` / `enter_scheduler` / `spawn_kthread`: `kernel/src/arch/riscv/proc.rs`
 - Scheduling / park / wake: `kernel/src/proc/sched.rs`
 - Sleeping locks: `kernel/src/sync/mutex.rs`, `kernel/src/sync.rs` (`WaitQueue`)
 
@@ -24,17 +25,17 @@ Related code today:
 `Mutex::lock` and `WaitQueue::wait_until` require `sched::current_process_id()`.
 They panic if called from idle or from bare `kmain` with no current process.
 
-Today `kmain` does the following **before** any process exists:
+Before Phase 2, `kmain` did the following **before** any process existed:
 
 1. Mount ext2 rootfs and read `/init` through VFS (`OpenFile` / `FileOps`).
 2. Fall back to initrd if needed.
-3. Call `hal::proc::builder().exec(init_code)`, which loads the ELF, enqueues the
-   process, then enters `idle_main()` forever.
+3. Call into process spawn, which eventually entered `idle_main()` forever.
 
-So VFS and any future `Mutex` around filesystem state cannot be used safely
-during boot. Separately, before Phase 0, process creation conflated “spawn
-userspace init” with “become the idle loop,” which prevented a kernel thread
-from creating a user process and then exiting. Phase 0 splits those.
+So VFS and any `Mutex` around filesystem state could not be used safely during
+boot. Separately, before Phase 0, process creation conflated “spawn userspace
+init” with “become the idle loop,” which prevented a kernel thread from creating
+a user process and then exiting. Phase 0 splits those; Phase 2 moves mount/load
+into `kernel_init`.
 
 ---
 
@@ -64,27 +65,18 @@ from creating a user process and then exiting. Phase 0 splits those.
 
 ---
 
-## Current vs target boot flow
+## Boot flow (implemented)
 
 ```text
-Today
-─────
   kmain
     ├─ irqchip / drivers / sched::init
-    ├─ mount rootfs, read /init     ← no current process
-    └─ exec(elf) → enqueue user → idle_main() → switch → return_to_user
-
-Target
-──────
-  kmain
-    ├─ irqchip / drivers / sched::init
-    ├─ spawn_kthread(kernel_init)
+    ├─ spawn_kthread(kernel_init, fdt_ptr)
     └─ enter_scheduler() → idle_main()
                               │
                               ├─ switch → kernel_init
                               │              ├─ mount / load /init
                               │              ├─ spawn_init(elf)
-                              │              └─ kthread_exit
+                              │              └─ return → kthread_exit
                               └─ switch → user /init (return_to_user)
 ```
 
@@ -200,12 +192,13 @@ a kthread that previously parked mid-function, resume continues after
 
 ### Spawning
 
+**Implemented:** a single returning entry signature. The trampoline always calls
+`kthread_exit` if `entry` returns; there is no separate `fn(usize) -> !` variant.
+
 ```rust
 /// Spawns a kernel thread and enqueues it. Returns its process id.
-fn spawn_kthread(entry: fn(usize) -> !, arg: usize) -> ProcessId;
-
-/// Same, but entry may return (trampoline calls kthread_exit).
-fn spawn_kthread_fallible(entry: fn(usize), arg: usize) -> ProcessId;
+/// If `entry` returns, `kthread_trampoline` calls `kthread_exit`.
+fn spawn_kthread(entry: fn(usize), arg: usize) -> ProcessId;
 ```
 
 Exact signatures can use a trait object / closure if the kernel gains a way to
@@ -250,15 +243,17 @@ userspace meaning to a kthread’s PID. Cache init’s table handle with
 
 ## `kernel_init` responsibilities
 
-Runs as a kernel thread with `current` set:
+Runs as a kernel thread with `current` set (`kernel/src/init.rs`):
 
-1. Take the first registered block device from `BLOCK_DEVS`.
+1. Take the first registered block device from `BLOCK_DEVS` (or fall through if
+   none).
 2. Mount ext2; `vfs::init_root_fs` on success.
 3. Try `root_fs().open("/init")` + `read_to_end`.
 4. On failure, load initrd from FDT and find `"init"`.
 5. On success, `spawn_init(bytes)` (assigns [`Pid::INIT`], registers init handle).
 6. On total failure, panic (or orderly shutdown via syscon).
-7. `kthread_exit` (user `/init` continues via idle).
+7. Return from entry → `kthread_trampoline` → `kthread_exit` (user `/init`
+   continues via idle).
 
 `kmain` after Phase 2:
 
@@ -269,7 +264,7 @@ kmain:
   irqchip::init
   drivers::init
   sched::init
-  spawn_kthread(kernel_init, 0)
+  spawn_kthread(kernel_init, fdt_ptr)
   enter_scheduler()   // never returns
 ```
 
@@ -277,9 +272,10 @@ No VFS in `kmain`.
 
 ---
 
-## Lock migration enabled by this work
+## Lock migration
 
-Once `kernel_init` (and later syscalls) are the only VFS callers:
+With `kernel_init` (and later syscalls) as the VFS callers, the following are
+**done**:
 
 | Site | Change |
 |------|--------|
@@ -288,8 +284,7 @@ Once `kernel_init` (and later syscalls) are the only VFS callers:
 | MM / IRQ / sched globals | unchanged (`SpinLock` / `IrqSpinLock`) |
 
 Virtio-blk still busy-waits under a queue `SpinLock` today; replacing that with
-IRQ + `WaitQueue` is a follow-up and does not block kthreads or the Mutex
-migration above.
+IRQ + `WaitQueue` remains a follow-up.
 
 ---
 
@@ -310,13 +305,14 @@ migration above.
 - [x] `kthread_trampoline` + `kthread_exit`
 - [x] `spawn_kthread`
 - [x] Idle/`switch`: confirm SATP/tp for kthreads (kernel tables)
-- [ ] Implement `kernel_init`; slim down `kmain`
-- [ ] Ensure park/wake/`Mutex` work under `kernel_init` (e.g. contended test later)
-- [ ] `just run`: mount, load `/init`, spawn user, kthread exits, user runs
+- [x] Implement `kernel_init`; slim down `kmain`
+- [x] Ensure park/wake/`Mutex` work under `kernel_init` (contended hold-across-yield
+      smoke test exercised during bring-up)
+- [x] `just run`: mount, load `/init`, spawn user, kthread exits, user runs
 
 ### Follow-ups (not required to merge kthreads)
 
-- [ ] Migrate `FileOps` offset and `ext2::Fs` to `Mutex`
+- [x] Migrate `FileOps` offset and `ext2::Fs` to `Mutex`
 - [ ] Virtio used-buffer IRQ + sleep instead of busy-wait
 - [x] Reap/free kthread stacks and table slots cleanly (idle + heap `Drop`)
 - [ ] Hide kernel threads from any user-facing process listing / `wait` targets
@@ -326,11 +322,12 @@ migration above.
 ## Testing plan
 
 1. **Boot regression** — `just initrd && just hddimg && just run` reaches user
-   init and console I/O still works.
-2. **Initrd fallback** — boot without a usable ext2 `/init` and confirm initrd
-   path still runs inside `kernel_init`.
-3. **Mutex sanity** — after lock migration, open/read `/init` under `Mutex`
-   without panic; optional forced contention later with a second kthread.
+   init and console I/O still works. **Verified** (rootfs `/init` path).
+2. **Initrd fallback** — boot without a usable ext2 `/init` (no virtio-blk) and
+   confirm initrd path still runs inside `kernel_init`. **Verified**.
+3. **Mutex sanity** — open/read `/init` under `Mutex` without panic; contended
+   hold-across-yield between two kthreads parks and wakes correctly. **Verified**
+   during bring-up (temporary test removed afterward).
 4. **Park path** — UART `read` wait queue from user init still wakes (existing
    IRQ `WaitQueue`); kthread may also block on Mutex without wedging idle.
 
@@ -340,14 +337,22 @@ migration above.
 
 These can be decided during coding without changing the overall design:
 
-1. **Exact `Process` field layout** — `kind: ProcessKind` vs separate optional
-   `kthread: Option<KThreadInfo>` for entry/arg.
+1. **Exact `Process` field layout** — **done:** `kind: ProcessKind` plus
+   `ThreadInfo::{entry, arg}` for kthread entry.
 2. **Stack VA allocation** — **done:** heap-backed `KThreadStack` under shared root
    (no fixed slot pool).
 3. **Exit/reap** — **done:** `kthread_exit` → idle; idle reaps Kernel zombies.
-4. **HAL surface** — how much of trampoline/`spawn_kthread` lives in
-   `arch::riscv::proc` vs generic `proc` (prefer arch for context/stack, generic
-   for spawn/exit policy).
+4. **HAL surface** — **done:** trampoline/`spawn_kthread` live in
+   `arch::riscv::proc`; generic `proc` exposes `spawn_kthread` / `kthread_exit` /
+   `reap_zombie_kthreads`.
+
+### Known limitation (not fixed here)
+
+`trap_entry` reloads `sp` from `ThreadInfo::ksp` even for S-mode traps. For a
+kernel thread that is already running on that stack, a fault would overwrite its
+frames and corrupt `unwind_stack_frame` diagnostics. Interrupts are masked while
+kthreads run today, so this only affects fault diagnostics until kthread
+preemption is added.
 
 ---
 

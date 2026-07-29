@@ -51,8 +51,8 @@ impl KThreadStack {
     ///
     /// Panics if the heap cannot satisfy the allocation.
     pub fn new() -> Self {
-        let layout = Layout::from_size_align(PROC_KSTACK_MEM_SIZE, PAGE_SIZE)
-            .expect("kthread stack layout");
+        let layout =
+            Layout::from_size_align(PROC_KSTACK_MEM_SIZE, PAGE_SIZE).expect("kthread stack layout");
         // SAFETY: `layout` has non-zero size; the returned block is exclusive to us.
         let ptr = unsafe { alloc::alloc::alloc_zeroed(layout) };
         assert!(!ptr.is_null(), "oom allocating kthread stack");

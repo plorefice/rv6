@@ -124,7 +124,8 @@ unsafe extern "C" fn setup_early_vm(fdt_ptr: *const u8) -> FfiPair {
     // Relocate the FDT pointer into the direct-map window. Use wrapping arithmetic on usize
     // rather than `pointer::add`, because the VA offset can exceed `isize::MAX` when the
     // direct map lives in the Sv39 upper half.
-    let fdt_va = (PHYS_TO_VIRT_OFFSET + (fdt_ptr as usize - phys_mem_offset as usize)).as_ptr::<u8>();
+    let fdt_va =
+        (PHYS_TO_VIRT_OFFSET + (fdt_ptr as usize - phys_mem_offset as usize)).as_ptr::<u8>();
 
     FfiPair {
         a: kernel_rpt as *const _ as u64,
