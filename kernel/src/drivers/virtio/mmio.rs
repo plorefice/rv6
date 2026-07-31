@@ -2,7 +2,7 @@
 
 use core::{mem::size_of, num::NonZeroUsize};
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::boxed::Box;
 use fdt::Node;
 
 use crate::{
@@ -66,7 +66,7 @@ impl Driver for VirtioMmio {
 
         match dev_id {
             2 => {
-                let blk_dev = Arc::new(VirtioBlkDev::new(dev));
+                let blk_dev = VirtioBlkDev::new(dev, &node)?;
                 BLOCK_DEVS.lock().register(blk_dev);
             }
             _ => todo!("unsupported virtio device"),

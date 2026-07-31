@@ -26,10 +26,7 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use crate::{
-    arch::hal::cpu::LocalIrqGuard,
-    sync::{Lock, LockPolicy},
-};
+use crate::sync::{self, LocalIrqGuard, Lock, LockPolicy};
 
 /// Exclusive spinlock that does **not** mask local interrupts.
 ///
@@ -119,6 +116,8 @@ impl<T> SpinLock<T> {
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
         {
+            sync::enter_atomic();
+
             Some(SpinLockGuard {
                 lock: &self.lock,
                 data: self.data.get(),
@@ -139,6 +138,8 @@ impl<T> SpinLock<T> {
             .compare_exchange_weak(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_ok()
         {
+            sync::enter_atomic();
+
             Some(SpinLockGuard {
                 lock: &self.lock,
                 data: self.data.get(),
@@ -184,6 +185,7 @@ impl<T> DerefMut for SpinLockGuard<'_, T> {
 
 impl<T> Drop for SpinLockGuard<'_, T> {
     fn drop(&mut self) {
+        sync::exit_atomic();
         self.lock.store(false, Ordering::Release);
     }
 }

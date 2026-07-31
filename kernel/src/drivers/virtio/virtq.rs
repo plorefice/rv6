@@ -195,6 +195,14 @@ impl Virtq {
 
         dev.notify(self.idx);
     }
+
+    /// Whether the device has published used buffers not yet returned by [`Self::reclaim`].
+    pub fn has_used(&self) -> bool {
+        fence(Ordering::SeqCst);
+        // SAFETY: packed virtq header fields may be unaligned
+        let used_idx = unsafe { core::ptr::addr_of!(self.used.idx).read_volatile() };
+        used_idx != self.last_seen_used
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

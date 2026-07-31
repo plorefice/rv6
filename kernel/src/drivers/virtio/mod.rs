@@ -14,7 +14,7 @@ mod mmio;
 mod virtq;
 
 /// Abstraction over VirtIO devices with PCI and MMIO interfaces.
-pub trait VirtioDev: Send + Sync {
+pub trait VirtioDev: Send + Sync + 'static {
     /// Reads the device's status register.
     fn status(&self) -> Status;
 

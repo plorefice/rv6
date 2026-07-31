@@ -1,19 +1,24 @@
 use core::{ffi::CStr, hint, io};
 
-use alloc::string::String;
+use alloc::{string::String, sync::Arc};
 use bitflags::bitflags;
+use fdt::Node;
 
 use crate::{
     block::{BlockDev, BlockIoError},
-    drivers::virtio::{
-        InterruptStatus, Status, VirtioDev, VirtioDriver,
-        virtq::{Virtq, VirtqBuffer},
+    drivers::{
+        DriverError,
+        virtio::{
+            InterruptStatus, Status, VirtioDev, VirtioDriver,
+            virtq::{Virtq, VirtqBuffer},
+        },
     },
+    irq::{self, IrqHandler, IrqReturn},
     mm::{
         addr::DmaAddr,
         dma::{self, DmaAllocator, DmaAllocatorExt},
     },
-    sync::SpinLock,
+    sync::{self, Completion, SpinLock},
 };
 
 /// A virtio block device.
@@ -22,11 +27,15 @@ pub struct VirtioBlkDev<D> {
     virtq: SpinLock<Virtq>,
     config: VirtioBlkConfig,
     features: DeviceFeatures,
+    xfer_done: Completion,
 }
 
-impl<D: VirtioDev> VirtioBlkDev<D> {
+impl<D> VirtioBlkDev<D>
+where
+    D: VirtioDev,
+{
     /// Configures a virtio device as block device.
-    pub fn new(dev: D) -> Self {
+    pub fn new(dev: D, node: &Node) -> Result<Arc<Self>, DriverError<'static>> {
         // Recognize the device
         dev.update_status(Status::ACKNOWLEDGE);
         dev.update_status(Status::DRIVER);
@@ -48,6 +57,7 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
             virtq: SpinLock::new(virtq),
             features,
             config: VirtioBlkConfig::default(),
+            xfer_done: Completion::new(),
         };
 
         // Read configuration
@@ -64,12 +74,22 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
         // Device is now live
         slf.dev.update_status(Status::DRIVER_OK);
 
+        // Wrap in Arc for sharing with IRQ handler
+        let slf = Arc::new(slf);
+
+        // Register interrupt handler
+        let irq = node
+            .property::<u32>("interrupts")
+            .ok_or(DriverError::MissingRequiredProperty("interrupts"))?;
+
+        irq::request_irq(irq, slf.clone());
+
         // Check device ID if available
         if let Some(id) = slf.read_device_id() {
             kprintln!("virtio-blk-dev: device ID: {id}");
         }
 
-        slf
+        Ok(slf)
     }
 
     fn read_config(&mut self) {
@@ -146,6 +166,7 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
             }
         };
 
+        self.xfer_done.reset();
         {
             let mut virtq = self.virtq.lock();
             virtq.submit(
@@ -164,14 +185,25 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
                 .iter()
                 .filter_map(Option::as_ref),
             );
+        }
+        self.wait_used();
 
-            // TODO: replace this with proper interrupt handling
-            while !self.dev.interrupts().contains(InterruptStatus::USED_BUFFER) {
+        // Return completed descriptors to the free list
+        self.virtq.lock().reclaim();
+    }
+
+    /// Waits for the device to publish a used buffer.
+    ///
+    /// Blocks on the used-buffer interrupt when the caller may sleep. Otherwise
+    /// (early boot, IRQ handler, panic path) polls the used ring, since no handler
+    /// may run to signal the completion.
+    fn wait_used(&self) {
+        if sync::can_sleep() {
+            self.xfer_done.wait();
+        } else {
+            while !self.virtq.lock().has_used() {
                 hint::spin_loop();
             }
-
-            // Return completed descriptors to the free list before acking the IRQ.
-            virtq.reclaim();
             self.dev.clear_interrupts(InterruptStatus::USED_BUFFER);
         }
     }
@@ -206,6 +238,21 @@ impl<D: VirtioDev> VirtioBlkDev<D> {
 }
 
 impl<D> VirtioDriver for VirtioBlkDev<D> {}
+
+impl<D> IrqHandler for VirtioBlkDev<D>
+where
+    D: VirtioDev,
+{
+    fn handle(&self) -> IrqReturn {
+        if self.dev.interrupts().contains(InterruptStatus::USED_BUFFER) {
+            self.dev.clear_interrupts(InterruptStatus::USED_BUFFER);
+            self.xfer_done.complete();
+            IrqReturn::Handled
+        } else {
+            IrqReturn::Unhandled
+        }
+    }
+}
 
 impl<D> BlockDev for VirtioBlkDev<D>
 where

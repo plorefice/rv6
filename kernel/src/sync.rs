@@ -8,6 +8,7 @@
 //! - [`Mutex`] — sleeping exclusive lock (process context only)
 //! - [`SpinLock`] — plain spinning lock (not IRQ-safe)
 //! - [`IrqSpinLock`] / [`IrqSafe`] — IRQ-safe spinning locks
+//! - [`Completion`] — one-shot wait/wake primitive
 //!
 //! # Spinning vs sleeping
 //!
@@ -35,19 +36,32 @@
 //! Use [`IrqSafe`] whenever the same data may be locked from an interrupt handler (typical for
 //! wait queues woken by device IRQs). Use [`ProcessContext`] only for data touched exclusively
 //! from process context where a handler cannot take the same lock.
+//!
+//! # Task completion
+//!
+//! [`Completion`] is a one-shot wait/wake primitive for signaling that a task has completed. It is
+//! useful for synchronizing between threads or between a thread and an interrupt handler. A
+//! [`Completion`] object can be waited on by multiple threads, and when the task is completed,
+//! all waiting threads are woken up. The completion state can be reset to allow for reuse.
 
-use core::ops::{Deref, DerefMut};
+use core::{
+    ops::{Deref, DerefMut},
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use alloc::collections::VecDeque;
 
 use crate::{
+    arch::hal::cpu::{IrqFlags, local_irq_restore, local_irq_save},
     proc::{ProcessId, ProcessState, global_process_table},
     sched,
 };
 
+mod completion;
 mod mutex;
 mod spinlock;
 
+pub use completion::*;
 pub use mutex::*;
 pub use spinlock::*;
 
@@ -161,6 +175,10 @@ impl<T, P: LockPolicy> WaitQueue<T, P> {
     ///
     /// Panics if there is no current process (must not be called from the idle context).
     pub fn wait_until(&self, mut ready: impl FnMut(&T) -> bool) -> WaitQueueGuard<'_, T, P> {
+        debug_assert!(
+            can_sleep(),
+            "wait_until: cannot block in atomic context or idle thread"
+        );
         let pid = sched::current_process_id().expect("wait_until: no current process");
 
         let mut guard = self.lock();
@@ -225,4 +243,66 @@ impl<T, P: LockPolicy> DerefMut for WaitQueueGuard<'_, T, P> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.inner
     }
+}
+
+/// Guard that disables interrupts on creation and restores the previous interrupt state on drop.
+pub struct LocalIrqGuard {
+    flags: IrqFlags,
+}
+
+impl Default for LocalIrqGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl LocalIrqGuard {
+    /// Disables interrupts and returns a guard that will restore the previous interrupt state on drop.
+    #[inline]
+    pub fn new() -> Self {
+        let slf = LocalIrqGuard {
+            flags: local_irq_save(),
+        };
+        enter_atomic();
+        slf
+    }
+}
+
+impl Drop for LocalIrqGuard {
+    #[inline]
+    fn drop(&mut self) {
+        exit_atomic();
+        local_irq_restore(self.flags);
+    }
+}
+
+/// Returns whether the calling context may block.
+///
+/// False in the idle/bootstrap context (no current task) and inside any atomic
+/// section (IRQs masked or a spinlock held).
+pub fn can_sleep() -> bool {
+    sched::current_process_id().is_some() && atomic_depth() == 0
+}
+
+/// Nested preemption depth. Increments when entering an atomic section (e.g. spinlock held, IRQs masked)
+/// and decrements on exit. Zero means the current context may block.
+static ATOMIC_DEPTH: AtomicUsize = AtomicUsize::new(0);
+
+/// Increments the nested atomic depth. Used by `LocalIrqGuard` and other atomic sections.
+pub(crate) fn enter_atomic() {
+    ATOMIC_DEPTH.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Decrements the nested atomic depth. Used by `LocalIrqGuard` and other atomic sections.
+///
+/// # Panics
+///
+/// Panics if the depth is already zero (underflow).
+pub(crate) fn exit_atomic() {
+    ATOMIC_DEPTH.fetch_sub(1, Ordering::Relaxed);
+}
+
+/// Returns the current nested atomic depth. Zero means the current context may block.
+pub(crate) fn atomic_depth() -> usize {
+    ATOMIC_DEPTH.load(Ordering::Relaxed)
 }

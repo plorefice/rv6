@@ -60,34 +60,6 @@ pub fn local_irq_restore(flags: IrqFlags) {
     imp::local_irq_restore(flags)
 }
 
-/// Guard that disables interrupts on creation and restores the previous interrupt state on drop.
-pub struct LocalIrqGuard {
-    flags: IrqFlags,
-}
-
-impl Default for LocalIrqGuard {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl LocalIrqGuard {
-    /// Disables interrupts and returns a guard that will restore the previous interrupt state on drop.
-    #[inline]
-    pub fn new() -> Self {
-        LocalIrqGuard {
-            flags: local_irq_save(),
-        }
-    }
-}
-
-impl Drop for LocalIrqGuard {
-    #[inline]
-    fn drop(&mut self) {
-        local_irq_restore(self.flags);
-    }
-}
-
 #[inline]
 pub fn get_cycles() -> u64 {
     imp::get_cycles()
