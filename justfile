@@ -94,6 +94,16 @@ gdb:
 # Utilities
 # ----------------------------
 
+lint:
+	cargo clippy
+	cd kernel && cargo clippy
+	cd userland && cargo clippy
+
+fmt:
+	cargo fmt
+	cd kernel && cargo fmt
+	cd userland && cargo fmt
+
 clean:
 	cargo clean
 	cd kernel && cargo clean

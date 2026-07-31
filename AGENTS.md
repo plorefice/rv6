@@ -47,6 +47,8 @@ just hddimg        # pack out/rootfs into out/hdd.img (ext2 via genext2fs)
 just run           # build kernel + launch QEMU (default target)
 just debug         # QEMU waits for GDB on :1234 (-S -s)
 just gdb           # connect GDB to a running debug session
+just lint          # run clippy on all projects
+just fmt           # run rustfmt on all projects
 just clean         # clean all three projects + out/
 ```
 
@@ -112,8 +114,7 @@ Follow the lints declared in `kernel/src/lib.rs` — they are the de facto style
   not `println!`.
 - Synchronization: use primitives under `sync`.
 - Syscalls return `Result<T, Errno>` with a negative-errno convention.
-- No formatting/clippy config files exist — use defaults: `cargo fmt --all` and
-  `cargo clippy` (per project).
+- Run `just lint` to check code with clippy and `just fmt` to format code with rustfmt.
 
 ## Gotchas
 
