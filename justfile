@@ -69,7 +69,7 @@ initrd: userland
 	cd userland && ./install.sh
 	cd out/rootfs && find . -print0 | perl -0pe 's|^\./||' | cpio -0 -o --format=newc > ../initrd.cpio
 
-hddimg: userland
+hddimg: initrd
 	mkdir -p {{OUTDIR}}
 	genext2fs -b 16384 -d out/rootfs {{HDDIMG}}
 
@@ -77,10 +77,10 @@ hddimg: userland
 # QEMU
 # ----------------------------
 
-run: kernel-bin
+run: kernel-bin hddimg
 	{{QEMU}} {{QEMU_ARGS}} -kernel {{RV6_BIN}}
 
-debug: kernel-bin
+debug: kernel-bin hddimg
 	{{QEMU}} {{QEMU_ARGS}} -kernel {{RV6_BIN}} -S -s
 
 # ----------------------------
