@@ -12,15 +12,17 @@ pub fn run() -> isize {
     loop {
         print!("# ");
 
-        let input_str = match read_line_with_echo() {
-            Ok(s) => s,
+        let input_str = match read_line_or_eof() {
+            Ok(Some(s)) => s,
+            Ok(None) => {
+                println!("EOF received, exiting cash.");
+                return 0;
+            }
             Err(e) => {
                 println!("Error reading input: {e}");
                 continue;
             }
         };
-
-        println!(); // Move to the next line after input
 
         match eval(&input_str) {
             Ok(Some(exit_code)) => return exit_code,
@@ -33,33 +35,22 @@ pub fn run() -> isize {
     }
 }
 
-fn read_line_with_echo() -> Result<String, io::Error> {
-    let mut input = Vec::new();
-    loop {
-        let mut buf = [0u8; 1];
-        match rt::io::stdin().read(&mut buf) {
-            Ok(0) => break,
-            Ok(_) => match buf[0] {
-                b'\n' => break,
-                b'\x7f' | b'\x08' => {
-                    if input.pop().is_some() {
-                        print!("\x08 \x08");
-                    }
-                }
-                c => {
-                    input.push(c);
-                    print!("{}", c as char);
-                }
-            },
-            Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                continue;
-            }
-            Err(e) => return Err(e),
-        }
+fn read_line_or_eof() -> Result<Option<String>, io::Error> {
+    let mut buf = [0u8; 256];
+
+    let input = match rt::io::stdin().read(&mut buf) {
+        Ok(0) => return Ok(None),
+        Ok(n) => &buf[..n],
+        Err(e) => return Err(e),
+    };
+
+    // Ensure the input ends with a newline for consistent behavior
+    if !input.ends_with(b"\n") {
+        println!();
     }
 
-    match str::from_utf8(&input) {
-        Ok(s) => Ok(s.trim().to_string()),
+    match str::from_utf8(input) {
+        Ok(s) => Ok(Some(s.trim().to_string())),
         Err(_) => Err(io::Error::new(
             ErrorKind::InvalidData,
             "Invalid UTF-8 input",
