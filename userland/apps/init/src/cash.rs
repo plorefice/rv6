@@ -39,13 +39,18 @@ fn read_line_with_echo() -> Result<String, io::Error> {
         let mut buf = [0u8; 1];
         match rt::io::stdin().read(&mut buf) {
             Ok(0) => break,
-            Ok(_) => {
-                if buf[0] == b'\n' {
-                    break;
+            Ok(_) => match buf[0] {
+                b'\n' => break,
+                b'\x7f' | b'\x08' => {
+                    if input.pop().is_some() {
+                        print!("\x08 \x08");
+                    }
                 }
-                input.push(buf[0]);
-                print!("{}", buf[0] as char); // Echo the character back to the console
-            }
+                c => {
+                    input.push(c);
+                    print!("{}", c as char);
+                }
+            },
             Err(e) if e.kind() == ErrorKind::WouldBlock => {
                 continue;
             }
