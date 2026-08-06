@@ -1,21 +1,19 @@
 //! Support for 16550 UART IC.
 
-use core::{fmt::Write, hint, num::NonZeroUsize};
+use core::{hint, num::NonZeroUsize};
 
-use alloc::{collections::VecDeque, sync::Arc};
+use alloc::sync::Arc;
 use fdt::Node;
-use uapi::Errno;
 
 use crate::{
     console, driver_info,
     drivers::{Driver, DriverCtx},
-    irq::{self, IrqHandler, IrqReturn},
+    irq::{self, IrqReturn},
     mm::{
         addr::{MemoryAddress, PhysAddr},
         mmio::{self, IoMapper, IoMapping},
     },
-    sync::{Mutex, WaitQueue},
-    vfs::file_ops::FileOps,
+    tty::{Tty, TtyDevice},
 };
 
 use super::DriverError;
@@ -28,7 +26,6 @@ driver_info! {
 /// Device driver of the 16550 UART IC.
 pub struct Ns16550 {
     regmap: IoMapping,
-    rx_data: WaitQueue<VecDeque<u8>>,
 }
 
 impl Driver for Ns16550 {
@@ -43,22 +40,29 @@ impl Driver for Ns16550 {
 
         let regmap = mmio::mapper().iomap(pa_base, size).unwrap();
 
-        let slf = Arc::new(Self {
-            regmap,
-            rx_data: WaitQueue::new(VecDeque::new()),
-        });
+        let uart = Arc::new(Self { regmap });
+        let tty = Arc::new(Tty::new(uart.clone()));
 
         // Configure the interrupt controller to enable interrupts for the UART
         let irqn = node
             .property::<u32>("interrupts")
             .ok_or(DriverError::MissingRequiredProperty("interrupts"))?;
 
-        irq::request_irq(irqn, slf.clone());
-        slf.enable_interrupts();
+        let (irq_uart, irq_tty) = (uart.clone(), tty.clone());
+        irq::request_irq(
+            irqn,
+            Arc::new(move || {
+                while let Some(b) = irq_uart.get_raw() {
+                    irq_tty.receive_byte(b);
+                }
+                IrqReturn::Handled
+            }),
+        );
+        uart.enable_interrupts();
 
         kprintln!("ns16550: UART at 0x{:x}", base);
 
-        console::register(slf);
+        console::register(tty);
 
         Ok(())
     }
@@ -102,62 +106,8 @@ impl Ns16550 {
     }
 }
 
-impl IrqHandler for Ns16550 {
-    fn handle(&self) -> IrqReturn {
-        let mut g = self.rx_data.lock();
-        while let Some(b) = self.get_raw() {
-            g.push_back(b);
-        }
-        g.wake_all();
-
-        IrqReturn::Handled
-    }
-}
-
-impl Write for Ns16550 {
-    fn write_str(&mut self, s: &str) -> core::fmt::Result {
-        for b in s.bytes() {
-            if b == b'\n' {
-                self.put_raw(b'\r');
-            }
-            self.put_raw(b);
-        }
-        Ok(())
-    }
-}
-
-impl FileOps for Ns16550 {
-    fn read(&self, _off: &Mutex<u64>, buf: &mut [u8]) -> Result<usize, Errno> {
-        let mut i = 0;
-        loop {
-            let mut g = self.rx_data.wait_until(|q| !q.is_empty());
-
-            while let Some(b) = g.pop_front() {
-                // TODO: this should be handled at a higher level,
-                // but for now we handle it here to avoid issues with the shell.
-                buf[i] = if b == b'\r' { b'\n' } else { b };
-
-                i += 1;
-                if i >= buf.len() {
-                    return Ok(i);
-                }
-            }
-
-            // At least one byte was read, return it. Otherwise, wait for more data.
-            if i > 0 {
-                return Ok(i);
-            }
-        }
-    }
-
-    fn write(&self, _off: &Mutex<u64>, buf: &[u8]) -> Result<usize, Errno> {
-        for &b in buf {
-            self.put_raw(b);
-        }
-        Ok(buf.len())
-    }
-
-    fn seek(&self, _off: &Mutex<u64>, _whence: core::io::SeekFrom) -> Result<u64, Errno> {
-        Err(Errno::NoSys)
+impl TtyDevice for Ns16550 {
+    fn put(&self, byte: u8) {
+        self.put_raw(byte);
     }
 }

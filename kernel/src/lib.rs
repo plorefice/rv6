@@ -42,6 +42,7 @@ pub mod panic;
 pub mod proc;
 pub mod sync;
 pub mod syscall;
+pub mod tty;
 pub mod vfs;
 
 const RV6_ASCII_LOGO: &str = r#"
