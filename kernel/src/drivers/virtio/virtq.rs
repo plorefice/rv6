@@ -101,12 +101,16 @@ impl Virtq {
         (self.phys.as_usize() / mm::page_size()) as u32
     }
 
-    /// Returns completed descriptor chains from the used ring to the free list.
+    pub fn size(&self) -> u16 {
+        self.size
+    }
+
+    /// Returns one completed descriptor chain from the used ring to the free list.
     ///
     /// Must be called after the device signals that it has used buffers (e.g. via
     /// the used-buffer interrupt), otherwise descriptors are leaked and
     /// [`Self::submit`] eventually runs out of free descriptors.
-    pub fn reclaim(&mut self) {
+    pub fn pop_used(&mut self) -> Option<VirtqCompletion> {
         // Ensure we observe used-ring writes from the device.
         fence(Ordering::SeqCst);
 
@@ -114,32 +118,46 @@ impl Virtq {
         let used_idx = unsafe { core::ptr::addr_of!(self.used.idx).read_unaligned() };
         let qsize = self.size as usize;
 
-        while self.last_seen_used != used_idx {
-            let chain_head = self.used_ring[self.last_seen_used as usize % qsize].id as usize;
-
-            // Walk the completed chain and count its length. The last descriptor
-            // is linked onto the current free list; the chain head becomes the
-            // new free-list head, preserving the existing `next` links.
-            let mut idx = chain_head;
-            let mut chain_len = 0;
-            loop {
-                chain_len += 1;
-                let flags = self.descr[idx].flags;
-                let next = self.descr[idx].next as usize;
-                if flags & VirtqDescriptor::NEXT == 0 {
-                    self.descr[idx].next = self.first_free as u16;
-                    break;
-                }
-                idx = next;
-            }
-
-            self.first_free = chain_head;
-            self.free_count += chain_len;
-            self.last_seen_used = self.last_seen_used.wrapping_add(1);
+        if self.last_seen_used == used_idx {
+            return None;
         }
+
+        let elem = &self.used_ring[self.last_seen_used as usize % qsize];
+        let chain_head = elem.id as usize;
+        let written = elem.len;
+
+        // Walk the completed chain and count its length. The last descriptor
+        // is linked onto the current free list; the chain head becomes the
+        // new free-list head, preserving the existing `next` links.
+        let mut idx = chain_head;
+        let mut chain_len = 0;
+        loop {
+            chain_len += 1;
+            let flags = self.descr[idx].flags;
+            let next = self.descr[idx].next as usize;
+            if flags & VirtqDescriptor::NEXT == 0 {
+                self.descr[idx].next = self.first_free as u16;
+                break;
+            }
+            idx = next;
+        }
+
+        self.first_free = chain_head;
+        self.free_count += chain_len;
+        self.last_seen_used = self.last_seen_used.wrapping_add(1);
+
+        Some(VirtqCompletion {
+            head: chain_head as u16,
+            written,
+        })
     }
 
-    pub fn submit<'a, D, I>(&mut self, dev: &D, buffers: I)
+    /// Discard all completed descriptor chains from the used ring and return them to the free list.
+    pub fn reclaim(&mut self) {
+        while self.pop_used().is_some() {}
+    }
+
+    pub fn submit<'a, D, I>(&mut self, dev: &D, buffers: I) -> u16
     where
         D: VirtioDev,
         I: IntoIterator<Item = &'a VirtqBuffer> + Clone,
@@ -191,13 +209,16 @@ impl Virtq {
         assert_eq!(idx, self.first_free, "not all descriptors were submitted");
 
         // Submit the descriptors
-        self.avail_ring[self.avail.idx as usize] = chain_head as u16;
+        let slot = self.avail.idx as usize % self.size as usize;
+        self.avail_ring[slot] = chain_head as u16;
         fence(Ordering::SeqCst);
 
-        self.avail.idx = (self.avail.idx + 1) % self.size;
+        self.avail.idx = self.avail.idx.wrapping_add(1);
         fence(Ordering::SeqCst);
 
         dev.notify(self.idx);
+
+        chain_head as u16
     }
 
     /// Whether the device has published used buffers not yet returned by [`Self::reclaim`].
@@ -213,6 +234,14 @@ impl Virtq {
 pub enum VirtqBuffer {
     Readable { addr: DmaAddr, len: usize },
     Writeable { addr: DmaAddr, len: usize },
+}
+
+/// One completed descriptor chain from the used ring.
+pub struct VirtqCompletion {
+    /// Head descriptor index of the chain that finished.
+    pub head: u16,
+    /// Total number of bytes written by the device to the chain.
+    pub written: u32,
 }
 
 #[repr(C, packed)]

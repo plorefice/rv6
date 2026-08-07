@@ -10,7 +10,9 @@ use crate::{
     driver_info,
     drivers::{
         Driver, DriverCtx, DriverError,
-        virtio::{InterruptStatus, VirtioBlkDev, VirtioDev, VirtioDriver, Virtq},
+        virtio::{
+            InterruptStatus, VirtioBlkDev, VirtioDev, VirtioDriver, Virtq, input::VirtioInputDev,
+        },
     },
     mm::{
         self,
@@ -68,6 +70,9 @@ impl Driver for VirtioMmio {
             2 => {
                 let blk_dev = VirtioBlkDev::new(dev, &node)?;
                 BLOCK_DEVS.lock().register(blk_dev);
+            }
+            18 => {
+                let _input_dev = VirtioInputDev::new(dev, &node)?;
             }
             _ => todo!("unsupported virtio device"),
         };

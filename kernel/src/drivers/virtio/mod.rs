@@ -10,6 +10,7 @@ use crate::{
 };
 
 mod blkdev;
+mod input;
 mod mmio;
 mod virtq;
 
@@ -39,7 +40,10 @@ pub trait VirtioDev: Send + Sync + 'static {
     fn read_config<T: PartialEq>(&self, offset: u32) -> T;
 
     /// Allocates guest memory suitable for DMA operations.
-    fn allocate_guest_mem<T: DmaSafe>(&self, val: T) -> Result<DmaObject<'_, T>, DmaAllocError>;
+    fn allocate_guest_mem<T: DmaSafe>(
+        &self,
+        val: T,
+    ) -> Result<DmaObject<'static, T>, DmaAllocError>;
 
     /// Allocates and configures the specified virtqueue.
     fn allocate_virtq(&self, index: u32) -> Virtq;
