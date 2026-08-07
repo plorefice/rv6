@@ -14,11 +14,51 @@ use crate::{
         DriverError,
         qemu::{FwCfgFile, QemuFwCfg},
     },
-    mm::dma::{self, DmaAllocatorExt},
+    fb::{DrawTarget, Framebuffer, Pixel, Point, VGA8X16},
+    mm::dma::{self, DmaAllocatorExt, DmaDirection, DmaSlice},
 };
 
 const FB_WIDTH: usize = 1024;
 const FB_HEIGHT: usize = 768;
+
+struct RamFb {
+    fbmem: DmaSlice<'static, u32>,
+}
+
+impl DrawTarget for RamFb {
+    fn width(&self) -> usize {
+        FB_WIDTH
+    }
+
+    fn height(&self) -> usize {
+        FB_HEIGHT
+    }
+
+    fn draw_iter<I>(&mut self, pixels: I)
+    where
+        I: IntoIterator<Item = Pixel>,
+    {
+        for Pixel(point, color) in pixels {
+            if point.x < 0 || point.y < 0 {
+                continue;
+            }
+
+            let x = point.x as usize;
+            let y = point.y as usize;
+
+            if x < FB_WIDTH && y < FB_HEIGHT {
+                self.fbmem.as_mut_slice()[y * FB_WIDTH + x] = color;
+            }
+        }
+
+        self.fbmem.sync_for_device(DmaDirection::ToDevice);
+    }
+
+    fn clear(&mut self, color: u32) {
+        self.fbmem.as_mut_slice().fill(color);
+        self.fbmem.sync_for_device(DmaDirection::ToDevice);
+    }
+}
 
 /// Probes the QEMU ramfb device and initializes it.
 ///
@@ -36,7 +76,8 @@ pub fn probe(fw_cfg: Arc<QemuFwCfg>, ramfb_file: FwCfgFile) -> Result<(), Driver
 
     fw_cfg.write(dma::allocator(), Some(ramfb_file.selector), cfg)?;
 
-    mem::forget(fbmem); // Prevent fbmem from being dropped, as it is now managed by the ramfb device
+    let mut fb = Framebuffer::new(RamFb { fbmem });
+    fb.draw_text(&VGA8X16, Point::ZERO, "Hello, rv6!", 0x00ff00);
 
     kprintln!(
         "QEMU ramfb: framebuffer at 0x{:x}, size {}x{}, format XR24",
@@ -44,6 +85,8 @@ pub fn probe(fw_cfg: Arc<QemuFwCfg>, ramfb_file: FwCfgFile) -> Result<(), Driver
         cfg.width.to_be(),
         cfg.height.to_be()
     );
+
+    mem::forget(fb); // Prevent fb from being dropped, will register it later
 
     Ok(())
 }

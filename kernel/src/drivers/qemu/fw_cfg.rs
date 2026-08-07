@@ -118,15 +118,15 @@ impl QemuFwCfg {
             obj.dma_addr().into(),
         ))?;
 
-        dma.sync_object_for_device(&access, DmaDirection::ToDevice);
-        dma.sync_object_for_device(&obj, DmaDirection::FromDevice);
+        access.sync_for_device(DmaDirection::ToDevice);
+        obj.sync_for_device(DmaDirection::FromDevice);
 
         self.regmap
             .write(Self::DMA_ACCESS_REG, u64::from(access.dma_addr()).to_be());
 
-        self.wait_for_dma_completion(dma, &access)?;
+        self.wait_for_dma_completion(&access)?;
 
-        dma.sync_object_for_cpu(&obj, DmaDirection::FromDevice);
+        obj.sync_for_cpu(DmaDirection::FromDevice);
 
         // SAFETY: by construction, the DMA object is initialized by the device
         let obj = unsafe { obj.assume_init() };
@@ -151,24 +151,23 @@ impl QemuFwCfg {
             obj.dma_addr().into(),
         ))?;
 
-        dma.sync_object_for_device(&access, DmaDirection::ToDevice);
-        dma.sync_object_for_device(&obj, DmaDirection::ToDevice);
+        access.sync_for_device(DmaDirection::ToDevice);
+        obj.sync_for_device(DmaDirection::ToDevice);
 
         self.regmap
             .write(Self::DMA_ACCESS_REG, u64::from(access.dma_addr()).to_be());
 
-        self.wait_for_dma_completion(dma, &access)?;
+        self.wait_for_dma_completion(&access)?;
 
         Ok(())
     }
 
     fn wait_for_dma_completion(
         &self,
-        dma: &dyn DmaAllocator,
         access: &DmaObject<'_, FwCfgDmaAccess>,
     ) -> Result<(), DriverError<'static>> {
         loop {
-            dma.sync_object_for_cpu(access, DmaDirection::ToDevice);
+            access.sync_for_cpu(DmaDirection::ToDevice);
 
             let ctrl_bits = u32::from_be(access.as_ref().control);
             let ctrl = FwCfgDmaAccessControl::from_bits_truncate(ctrl_bits);

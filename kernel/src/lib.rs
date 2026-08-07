@@ -33,6 +33,7 @@ pub mod arch;
 pub mod block;
 pub mod console;
 pub mod drivers;
+pub mod fb;
 pub mod init;
 pub mod initrd;
 pub mod irq;

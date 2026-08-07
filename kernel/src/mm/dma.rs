@@ -178,34 +178,6 @@ pub trait DmaAllocatorExt: DmaAllocator {
         // SAFETY: by construction we just initialized all bytes of T to zero.
         Ok(unsafe { slice.assume_init() })
     }
-
-    /// Synchronizes a DMA object for device access.
-    ///
-    /// See [`sync_for_device`](DmaAllocator::sync_for_device) for details.
-    fn sync_object_for_device<T>(&self, obj: &DmaObject<'_, T>, direction: DmaDirection) {
-        self.sync_for_device(obj.dma_addr(), obj.size(), direction);
-    }
-
-    /// Synchronizes a DMA object for CPU access.
-    ///
-    /// See [`sync_for_cpu`](DmaAllocator::sync_for_cpu) for details.
-    fn sync_object_for_cpu<T>(&self, obj: &DmaObject<'_, T>, direction: DmaDirection) {
-        self.sync_for_cpu(obj.dma_addr(), obj.size(), direction);
-    }
-
-    /// Synchronizes a DMA slice for device access.
-    ///
-    /// See [`sync_for_device`](DmaAllocator::sync_for_device) for details.
-    fn sync_slice_for_device<T>(&self, slice: &DmaSlice<'_, T>, direction: DmaDirection) {
-        self.sync_for_device(slice.dma_addr(), slice.size(), direction);
-    }
-
-    /// Synchronizes a DMA slice for CPU access.
-    ///
-    /// See [`sync_for_cpu`](DmaAllocator::sync_for_cpu) for details.
-    fn sync_slice_for_cpu<T>(&self, slice: &DmaSlice<'_, T>, direction: DmaDirection) {
-        self.sync_for_cpu(slice.dma_addr(), slice.size(), direction);
-    }
 }
 
 /// Blanket implementation of `DmaAllocatorExt` for all `DmaAllocator` types.
@@ -319,6 +291,21 @@ impl<'a> DmaBuf<'a> {
     pub fn align(&self) -> usize {
         self.align
     }
+
+    /// Synchronizes the buffer for CPU access.
+    ///
+    /// See [`sync_for_cpu`](DmaAllocator::sync_for_cpu) for details.
+    pub fn sync_for_cpu(&self, direction: DmaDirection) {
+        self.alloc.sync_for_cpu(self.dma_addr, self.size, direction);
+    }
+
+    /// Synchronizes the buffer for device access.
+    ///
+    /// See [`sync_for_device`](DmaAllocator::sync_for_device) for details.
+    pub fn sync_for_device(&self, direction: DmaDirection) {
+        self.alloc
+            .sync_for_device(self.dma_addr, self.size, direction);
+    }
 }
 
 impl<'a> Drop for DmaBuf<'a> {
@@ -388,6 +375,21 @@ impl<'a, T> DmaObject<'a, T> {
     /// Returns a mutable raw pointer to the object.
     pub fn as_mut_ptr(&mut self) -> *mut T {
         self.ptr.as_ptr()
+    }
+
+    /// Synchronizes the object for CPU access.
+    ///
+    /// See [`sync_for_cpu`](DmaAllocator::sync_for_cpu) for details.
+    pub fn sync_for_cpu(&self, direction: DmaDirection) {
+        self.alloc.sync_for_cpu(self.dma_addr, self.size, direction);
+    }
+
+    /// Synchronizes the object for device access.
+    ///
+    /// See [`sync_for_device`](DmaAllocator::sync_for_device) for details.
+    pub fn sync_for_device(&self, direction: DmaDirection) {
+        self.alloc
+            .sync_for_device(self.dma_addr, self.size, direction);
     }
 }
 
@@ -516,6 +518,21 @@ impl<'a, T> DmaSlice<'a, T> {
     pub fn as_mut_slice(&mut self) -> &mut [T] {
         // SAFETY: by construction, ptr points to a valid memory region of at least len * size_of::<T>() bytes
         unsafe { core::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
+    }
+
+    /// Synchronizes the slice for CPU access.
+    ///
+    /// See [`sync_for_cpu`](DmaAllocator::sync_for_cpu) for details.
+    pub fn sync_for_cpu(&self, direction: DmaDirection) {
+        self.alloc.sync_for_cpu(self.dma_addr, self.size, direction);
+    }
+
+    /// Synchronizes the slice for device access.
+    ///
+    /// See [`sync_for_device`](DmaAllocator::sync_for_device) for details.
+    pub fn sync_for_device(&self, direction: DmaDirection) {
+        self.alloc
+            .sync_for_device(self.dma_addr, self.size, direction);
     }
 }
 
