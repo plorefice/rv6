@@ -2,7 +2,7 @@
 
 use core::{
     alloc::Layout,
-    mem::{self, MaybeUninit},
+    mem::{self, ManuallyDrop, MaybeUninit},
     ptr::{self, NonNull},
 };
 
@@ -26,16 +26,37 @@ pub enum DmaDirection {
     Bidirectional,
 }
 
+/// Non-owning description of a DMA buffer.
+///
+/// Used as the argument to [`DmaAllocator::free_raw`] so that freeing does not
+/// interact with [`DmaBuf`]'s [`Drop`] implementation.
+#[derive(Debug, Clone, Copy)]
+pub struct DmaBufParts {
+    /// CPU-accessible pointer to the buffer.
+    pub ptr: NonNull<u8>,
+    /// Device-visible DMA address of the buffer.
+    pub dma_addr: DmaAddr,
+    /// Length of the buffer in bytes.
+    pub size: usize,
+    /// Alignment of the buffer.
+    pub align: usize,
+}
+
 /// A trait for DMA-capable memory allocators.
 ///
 /// Provides methods for allocating and freeing memory regions that can be used
 /// for DMA operations, as well as synchronizing memory between the CPU and devices.
+///
+/// Owning DMA types ([`DmaBuf`], [`DmaObject`], [`DmaSlice`]) are valid only while the borrowed
+/// allocator is, and [`Drop`] frees through that borrow.
 pub trait DmaAllocator: Send + Sync {
     /// Allocates a DMA-capable memory region with the specified layout.
-    fn alloc_raw(&self, layout: Layout) -> Result<DmaBuf, DmaAllocError>;
+    ///
+    /// The returned [`DmaBuf`] frees the region when dropped.
+    fn alloc_raw<'a>(&'a self, layout: Layout) -> Result<DmaBuf<'a>, DmaAllocError>;
 
     /// Allocates a DMA-capable memory region with the specified layout, initialized to zero.
-    fn alloc_raw_zeroed(&self, layout: Layout) -> Result<DmaBuf, DmaAllocError> {
+    fn alloc_raw_zeroed<'a>(&'a self, layout: Layout) -> Result<DmaBuf<'a>, DmaAllocError> {
         let buf = self.alloc_raw(layout)?;
 
         // SAFETY: buf.ptr is known to be a valid pointer
@@ -50,8 +71,9 @@ pub trait DmaAllocator: Send + Sync {
     ///
     /// # Safety
     ///
-    /// The provided buffer must have been allocated by this allocator.
-    unsafe fn free_raw(&self, buf: DmaBuf);
+    /// The provided parts must describe a buffer previously allocated by this
+    /// allocator that has not already been freed.
+    unsafe fn free_raw(&self, parts: DmaBufParts);
 
     /// Synchronizes the memory region for device access.
     ///
@@ -68,13 +90,14 @@ pub trait DmaAllocator: Send + Sync {
 
 /// Extension methods for DMA allocators.
 ///
-/// Provides higher-level allocation methods for typed objects.
+/// Provides higher-level allocation methods for typed objects. Allocated
+/// [`DmaObject`]s and [`DmaSlice`]s free their backing memory on [`Drop`].
 pub trait DmaAllocatorExt: DmaAllocator {
     /// Allocates a DMA-capable memory region for an object of type `T`.
     ///
     /// The provided value is copied into the allocated region. If you don't need to initialize
     /// the memory, consider using [`alloc_uninit`] or [`alloc_zeroed`] instead
-    fn alloc<T: DmaSafe>(&self, val: T) -> Result<DmaObject<T>, DmaAllocError> {
+    fn alloc<'a, T: DmaSafe>(&'a self, val: T) -> Result<DmaObject<'a, T>, DmaAllocError> {
         let mut obj = self.alloc_uninit::<T>()?;
         // SAFETY: obj points to at least size_of::<T>() bytes, properly mapped for CPU access.
         unsafe {
@@ -85,21 +108,23 @@ pub trait DmaAllocatorExt: DmaAllocator {
     }
 
     /// Allocates a DMA-capable memory region for an uninitialized object of type `T`.
-    fn alloc_uninit<T: DmaSafe>(&self) -> Result<DmaObject<MaybeUninit<T>>, DmaAllocError> {
+    fn alloc_uninit<'a, T: DmaSafe>(
+        &'a self,
+    ) -> Result<DmaObject<'a, MaybeUninit<T>>, DmaAllocError> {
         let layout = Layout::new::<T>();
 
-        // Allocate enough frames to cover the requested layout
         let buf = self.alloc_raw(layout)?;
+        let (parts, alloc) = buf.into_parts();
 
-        // SAFETY: `buf.ptr` is known to be a valid pointer
-        let ptr = unsafe { NonNull::new_unchecked(buf.ptr.as_ptr() as *mut MaybeUninit<T>) };
+        // SAFETY: `parts.ptr` is known to be a valid pointer
+        let ptr = unsafe { NonNull::new_unchecked(parts.ptr.as_ptr() as *mut MaybeUninit<T>) };
 
-        // SAFETY: by construction
-        Ok(unsafe { DmaObject::new_unchecked(ptr, buf.dma_addr, buf.size) })
+        // SAFETY: by construction; ownership transferred from DmaBuf via into_parts
+        Ok(unsafe { DmaObject::new_unchecked(ptr, parts.dma_addr, parts.size, alloc) })
     }
 
     /// Allocates a DMA-capable memory region for an object of type `T`, initializing it to zero.
-    fn alloc_zeroed<T: DmaSafe>(&self) -> Result<DmaObject<T>, DmaAllocError> {
+    fn alloc_zeroed<'a, T: DmaSafe>(&'a self) -> Result<DmaObject<'a, T>, DmaAllocError> {
         let mut obj = self.alloc_uninit::<T>()?;
         // SAFETY: obj points to at least size_of::<T>() bytes, properly mapped for CPU access.
         unsafe {
@@ -109,22 +134,11 @@ pub trait DmaAllocatorExt: DmaAllocator {
         Ok(unsafe { obj.assume_init() })
     }
 
-    /// Frees a previously allocated DMA-capable memory region.
-    fn free<T>(&self, obj: DmaObject<T>) {
-        let buf = DmaBuf {
-            ptr: obj.ptr.cast::<u8>(),
-            dma_addr: obj.dma_addr,
-            size: obj.size,
-            align: mem::align_of::<T>(),
-        };
-        // SAFETY: by construction, obj was allocated by this allocator
-        unsafe {
-            self.free_raw(buf);
-        }
-    }
-
     /// Allocates a DMA-capable memory region for a slice of `T` with the specified length.
-    fn alloc_slice_from<T: DmaSafe>(&self, src: &[T]) -> Result<DmaSlice<T>, DmaAllocError> {
+    fn alloc_slice_from<'a, T: DmaSafe>(
+        &'a self,
+        src: &[T],
+    ) -> Result<DmaSlice<'a, T>, DmaAllocError> {
         let mut slice = self.alloc_slice_uninit::<T>(src.len())?;
         // SAFETY: slice points to at least len * size_of::<T>() bytes, properly mapped for CPU access.
         unsafe {
@@ -135,23 +149,27 @@ pub trait DmaAllocatorExt: DmaAllocator {
     }
 
     /// Allocates a DMA-capable memory region for an uninitialized slice of `T` with the specified length.
-    fn alloc_slice_uninit<T: DmaSafe>(
-        &self,
+    fn alloc_slice_uninit<'a, T: DmaSafe>(
+        &'a self,
         len: usize,
-    ) -> Result<DmaSlice<MaybeUninit<T>>, DmaAllocError> {
+    ) -> Result<DmaSlice<'a, MaybeUninit<T>>, DmaAllocError> {
         let layout = Layout::array::<T>(len).map_err(|_| DmaAllocError::OutOfMemory)?;
 
         let buf = self.alloc_raw(layout)?;
+        let (parts, alloc) = buf.into_parts();
 
-        // SAFETY: `buf.ptr` is known to be a valid pointer
-        let ptr = unsafe { NonNull::new_unchecked(buf.ptr.as_ptr() as *mut MaybeUninit<T>) };
+        // SAFETY: `parts.ptr` is known to be a valid pointer
+        let ptr = unsafe { NonNull::new_unchecked(parts.ptr.as_ptr() as *mut MaybeUninit<T>) };
 
-        // SAFETY: by construction
-        Ok(unsafe { DmaSlice::new_unchecked(ptr, buf.dma_addr, len, buf.size) })
+        // SAFETY: by construction; ownership transferred from DmaBuf via into_parts
+        Ok(unsafe { DmaSlice::new_unchecked(ptr, parts.dma_addr, len, parts.size, alloc) })
     }
 
     /// Allocates a DMA-capable memory region for a slice of `T` with the specified length, initializing it to zero.
-    fn alloc_slice_zeroed<T: DmaSafe>(&self, len: usize) -> Result<DmaSlice<T>, DmaAllocError> {
+    fn alloc_slice_zeroed<'a, T: DmaSafe>(
+        &'a self,
+        len: usize,
+    ) -> Result<DmaSlice<'a, T>, DmaAllocError> {
         let mut slice = self.alloc_slice_uninit::<T>(len)?;
         // SAFETY: slice points to at least len * size_of::<T>() bytes, properly mapped for CPU access.
         unsafe {
@@ -161,45 +179,31 @@ pub trait DmaAllocatorExt: DmaAllocator {
         Ok(unsafe { slice.assume_init() })
     }
 
-    /// Frees a previously allocated DMA-capable memory region for a slice of `T`.
-    fn free_slice<T>(&self, slice: DmaSlice<T>) {
-        let buf = DmaBuf {
-            ptr: slice.ptr.cast::<u8>(),
-            dma_addr: slice.dma_addr,
-            size: slice.size,
-            align: mem::align_of::<T>(),
-        };
-        // SAFETY: by construction, slice was allocated by this allocator
-        unsafe {
-            self.free_raw(buf);
-        }
-    }
-
     /// Synchronizes a DMA object for device access.
     ///
     /// See [`sync_for_device`](DmaAllocator::sync_for_device) for details.
-    fn sync_object_for_device<T>(&self, obj: &DmaObject<T>, direction: DmaDirection) {
+    fn sync_object_for_device<T>(&self, obj: &DmaObject<'_, T>, direction: DmaDirection) {
         self.sync_for_device(obj.dma_addr(), obj.size(), direction);
     }
 
     /// Synchronizes a DMA object for CPU access.
     ///
     /// See [`sync_for_cpu`](DmaAllocator::sync_for_cpu) for details.
-    fn sync_object_for_cpu<T>(&self, obj: &DmaObject<T>, direction: DmaDirection) {
+    fn sync_object_for_cpu<T>(&self, obj: &DmaObject<'_, T>, direction: DmaDirection) {
         self.sync_for_cpu(obj.dma_addr(), obj.size(), direction);
     }
 
     /// Synchronizes a DMA slice for device access.
     ///
     /// See [`sync_for_device`](DmaAllocator::sync_for_device) for details.
-    fn sync_slice_for_device<T>(&self, slice: &DmaSlice<T>, direction: DmaDirection) {
+    fn sync_slice_for_device<T>(&self, slice: &DmaSlice<'_, T>, direction: DmaDirection) {
         self.sync_for_device(slice.dma_addr(), slice.size(), direction);
     }
 
     /// Synchronizes a DMA slice for CPU access.
     ///
     /// See [`sync_for_cpu`](DmaAllocator::sync_for_cpu) for details.
-    fn sync_slice_for_cpu<T>(&self, slice: &DmaSlice<T>, direction: DmaDirection) {
+    fn sync_slice_for_cpu<T>(&self, slice: &DmaSlice<'_, T>, direction: DmaDirection) {
         self.sync_for_cpu(slice.dma_addr(), slice.size(), direction);
     }
 }
@@ -220,33 +224,75 @@ pub unsafe trait DmaSafe: Copy {}
 unsafe impl<T: Copy> DmaSafe for T {}
 
 /// A DMA-capable buffer.
-#[derive(Debug)]
-pub struct DmaBuf {
+///
+/// Frees its backing memory via the stored allocator when dropped.
+pub struct DmaBuf<'a> {
     ptr: NonNull<u8>,
     dma_addr: DmaAddr,
     size: usize,
     align: usize,
+    alloc: &'a dyn DmaAllocator,
 }
 
-impl DmaBuf {
+impl<'a> DmaBuf<'a> {
     /// Creates a new `DmaBuf` from the given components.
+    ///
+    /// The buffer will be freed via `alloc` when dropped.
     ///
     /// # Safety
     ///
     /// `ptr` must point to a valid memory region of at least `size` bytes, and `dma_addr` must
-    /// correspond to the physical address of that memory region.
+    /// correspond to the physical address of that memory region. The region must have been
+    /// allocated by `alloc`.
     pub unsafe fn new_unchecked(
         ptr: NonNull<u8>,
         dma_addr: DmaAddr,
         size: usize,
         align: usize,
-    ) -> DmaBuf {
+        alloc: &'a dyn DmaAllocator,
+    ) -> DmaBuf<'a> {
         DmaBuf {
             ptr,
             dma_addr,
             size,
             align,
+            alloc,
         }
+    }
+
+    /// Rebuilds an owning buffer from raw parts.
+    ///
+    /// # Safety
+    ///
+    /// Same requirements as [`Self::new_unchecked`]. The caller transfers ownership of the
+    /// memory described by `parts` to the returned buffer.
+    pub unsafe fn from_parts(parts: DmaBufParts, alloc: &'a dyn DmaAllocator) -> DmaBuf<'a> {
+        // SAFETY: caller upholds the same contract as new_unchecked
+        unsafe { Self::new_unchecked(parts.ptr, parts.dma_addr, parts.size, parts.align, alloc) }
+    }
+
+    /// Disarms [`Drop`] and returns the buffer parts plus the allocator handle.
+    ///
+    /// The caller becomes responsible for freeing the memory (e.g. by rebuilding a
+    /// [`DmaBuf`] / [`DmaObject`] / [`DmaSlice`], or by calling [`DmaAllocator::free_raw`]).
+    pub fn into_parts(self) -> (DmaBufParts, &'a dyn DmaAllocator) {
+        let this = ManuallyDrop::new(self);
+        (
+            DmaBufParts {
+                ptr: this.ptr,
+                dma_addr: this.dma_addr,
+                size: this.size,
+                align: this.align,
+            },
+            this.alloc,
+        )
+    }
+
+    /// Disarms [`Drop`] and returns the buffer parts.
+    ///
+    /// The caller becomes responsible for the memory; the allocator handle is discarded.
+    pub fn into_raw(self) -> DmaBufParts {
+        self.into_parts().0
     }
 
     /// Returns a raw pointer to the buffer.
@@ -275,25 +321,52 @@ impl DmaBuf {
     }
 }
 
+impl<'a> Drop for DmaBuf<'a> {
+    fn drop(&mut self) {
+        let parts = DmaBufParts {
+            ptr: self.ptr,
+            dma_addr: self.dma_addr,
+            size: self.size,
+            align: self.align,
+        };
+        // SAFETY: by construction, this buffer was allocated by self.alloc
+        unsafe {
+            self.alloc.free_raw(parts);
+        }
+    }
+}
+
 /// An object allocated in DMA-capable memory.
-pub struct DmaObject<T> {
+///
+/// Frees its backing memory via the stored allocator when dropped.
+pub struct DmaObject<'a, T> {
     ptr: NonNull<T>,   // CPU accessible pointer
     dma_addr: DmaAddr, // Device-visible physical address
     size: usize,       // Length in bytes
+    alloc: &'a dyn DmaAllocator,
 }
 
-impl<T> DmaObject<T> {
+impl<'a, T> DmaObject<'a, T> {
     /// Creates a new `DmaObject` from the given components.
+    ///
+    /// The object will be freed via `alloc` when dropped.
     ///
     /// # Safety
     ///
     /// `ptr` must point to a valid memory region of at least `size` bytes, and `dma_addr` must
-    /// correspond to the physical address of that memory region.
-    pub unsafe fn new_unchecked(ptr: NonNull<T>, dma_addr: DmaAddr, size: usize) -> DmaObject<T> {
+    /// correspond to the physical address of that memory region. The region must have been
+    /// allocated by `alloc`.
+    pub unsafe fn new_unchecked(
+        ptr: NonNull<T>,
+        dma_addr: DmaAddr,
+        size: usize,
+        alloc: &'a dyn DmaAllocator,
+    ) -> DmaObject<'a, T> {
         DmaObject {
             ptr,
             dma_addr,
             size,
+            alloc,
         }
     }
 
@@ -318,61 +391,88 @@ impl<T> DmaObject<T> {
     }
 }
 
-impl<T> AsRef<T> for DmaObject<T> {
+impl<'a, T> Drop for DmaObject<'a, T> {
+    fn drop(&mut self) {
+        let parts = DmaBufParts {
+            ptr: self.ptr.cast::<u8>(),
+            dma_addr: self.dma_addr,
+            size: self.size,
+            align: mem::align_of::<T>(),
+        };
+        // SAFETY: by construction, this object was allocated by self.alloc
+        unsafe {
+            self.alloc.free_raw(parts);
+        }
+    }
+}
+
+impl<'a, T> AsRef<T> for DmaObject<'a, T> {
     fn as_ref(&self) -> &T {
         // SAFETY: by construction
         unsafe { self.ptr.as_ref() }
     }
 }
 
-impl<T> AsMut<T> for DmaObject<T> {
+impl<'a, T> AsMut<T> for DmaObject<'a, T> {
     fn as_mut(&mut self) -> &mut T {
         // SAFETY: by construction
         unsafe { self.ptr.as_mut() }
     }
 }
 
-impl<T: DmaSafe> DmaObject<MaybeUninit<T>> {
+impl<'a, T: DmaSafe> DmaObject<'a, MaybeUninit<T>> {
     /// Assumes the object has been initialized and returns a `DmaObject<T>`.
+    ///
+    /// Ownership of the backing memory is transferred; [`Drop`] is not run on `self`.
     ///
     /// # Safety
     ///
     /// The caller must ensure that the memory has been properly initialized.
-    pub unsafe fn assume_init(self) -> DmaObject<T> {
+    pub unsafe fn assume_init(self) -> DmaObject<'a, T> {
+        let this = ManuallyDrop::new(self);
         DmaObject {
-            ptr: self.ptr.cast::<T>(),
-            dma_addr: self.dma_addr,
-            size: self.size,
+            ptr: this.ptr.cast::<T>(),
+            dma_addr: this.dma_addr,
+            size: this.size,
+            alloc: this.alloc,
         }
     }
 }
 
 /// A contiguous slice of DMA-capable memory.
-pub struct DmaSlice<T> {
+///
+/// Frees its backing memory via the stored allocator when dropped.
+pub struct DmaSlice<'a, T> {
     ptr: NonNull<T>,
     dma_addr: DmaAddr,
     len: usize,  // Length in number of elements
     size: usize, // Length in bytes
+    alloc: &'a dyn DmaAllocator,
 }
 
-impl<T> DmaSlice<T> {
+impl<'a, T> DmaSlice<'a, T> {
     /// Creates a new `DmaSlice` from the given components.
+    ///
+    /// The slice will be freed via `alloc` when dropped.
     ///
     /// # Safety
     ///
     /// `ptr` must point to a valid memory region of at least `len * size_of::<T>()` bytes, and
-    /// `dma_addr` must correspond to the physical address of that memory region.
+    /// `dma_addr` must correspond to the physical address of that memory region. The region
+    /// must have been allocated by `alloc`.
     pub unsafe fn new_unchecked(
         ptr: NonNull<T>,
         dma_addr: DmaAddr,
         len: usize,
         size: usize,
-    ) -> DmaSlice<T> {
+        alloc: &'a dyn DmaAllocator,
+    ) -> DmaSlice<'a, T> {
         DmaSlice {
             ptr,
             dma_addr,
             len,
             size,
+            alloc,
         }
     }
 
@@ -419,18 +519,37 @@ impl<T> DmaSlice<T> {
     }
 }
 
-impl<T: DmaSafe> DmaSlice<MaybeUninit<T>> {
+impl<'a, T> Drop for DmaSlice<'a, T> {
+    fn drop(&mut self) {
+        let parts = DmaBufParts {
+            ptr: self.ptr.cast::<u8>(),
+            dma_addr: self.dma_addr,
+            size: self.size,
+            align: mem::align_of::<T>(),
+        };
+        // SAFETY: by construction, this slice was allocated by self.alloc
+        unsafe {
+            self.alloc.free_raw(parts);
+        }
+    }
+}
+
+impl<'a, T: DmaSafe> DmaSlice<'a, MaybeUninit<T>> {
     /// Assumes the slice has been initialized and returns a `DmaSlice<T>`.
+    ///
+    /// Ownership of the backing memory is transferred; [`Drop`] is not run on `self`.
     ///
     /// # Safety
     ///
     /// The caller must ensure that the memory has been properly initialized.
-    pub unsafe fn assume_init(self) -> DmaSlice<T> {
+    pub unsafe fn assume_init(self) -> DmaSlice<'a, T> {
+        let this = ManuallyDrop::new(self);
         DmaSlice {
-            ptr: self.ptr.cast::<T>(),
-            dma_addr: self.dma_addr,
-            len: self.len,
-            size: self.size,
+            ptr: this.ptr.cast::<T>(),
+            dma_addr: this.dma_addr,
+            len: this.len,
+            size: this.size,
+            alloc: this.alloc,
         }
     }
 }
@@ -440,6 +559,6 @@ pub(crate) struct DmaAllocatorToken(());
 
 /// Returns a reference to the architecture-specific DMA allocator.
 #[inline]
-pub fn allocator() -> &'static impl DmaAllocator {
+pub fn allocator() -> &'static dyn DmaAllocator {
     crate::arch::hal::mm::dma::allocator(DmaAllocatorToken(()))
 }

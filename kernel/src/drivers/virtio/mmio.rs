@@ -162,7 +162,10 @@ impl VirtioDev for VirtioMmioDev {
         old
     }
 
-    fn allocate_guest_mem<T: DmaSafe>(&self, val: T) -> Result<DmaObject<T>, DmaAllocError> {
+    fn allocate_guest_mem<T: DmaSafe>(
+        &self,
+        val: T,
+    ) -> Result<DmaObject<'static, T>, DmaAllocError> {
         dma::allocator().alloc::<T>(val)
     }
 

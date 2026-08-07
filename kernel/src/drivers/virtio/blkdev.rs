@@ -16,7 +16,7 @@ use crate::{
     irq::{self, IrqHandler, IrqReturn},
     mm::{
         addr::DmaAddr,
-        dma::{self, DmaAllocator, DmaAllocatorExt},
+        dma::{self, DmaAllocatorExt},
     },
     sync::{self, Completion, SpinLock},
 };
@@ -276,7 +276,6 @@ where
         alloc.sync_for_cpu(dma.dma_addr(), dma.size(), dma::DmaDirection::ToDevice);
 
         buf.copy_from_slice(dma.as_slice());
-        alloc.free_slice(dma);
 
         Ok(())
     }
@@ -293,8 +292,6 @@ where
         alloc.sync_for_device(dma.dma_addr(), dma.size(), dma::DmaDirection::FromDevice);
         self.transfer(VirtioBlkReqType::Out, start, dma.dma_addr(), dma.size());
         alloc.sync_for_cpu(dma.dma_addr(), dma.size(), dma::DmaDirection::FromDevice);
-
-        alloc.free_slice(dma);
 
         Ok(())
     }

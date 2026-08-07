@@ -112,11 +112,9 @@ impl QemuFwCfg {
 
     fn read<T: DmaSafe>(
         &self,
-        dma: &impl DmaAllocator,
+        dma: &dyn DmaAllocator,
         selector: Option<u16>,
     ) -> Result<T, DriverError<'static>> {
-        // TODO: there are several dma object leaks in this function due to early returns on error.
-
         let obj = dma.alloc_uninit::<T>()?;
 
         let access = dma.alloc(FwCfgDmaAccess::new(
@@ -148,16 +146,13 @@ impl QemuFwCfg {
             }
         }
 
-        dma.free(access);
+        drop(access);
 
         dma.sync_object_for_cpu(&obj, DmaDirection::FromDevice);
 
         // SAFETY: by construction, the DMA object is initialized by the device
         let obj = unsafe { obj.assume_init() };
-        let v = *obj.as_ref(); // copy the value out of the DMA object
-        dma.free(obj);
-
-        Ok(v)
+        Ok(*obj.as_ref())
     }
 }
 

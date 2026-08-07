@@ -6,14 +6,14 @@ pub mod dma {
     use crate::mm::dma::{DmaAllocator, DmaAllocatorToken};
 
     #[inline]
-    pub fn allocator(_: DmaAllocatorToken) -> &'static impl DmaAllocator {
+    pub fn allocator(_: DmaAllocatorToken) -> &'static dyn DmaAllocator {
         imp::allocator()
     }
 
     mod imp {
         #[cfg(target_arch = "riscv64")]
         #[inline]
-        pub fn allocator() -> &'static impl crate::mm::dma::DmaAllocator {
+        pub fn allocator() -> &'static dyn crate::mm::dma::DmaAllocator {
             crate::arch::riscv::mm::dma::allocator()
         }
     }

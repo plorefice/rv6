@@ -10,7 +10,7 @@ use crate::{
     mm::{
         self,
         addr::DmaAddr,
-        dma::{self, DmaAllocator},
+        dma::{self},
     },
 };
 
@@ -50,10 +50,14 @@ impl Virtq {
             .alloc_raw_zeroed(Layout::from_size_align(vq_total_sz, page).unwrap())
             .expect("dma allocation failed");
 
+        let phys = vq_mem.dma_addr();
+        // Disarm Drop: queue memory is retained for the lifetime of Virtq.
+        let parts = vq_mem.into_raw();
+
         // SAFETY: lots of pointer arithmetics down below, if my calculations are correct
         //         this should be safe
         unsafe {
-            let vq_ptr = vq_mem.as_ptr();
+            let vq_ptr = parts.ptr.as_ptr();
 
             let vq_avail_off = vq_desc_sz;
 
@@ -78,7 +82,7 @@ impl Virtq {
             Self {
                 idx,
                 size: size as u16,
-                phys: vq_mem.dma_addr(),
+                phys,
 
                 descr,
                 avail,
