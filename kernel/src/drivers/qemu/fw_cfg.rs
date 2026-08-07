@@ -7,15 +7,16 @@
 
 use core::{mem, num::NonZeroUsize};
 
+use alloc::sync::Arc;
 use bitflags::bitflags;
 use fdt::Node;
 
 use crate::{
     driver_info,
-    drivers::{Driver, DriverCtx, DriverError},
+    drivers::{Driver, DriverCtx, DriverError, qemu::ramfb},
     mm::{
         addr::{MemoryAddress, PhysAddr},
-        dma::{self, DmaAllocator, DmaAllocatorExt, DmaDirection, DmaSafe},
+        dma::{self, DmaAllocator, DmaAllocatorExt, DmaDirection, DmaObject, DmaSafe},
         mmio::{self, IoMapper, IoMapping},
     },
 };
@@ -42,26 +43,20 @@ impl Driver for QemuFwCfg {
 
         let regmap = mmio::mapper().iomap(pa_base, size)?;
 
-        let fw_cfg = Self { regmap };
+        let fw_cfg = Arc::new(Self { regmap });
 
-        if fw_cfg.signature() != *b"QEMU" {
+        if fw_cfg.signature()? != *b"QEMU" {
             return Err(DriverError::UnexpectedError("Invalid signature"));
         }
-        if fw_cfg.features() & 0x2 == 0 {
+        if fw_cfg.features()? & 0x2 == 0 {
             return Err(DriverError::UnexpectedError("DMA not supported"));
         }
 
         kprintln!("QEMU FW_CFG: configured");
 
-        let ramfb_file = fw_cfg
-            .find_file("etc/ramfb")
-            .ok_or(DriverError::DeviceNotFound)?;
-
-        kprintln!(
-            "QEMU FW_CFG: found ramfb file, selector = {}, size = {}",
-            ramfb_file.selector,
-            ramfb_file.size
-        );
+        if let Some(ramfb_file) = fw_cfg.find_file("etc/ramfb")? {
+            ramfb::probe(fw_cfg, ramfb_file)?;
+        }
 
         Ok(())
     }
@@ -74,24 +69,20 @@ impl QemuFwCfg {
     const FW_CFG_ID: u16 = 0x0001;
     const FW_CFG_FILE_DIR: u16 = 0x0019;
 
-    fn signature(&self) -> [u8; 4] {
+    fn signature(&self) -> Result<[u8; 4], DriverError<'static>> {
         self.read(dma::allocator(), Some(Self::FW_CFG_SIGNATURE))
-            .unwrap()
     }
 
-    fn features(&self) -> u32 {
-        self.read(dma::allocator(), Some(Self::FW_CFG_ID)).unwrap()
+    fn features(&self) -> Result<u32, DriverError<'static>> {
+        self.read(dma::allocator(), Some(Self::FW_CFG_ID))
     }
 
-    fn find_file(&self, name: &str) -> Option<FwCfgFile> {
+    fn find_file(&self, name: &str) -> Result<Option<FwCfgFile>, DriverError<'static>> {
         let dma = dma::allocator();
-        let count = self
-            .read::<u32>(dma, Some(Self::FW_CFG_FILE_DIR))
-            .unwrap()
-            .swap_bytes();
+        let count = u32::from_be(self.read(dma, Some(Self::FW_CFG_FILE_DIR))?);
 
         for _ in 0..count {
-            let mut file = self.read::<FwCfgFile>(dma, None).unwrap(); // read the next file entry
+            let mut file = self.read::<FwCfgFile>(dma, None)?; // read the next file entry
 
             let file_name = match core::str::from_utf8(&file.name) {
                 Ok(s) => s.trim_end_matches('\0'),
@@ -100,17 +91,18 @@ impl QemuFwCfg {
 
             if file_name == name {
                 // Fix endianness of the fields in the file entry
-                file.size = file.size.swap_bytes();
-                file.selector = file.selector.swap_bytes();
+                file.size = u32::from_be(file.size);
+                file.selector = u16::from_be(file.selector);
 
-                return Some(file);
+                return Ok(Some(file));
             }
         }
 
-        None
+        Ok(None)
     }
 
-    fn read<T: DmaSafe>(
+    /// Reads a value of type `T` at the specified selector from the fw_cfg device using DMA.
+    pub fn read<T: DmaSafe>(
         &self,
         dma: &dyn DmaAllocator,
         selector: Option<u16>,
@@ -132,10 +124,53 @@ impl QemuFwCfg {
         self.regmap
             .write(Self::DMA_ACCESS_REG, u64::from(access.dma_addr()).to_be());
 
-        loop {
-            dma.sync_object_for_cpu(&access, DmaDirection::ToDevice);
+        self.wait_for_dma_completion(dma, &access)?;
 
-            let ctrl_bits = access.as_ref().control.swap_bytes();
+        dma.sync_object_for_cpu(&obj, DmaDirection::FromDevice);
+
+        // SAFETY: by construction, the DMA object is initialized by the device
+        let obj = unsafe { obj.assume_init() };
+        Ok(*obj.as_ref())
+    }
+
+    /// Writes a value at the specified selector to the fw_cfg device using DMA.
+    pub fn write<T: DmaSafe>(
+        &self,
+        dma: &dyn DmaAllocator,
+        selector: Option<u16>,
+        val: T,
+    ) -> Result<(), DriverError<'static>> {
+        let obj = dma.alloc(val)?;
+
+        let access = dma.alloc(FwCfgDmaAccess::new(
+            selector
+                .map(FwCfgDmaAccessControl::select)
+                .unwrap_or(FwCfgDmaAccessControl::empty())
+                | FwCfgDmaAccessControl::WRITE,
+            mem::size_of::<T>() as u32,
+            obj.dma_addr().into(),
+        ))?;
+
+        dma.sync_object_for_device(&access, DmaDirection::ToDevice);
+        dma.sync_object_for_device(&obj, DmaDirection::ToDevice);
+
+        self.regmap
+            .write(Self::DMA_ACCESS_REG, u64::from(access.dma_addr()).to_be());
+
+        self.wait_for_dma_completion(dma, &access)?;
+
+        Ok(())
+    }
+
+    fn wait_for_dma_completion(
+        &self,
+        dma: &dyn DmaAllocator,
+        access: &DmaObject<'_, FwCfgDmaAccess>,
+    ) -> Result<(), DriverError<'static>> {
+        loop {
+            dma.sync_object_for_cpu(access, DmaDirection::ToDevice);
+
+            let ctrl_bits = u32::from_be(access.as_ref().control);
             let ctrl = FwCfgDmaAccessControl::from_bits_truncate(ctrl_bits);
 
             if ctrl.is_empty() {
@@ -146,13 +181,7 @@ impl QemuFwCfg {
             }
         }
 
-        drop(access);
-
-        dma.sync_object_for_cpu(&obj, DmaDirection::FromDevice);
-
-        // SAFETY: by construction, the DMA object is initialized by the device
-        let obj = unsafe { obj.assume_init() };
-        Ok(*obj.as_ref())
+        Ok(())
     }
 }
 
@@ -190,11 +219,15 @@ impl FwCfgDmaAccessControl {
     }
 }
 
+/// Represents a file entry in the QEMU fw_cfg file directory.
 #[derive(Debug, Clone, Copy)]
 #[repr(C)]
-struct FwCfgFile {
-    pub size: u32,     // BE - size of the file in bytes
-    pub selector: u16, // BE - selector to use for reading the file
-    pub reserved: u16,
-    pub name: [u8; 56], // NUL-terminated string
+pub struct FwCfgFile {
+    /// The size of the file in bytes.
+    pub size: u32,
+    /// The selector to use for reading the file
+    pub selector: u16,
+    reserved: u16,
+    /// The name of the file, as a NUL-terminated string.
+    pub name: [u8; 56],
 }

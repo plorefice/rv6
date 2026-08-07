@@ -21,7 +21,8 @@ QEMU_ARGS_BASE   := "-M virt -cpu rv64,sv39=on -m 256M -device ramfb -serial mon
 QEMU_ARGS_INITRD := "-initrd " + INITRD
 QEMU_ARGS_DISK   := "-device virtio-blk-device,serial=rv6-blk-dev,drive=hd0 " + \
                     "-drive file=" + HDDIMG + ",format=raw,id=hd0,if=none"
-QEMU_ARGS        := QEMU_ARGS_BASE + " " + QEMU_ARGS_INITRD + " " + QEMU_ARGS_DISK
+QEMU_ARGS_LOGS   := "-d guest_errors -D " + OUTDIR + "/qemu.log"
+QEMU_ARGS        := QEMU_ARGS_BASE + " " + QEMU_ARGS_INITRD + " " + QEMU_ARGS_DISK + " " + QEMU_ARGS_LOGS
 
 # Default target
 default: run
