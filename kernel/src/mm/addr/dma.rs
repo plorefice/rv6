@@ -128,3 +128,9 @@ impl Align<usize> for DmaAddr {
         (self.as_usize() & (align - 1)) == 0
     }
 }
+
+impl From<DmaAddr> for u64 {
+    fn from(addr: DmaAddr) -> Self {
+        addr.as_usize() as u64
+    }
+}

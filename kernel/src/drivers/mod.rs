@@ -5,9 +5,12 @@ use core::iter::{self, FromIterator};
 use alloc::collections::VecDeque;
 use fdt::{Fdt, FdtParseError, Node, StringList};
 
+use crate::mm::{dma::DmaAllocError, mmio::IoMapError};
+
 pub mod earlycon;
 pub mod irqchip;
 pub mod ns16550;
+pub mod qemu;
 pub mod syscon;
 pub mod virtio;
 
@@ -96,6 +99,7 @@ pub fn init<'d>(ctx: &DriverCtx, fdt: &'d Fdt<'d>) -> Result<(), DriverError<'d>
         &syscon::GenericSysconDriverInfo,
         &virtio::VirtioMmioDriverInfo,
         &ns16550::Ns16550DriverInfo,
+        &qemu::QemuFwCfgDriverInfo,
     ];
 
     let mut nodes = VecDeque::from_iter(iter::once(fdt.root_node()?));
@@ -134,10 +138,26 @@ pub enum DriverError<'d> {
     UnexpectedError(&'d str),
     /// The device could not be found during initialization.
     DeviceNotFound,
+    /// An error occurred while mapping I/O memory.
+    IoMapError(IoMapError),
+    /// An error occurred while allocating DMA memory.
+    DmaAllocError(DmaAllocError),
 }
 
 impl<'d> From<FdtParseError<'d>> for DriverError<'d> {
     fn from(value: FdtParseError<'d>) -> Self {
         Self::Fdt(value)
+    }
+}
+
+impl<'d> From<IoMapError> for DriverError<'d> {
+    fn from(value: IoMapError) -> Self {
+        Self::IoMapError(value)
+    }
+}
+
+impl<'d> From<DmaAllocError> for DriverError<'d> {
+    fn from(value: DmaAllocError) -> Self {
+        Self::DmaAllocError(value)
     }
 }
