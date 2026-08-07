@@ -206,6 +206,11 @@ pub struct DmaBuf<'a> {
     alloc: &'a dyn DmaAllocator,
 }
 
+// SAFETY: the memory `DmaBuf` points to is a permanent identity-mapped DMA allocation
+unsafe impl<'a> Send for DmaBuf<'a> {}
+// SAFETY: the memory `DmaBuf` points to is a permanent identity-mapped DMA allocation
+unsafe impl<'a> Sync for DmaBuf<'a> {}
+
 impl<'a> DmaBuf<'a> {
     /// Creates a new `DmaBuf` from the given components.
     ///
@@ -333,6 +338,11 @@ pub struct DmaObject<'a, T> {
     alloc: &'a dyn DmaAllocator,
 }
 
+// SAFETY: the memory `DmaObject` points to is a permanent identity-mapped DMA allocation
+unsafe impl<'a, T: Send> Send for DmaObject<'a, T> {}
+// SAFETY: the memory `DmaObject` points to is a permanent identity-mapped DMA allocation
+unsafe impl<'a, T: Sync> Sync for DmaObject<'a, T> {}
+
 impl<'a, T> DmaObject<'a, T> {
     /// Creates a new `DmaObject` from the given components.
     ///
@@ -451,6 +461,11 @@ pub struct DmaSlice<'a, T> {
     size: usize, // Length in bytes
     alloc: &'a dyn DmaAllocator,
 }
+
+// SAFETY: the memory `DmaSlice` points to is a permanent identity-mapped DMA allocation
+unsafe impl<'a, T: Send> Send for DmaSlice<'a, T> {}
+// SAFETY: the memory `DmaSlice` points to is a permanent identity-mapped DMA allocation
+unsafe impl<'a, T: Sync> Sync for DmaSlice<'a, T> {}
 
 impl<'a, T> DmaSlice<'a, T> {
     /// Creates a new `DmaSlice` from the given components.
